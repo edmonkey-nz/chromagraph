@@ -1,6 +1,6 @@
 node_modules/
 dist/
-projects/
+/projects/
 server-state.json
 *.tmp
 .vite/
