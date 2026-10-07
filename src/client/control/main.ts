@@ -5,6 +5,7 @@ import { PROJECT_NAME_RE, type Camera, type SyncDoc } from '../../shared/project
 import type { LogEntry, OutputStatus, ProjectProblem } from '../../shared/protocol.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
 import { SyncedState } from '../common/synced-state.ts';
+import { CalibrationPanel } from './calibration-panel.ts';
 import { DatasetsPanel } from './datasets-panel.ts';
 import { LayersPanel } from './layers-panel.ts';
 import { ModulationPanel } from './modulation-panel.ts';
@@ -182,6 +183,18 @@ function setPreview(on: boolean): void {
 el.previewToggle.addEventListener('change', () => setPreview(el.previewToggle.checked));
 setPreview(loadPreviewSetting());
 
+// ---- output calibration (phase 5) -------------------------------------------------------
+
+const calibrationPanel = new CalibrationPanel(
+  document.getElementById('calibration') as HTMLElement,
+  sendPatch,
+  (msg) => socket.send(msg),
+  (message) => {
+    lastError = message;
+    renderBanners();
+  },
+);
+
 // ---- state -------------------------------------------------------------------------
 
 const state = new SyncedState(
@@ -194,6 +207,7 @@ const state = new SyncedState(
     timelinePanel.update(doc);
     layersPanel.update(doc, external);
     modulationPanel.update(doc, external);
+    calibrationPanel.update(doc, external);
   },
   () => socket.send({ t: 'requestFull' }),
   (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
@@ -348,6 +362,9 @@ const socket = new ReconnectingSocket(wsUrl(), {
         problems = msg.problems;
         renderProjects();
         renderProblems();
+        return;
+      case 'profiles':
+        calibrationPanel.setProfiles(msg.names, msg.current);
         return;
       case 'outputStatus':
         if (msg.status) outputs.set(msg.clientId, msg.status);

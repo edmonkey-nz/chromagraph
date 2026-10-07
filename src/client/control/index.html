@@ -114,6 +114,57 @@
         padding: 8px;
       }
       /* Sections take what they need; the log fills the rest (at least 100 px, else the column scrolls). */
+      #calibration-details summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      #calibration-details summary h2 {
+        display: inline;
+      }
+      #calibration-details summary::before {
+        content: '▸ ';
+        color: var(--muted);
+      }
+      #calibration-details[open] summary::before {
+        content: '▾ ';
+      }
+      .calib-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 6px 0;
+      }
+      .calib-svg {
+        display: block;
+        width: 100%;
+        max-width: 640px;
+        background: #0c0d0f;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        touch-action: none;
+        outline: none;
+      }
+      .calib-svg:focus {
+        border-color: var(--accent);
+      }
+      .calib-window {
+        fill: none;
+        stroke: var(--muted);
+        stroke-width: 0.004;
+        stroke-dasharray: 0.015 0.01;
+      }
+      .calib-quad {
+        fill: rgba(110, 168, 254, 0.12);
+        stroke: var(--accent);
+        stroke-width: 0.004;
+      }
+      .calib-handle {
+        cursor: grab;
+      }
+      .calib-readout {
+        margin-top: 4px;
+      }
       #side {
         display: flex;
         flex-direction: column;
@@ -274,6 +325,12 @@
         <section id="outputs">
           <h2>Output windows</h2>
           <div id="outputs-body" class="muted">No output window connected.</div>
+        </section>
+        <section id="calibration-section">
+          <details id="calibration-details">
+            <summary><h2>Output calibration</h2></summary>
+            <div id="calibration"></div>
+          </details>
         </section>
         <section id="datasets-section">
           <h2>Datasets</h2>

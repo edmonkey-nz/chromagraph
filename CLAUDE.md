@@ -157,8 +157,8 @@ mappable to MIDI/OSC.
 
 ## Build phases
 
-Status: phases 1–3 are done (instancer layers, mappings, 3D camera, control preview).
-Phase 4 is next.
+Status: phases 1–5 are done (instancer layers, modulators, timeline and data playhead,
+keystone with output profiles). Phase 6 is next.
 
 1. Server, project folders, two windows, state sync, reconnect behaviour.
 2. Data layer with tests against the rainfall fixture.
@@ -251,6 +251,35 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
 - `/output/?preview` is the control window's embedded preview. It connects with role
   `preview`, renders at half resolution, and never reports status or logs, nor writes
   the output's state cache.
+
+**Parameters and modulation (phase 4).**
+- `shared/parameters.ts` is the registry. It lists every modulatable number with its id
+  (`layer.<layerId>.rows.1`, `camera.yaw`), slider range and hard valid range.
+  `project.parameters[id]` holds that number's modulator (`shared/modulators.ts`).
+- **Time.** Modulators are pure functions of wall-clock ms (`wallMs()`) and the timeline
+  phase, never of summed frame times. That keeps them frame-rate independent, lets the
+  output, the preview and the control window agree, and avoids drift over hours.
+- **Transport.** `session.transport` drives the timeline. The server persists it in
+  `server-state.json`, so a restart keeps the playhead where it was.
+- **Output.** `ModulationEngine` (`client/output/modulation.ts`) builds its setters on
+  deep-copied scratch configs whenever the project changes. Each frame it only writes
+  numbers and calls `LayerManager.applyEffective`. When modulators are removed,
+  `applyDoc` calls `reapplyBase()`.
+- **Control.** `timeline-panel.ts` and `modulation-panel.ts`, with pure helpers in
+  `shared/modulation-helpers.ts`. The "data playhead" is ramp modulators on a layer's
+  `rows.0` and `rows.1`.
+
+**Output profiles and keystone (phase 5).**
+- The active profile (`shared/output-profile.ts`) is the third root of `SyncDoc`
+  (`profile.*`). `ProfileStore` (`server/profiles.ts`) saves it to
+  `output-profiles/<name>.json`. Only `default.json` is tracked in git.
+- `Stage.setWarp` draws the 1080p target through an exact inverse homography
+  (`shared/homography.ts`) in the warp fragment shader. Folded quads are rejected both
+  in the control window and on the server.
+- The preview is never warped.
+- `client/control/calibration-panel.ts` is an SVG corner editor: drag the handles, or
+  use the arrow keys (shift for 10 px). Like the other panels, it ignores echoes of its
+  own patches.
 
 **Offline boot (production only).**
 - A service worker (`src/server/static/output-sw.js`, served at `/output/sw.js`) lets the
