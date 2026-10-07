@@ -1,0 +1,41 @@
+{
+  "name": "data-wrangler",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "tsx watch --clear-screen=false --ignore 'projects/**' --ignore 'src/client/**' src/server/index.ts",
+    "build": "vite build && tsc --noEmit",
+    "start": "NODE_ENV=production tsx src/server/index.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "@fastify/middie": "^9.3.4",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.3",
+    "d3-array": "^3.2.4",
+    "d3-scale": "^4.0.2",
+    "d3-time": "^3.1.0",
+    "fastify": "^5.12.5",
+    "papaparse": "^5.7.0",
+    "three": "^0.186.1",
+    "tweakpane": "^4.0.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tweakpane/core": "^2.0.5",
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-time": "^3.0.4",
+    "@types/node": "^26.6.4",
+    "@types/papaparse": "^5.5.2",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}

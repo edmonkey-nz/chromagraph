@@ -1,0 +1,7 @@
+node_modules/
+dist/
+projects/
+server-state.json
+*.tmp
+.vite/
+*.log
