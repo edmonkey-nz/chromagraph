@@ -113,8 +113,10 @@ export function identityTransform(): LayerTransform {
  *   scale     added to 1 per axis (clone k scale = 1 + k * scale, never below 0)
  *   orbit     degrees the clone's position turns about the layer pivot (radial arrays, spirals)
  *   fade      opacity multiplier per clone (clone k opacity x fade^k)
- *   dataStep  rows stepped per clone: clone k shows row i + k * dataStep (trails/echoes
- *             through the data); clones that step past the data are not drawn
+ *   dataStep  rows stepped per clone: clone k keeps row i's arranged position but takes its
+ *             mapped values (y, z, height, size, rotation, opacity, colour) from row
+ *             i + k * dataStep, so offset clones become a waterfall/ridgeline of later (or
+ *             earlier) data; clones that step past the data are not drawn
  * Instances drawn = visible rows x count, so count multiplies the GPU cost.
  */
 export const ClonerSchema = z.object({
