@@ -113,13 +113,39 @@
         overflow: auto;
         padding: 8px;
       }
+      /* Sections take what they need; the log fills the rest (at least 100 px, else the column scrolls). */
       #side {
-        display: grid;
-        grid-template-rows: auto auto auto 1fr;
+        display: flex;
+        flex-direction: column;
         min-height: 0;
+        overflow: auto;
+      }
+      #side > section {
+        flex: none;
+      }
+      #side > #log {
+        flex: 1 0 100px;
+      }
+      #preview-section[hidden] {
+        display: none;
+      }
+      /* 16:9, as wide as the column but never taller than ~36% of the window. */
+      #preview-box {
+        aspect-ratio: 16 / 9;
+        width: 100%;
+        max-width: calc(36vh * 16 / 9);
+        background: #000;
+        border: 1px solid var(--line);
+      }
+      #preview-box iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        pointer-events: none;
       }
       #datasets-section {
-        max-height: 55vh;
+        max-height: 34vh;
         overflow: auto;
       }
       .ds-toolbar {
@@ -232,6 +258,9 @@
       <input id="project-new" placeholder="new project name" size="16" />
       <button id="project-create">Create</button>
       <span class="spacer"></span>
+      <label title="Show a live preview of the output (hiding it frees the GPU it uses)"
+        ><input type="checkbox" id="preview-toggle" checked /> preview</label
+      >
       <span id="conn" class="pill">server</span>
       <span id="out-pill" class="pill">output</span>
     </header>
@@ -239,6 +268,9 @@
     <main>
       <div id="pane"></div>
       <div id="side">
+        <section id="preview-section">
+          <div id="preview-box"></div>
+        </section>
         <section id="outputs">
           <h2>Output windows</h2>
           <div id="outputs-body" class="muted">No output window connected.</div>

@@ -2,12 +2,15 @@ import type { Column } from '../../data/columns.ts';
 import { dataUrl, DatasetLoader, type LoadedFile } from '../../data/dataset-loader.ts';
 import type { Cadence } from '../../data/gaps.ts';
 import type { PatchOp } from '../../shared/patch.ts';
+import { summarise, type DatasetSummary } from '../../shared/layer-defaults.ts';
 import type { Dataset } from '../../shared/project-schema.ts';
 
 interface Report {
   file: string;
   status: 'loading' | 'ok' | 'error';
   loaded?: LoadedFile;
+  /** Built once when the parse finishes; its identity changes only when the file is reloaded. */
+  summary?: DatasetSummary;
   error?: string;
 }
 
@@ -100,6 +103,9 @@ export class DatasetsPanel {
   private projectName = '';
   private zones = timeZones();
 
+  /** Called whenever a dataset report finishes loading (or fails), after the panel re-renders. */
+  onChange: (() => void) | null = null;
+
   constructor(
     private root: HTMLElement,
     private fileInput: HTMLInputElement,
@@ -107,6 +113,11 @@ export class DatasetsPanel {
     private showError: (message: string) => void,
   ) {
     fileInput.addEventListener('change', () => void this.upload());
+  }
+
+  /** Column summary of a parsed dataset, or null while it is loading, failed or unknown. */
+  summary(datasetId: string): DatasetSummary | null {
+    return this.reports.get(datasetId)?.summary ?? null;
   }
 
   update(projectName: string, datasets: readonly Dataset[]): void {
@@ -135,13 +146,22 @@ export class DatasetsPanel {
         if (this.reports.get(d.id) !== report) return;
         report.status = 'ok';
         report.loaded = loaded;
+        report.summary = summarise(loaded.result.table, loaded.cadences);
       })
       .catch((err: unknown) => {
         if (this.reports.get(d.id) !== report) return;
         report.status = 'error';
         report.error = err instanceof Error ? err.message : String(err);
       })
-      .finally(() => this.render());
+      .finally(() => {
+        if (this.reports.get(d.id) !== report) return;
+        this.render();
+        try {
+          this.onChange?.();
+        } catch (err) {
+          console.error('datasets onChange handler failed', err);
+        }
+      });
   }
 
   private async upload(): Promise<void> {
