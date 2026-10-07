@@ -1,10 +1,11 @@
 import { Pane } from 'tweakpane';
 import type { PatchOp } from '../../shared/patch.ts';
-import { PROJECT_NAME_RE, type SyncDoc } from '../../shared/project-schema.ts';
+import { PROJECT_NAME_RE, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
 import type { LogEntry, OutputStatus, ProjectProblem } from '../../shared/protocol.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
 import { SyncedState } from '../common/synced-state.ts';
 import { DatasetsPanel } from './datasets-panel.ts';
+import { LayersPanel } from './layers-panel.ts';
 
 const MAX_LOG_LINES = 500;
 
@@ -25,6 +26,9 @@ const el = {
   datasets: $('datasets'),
   importButton: $<HTMLButtonElement>('import-button'),
   importFile: $<HTMLInputElement>('import-file'),
+  previewToggle: $<HTMLInputElement>('preview-toggle'),
+  previewSection: $('preview-section'),
+  previewBox: $('preview-box'),
 };
 
 const outputs = new Map<string, OutputStatus>();
@@ -35,7 +39,12 @@ let lastError: string | null = null;
 // GUI values live in `params` and are only ever sent to the server as patches. The
 // renderer never reads them.
 
-const params = { background: '#000000', testPattern: false, debugOverlay: false };
+const params = {
+  background: '#000000',
+  testPattern: false,
+  debugOverlay: false,
+  camera: { mode: '2d' as Camera['mode'], fov: 45, yaw: 0, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 } },
+};
 const pane = new Pane({ container: el.pane, title: 'Controls' });
 
 const outputFolder = pane.addFolder({ title: 'Output' });
@@ -51,6 +60,20 @@ diagFolder
   .addBinding(params, 'debugOverlay', { label: 'debug overlay' })
   .on('change', (ev) => sendPatch([{ op: 'set', path: ['session', 'debugOverlay'], value: ev.value }]));
 
+const cameraFolder = pane.addFolder({ title: 'Camera', expanded: false });
+const cam = params.camera;
+const setCamera = (field: keyof Camera, value: unknown) => sendPatch([{ op: 'set', path: ['project', 'camera', field], value }]);
+cameraFolder
+  .addBinding(cam, 'mode', { options: [{ text: '2D', value: '2d' }, { text: '3D', value: '3d' }] })
+  .on('change', (ev) => setCamera('mode', ev.value));
+cameraFolder.addBinding(cam, 'fov', { label: 'fov', min: 5, max: 120, step: 1 }).on('change', (ev) => setCamera('fov', ev.value));
+cameraFolder.addBinding(cam, 'yaw', { min: -180, max: 180, step: 0.5 }).on('change', (ev) => setCamera('yaw', ev.value));
+cameraFolder.addBinding(cam, 'pitch', { min: -89, max: 89, step: 0.5 }).on('change', (ev) => setCamera('pitch', ev.value));
+cameraFolder.addBinding(cam, 'distance', { min: 0.2, max: 5, step: 0.01 }).on('change', (ev) => setCamera('distance', ev.value));
+cameraFolder
+  .addBinding(cam, 'target', { label: 'target' })
+  .on('change', (ev) => setCamera('target', [ev.value.x, ev.value.y, ev.value.z]));
+
 /** Set while copying server state into the GUI, so the resulting change events don't echo back. */
 let syncingGui = false;
 
@@ -63,6 +86,9 @@ function syncGui(doc: SyncDoc): void {
   params.background = doc.project.output.background;
   params.testPattern = doc.session.testPattern;
   params.debugOverlay = doc.session.debugOverlay;
+  const c = doc.project.camera;
+  Object.assign(cam, { mode: c.mode, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
+  cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
   syncingGui = true;
   try {
     pane.refresh();
@@ -79,14 +105,67 @@ const datasetsPanel = new DatasetsPanel(el.datasets, el.importFile, sendPatch, (
 });
 el.importButton.addEventListener('click', () => el.importFile.click());
 
+// ---- layers ------------------------------------------------------------------------
+
+const layersPanel = new LayersPanel(pane, {
+  sendPatch,
+  getDoc: () => state.doc,
+  summary: (id) => datasetsPanel.summary(id),
+  showError: (message) => {
+    lastError = message;
+    renderBanners();
+  },
+});
+datasetsPanel.onChange = () => layersPanel.refreshSummaries();
+
+// ---- live preview ------------------------------------------------------------------
+// A small output window embedded in the side column. Hiding it removes the iframe, so it
+// stops rendering and frees its GPU context.
+
+const PREVIEW_KEY = 'data-wrangler.control.preview';
+
+function loadPreviewSetting(): boolean {
+  try {
+    return localStorage.getItem(PREVIEW_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function setPreview(on: boolean): void {
+  el.previewToggle.checked = on;
+  el.previewSection.hidden = !on;
+  const existing = el.previewBox.querySelector('iframe');
+  if (on && !existing) {
+    const frame = document.createElement('iframe');
+    frame.src = '/output/?preview';
+    frame.title = 'Output preview';
+    frame.tabIndex = -1;
+    el.previewBox.append(frame);
+  } else if (!on && existing) {
+    existing.src = 'about:blank';
+    existing.remove();
+  }
+  try {
+    localStorage.setItem(PREVIEW_KEY, on ? 'on' : 'off');
+  } catch {
+    // Storage unavailable (private window, blocked site data): the setting just isn't kept.
+  }
+}
+
+el.previewToggle.addEventListener('change', () => setPreview(el.previewToggle.checked));
+setPreview(loadPreviewSetting());
+
 // ---- state -------------------------------------------------------------------------
 
 const state = new SyncedState(
   (doc, _prev, info) => {
     // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the user.
-    if (info.full || info.origin !== clientId) syncGui(doc);
+    const external = info.full || info.origin !== clientId;
+    if (external) syncGui(doc);
     renderProjects();
     datasetsPanel.update(state.projectName, doc.project.datasets);
+    layersPanel.update(doc, external);
   },
   () => socket.send({ t: 'requestFull' }),
   (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
