@@ -503,8 +503,18 @@ export class LayersPanel {
   private buildLook(entry: Entry, layer: InstancerLayer): void {
     const id = layer.id;
     const f = this.folderIn(entry, entry.folder, 'Look', `${id}/Look`, false);
-    const m = { size: vec3Obj(layer.size), colour: layer.colour, opacity: layer.opacity, blend: layer.blend };
+    const m = {
+      size: vec3Obj(layer.size),
+      heightAxis: layer.heightAxis,
+      colour: layer.colour,
+      opacity: layer.opacity,
+      blend: layer.blend,
+    };
     f.addBinding(m, 'size', { format: fmt }).on('change', (ev) => this.set(id, ['size'], [ev.value.x, ev.value.y, ev.value.z]));
+    f.addBinding(m, 'heightAxis', {
+      label: 'height along',
+      options: { 'y (up the frame)': 'y', 'z (out of the frame)': 'z' },
+    }).on('change', (ev) => this.set(id, ['heightAxis'], ev.value));
     f.addBinding(m, 'colour').on('change', (ev) => this.set(id, ['colour'], ev.value));
     f.addBinding(m, 'opacity', { min: 0, max: 1, step: 0.01 }).on('change', (ev) => this.set(id, ['opacity'], ev.value));
     f.addBinding(m, 'blend', { options: options(BLEND_MODES) }).on('change', (ev) => this.set(id, ['blend'], ev.value));

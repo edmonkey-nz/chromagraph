@@ -157,8 +157,8 @@ mappable to MIDI/OSC.
 
 ## Build phases
 
-Status: phases 1 and 2 are done. Nothing draws data yet; the output shows only the
-background and the optional test pattern. Phase 3 is next.
+Status: phases 1–3 are done (instancer layers, mappings, 3D camera, control preview).
+Phase 4 is next.
 
 1. Server, project folders, two windows, state sync, reconnect behaviour.
 2. Data layer with tests against the rainfall fixture.
@@ -230,7 +230,27 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   `LayerHost` (`client/output/layers/layer.ts`). `LayerHost` fences build, update and
   dispose, and compiles every new layer's shaders immediately via `Stage.verify`, so a
   shader error fails the layer instead of the frame.
-- `client/output/layers/test-pattern.ts` is the reference implementation of a layer.
+- `client/output/layers/test-pattern.ts` is the simplest example of a layer.
+
+**Instancer layers (phase 3).**
+- The config contract is `shared/layer-schema.ts`. Its comments define the units and the
+  arrangement maths: what "t" means, and the y-up pixel space.
+- `LayerManager` (`client/output/layer-manager.ts`) compares each layer's `structureKey` (from
+  `data/instance-data.ts`) plus the dataset version. A change there rebuilds the layer;
+  any other change only updates uniforms through `InstancerInstance.apply`.
+- `buildInstanceData` (pure, tested) turns columns into float32 instance arrays. Missing
+  values become the `MISSING` sentinel, and the shader hides those instances.
+- `normalise()` in the same file is the tested twin of the GLSL scale maths in
+  `client/output/layers/instancer.ts`. Change both together.
+- Calendar fields (year, day of year in the dataset's timezone) are computed in the parse
+  worker. The output's `DatasetStore` reloads a dataset when its timezone changes.
+- On the control side, `shared/layer-defaults.ts` (`defaultLayerFor`, `fitLayer`) chooses
+  the starting layout. `client/control/layers-panel.ts` is the Tweakpane UI: it sends
+  minimal patches, finds a layer's index by id at send time, and checks every value
+  against the schema before sending it.
+- `/output/?preview` is the control window's embedded preview. It connects with role
+  `preview`, renders at half resolution, and never reports status or logs, nor writes
+  the output's state cache.
 
 **Offline boot (production only).**
 - A service worker (`src/server/static/output-sw.js`, served at `/output/sw.js`) lets the
