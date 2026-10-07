@@ -127,6 +127,11 @@ export const InstancerLayerSchema = z.object({
 
   /** Base primitive size in px: width, height, depth. */
   size: vec3,
+  /**
+   * Which axis the primitive's height (size[1] or the height channel) runs along: 'y' (up the
+   * frame) or 'z' (out of the frame, for 3D bars standing on a grid or calendar).
+   */
+  heightAxis: z.enum(['y', 'z']).default('y'),
   colour: hexColour,
   opacity: z.number().min(0).max(1),
   blend: z.enum(BLEND_MODES),
@@ -185,6 +190,7 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     angleStep: 1,
     radiusStep: 0.01,
     size: [3, 3, 3],
+    heightAxis: 'y',
     colour: '#e8e8e8',
     opacity: 1,
     blend: 'normal',

@@ -7,7 +7,8 @@ import type { Project, Session } from './project-schema.ts';
  * guards below before use; anything unrecognised is ignored and logged.
  */
 
-export type Role = 'control' | 'output';
+/** `preview` is the control window's embedded output: it receives state but reports nothing. */
+export type Role = 'control' | 'output' | 'preview';
 
 export const HEARTBEAT_INTERVAL_MS = 5_000;
 export const HEARTBEAT_TIMEOUT_MS = 15_000;
@@ -105,7 +106,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   if (!obj(m) || !str(m.t)) return null;
   switch (m.t) {
     case 'hello':
-      if ((m.role === 'control' || m.role === 'output') && str(m.clientId)) {
+      if ((m.role === 'control' || m.role === 'output' || m.role === 'preview') && str(m.clientId)) {
         return {
           t: 'hello',
           role: m.role,

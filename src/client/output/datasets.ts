@@ -1,18 +1,34 @@
+import type { CalendarFields } from '../../data/calendar.ts';
 import type { Table } from '../../data/columns.ts';
 import { dataUrl, DatasetLoader } from '../../data/dataset-loader.ts';
+import type { Cadence } from '../../data/gaps.ts';
 import type { Dataset } from '../../shared/project-schema.ts';
+
+export interface LoadedDataset {
+  table: Table;
+  cadences: Record<string, Cadence>;
+  /** Calendar fields per time column, in `timeZone`. */
+  calendars: Record<string, CalendarFields>;
+  timeZone: string;
+  /** Bumped every time a new copy is swapped in, so layers know to rebuild. */
+  version: number;
+}
 
 interface Entry {
   file: string;
-  table: Table | null;
+  timeZone: string;
+  loaded: LoadedDataset | null;
   error: string | null;
   /** Bumped per load request so a stale response can be ignored. */
   token: number;
 }
 
+let versionCounter = 0;
+
 /**
- * The output's parsed datasets, keyed by dataset id. Parsing happens in the worker; this
- * class only swaps finished tables in. A failed (re)load keeps the last good table.
+ * The output's parsed datasets, keyed by dataset id. Parsing (and calendar derivation in
+ * the dataset's timezone) happens in the worker; this class only swaps finished results in.
+ * A failed (re)load keeps the last good copy.
  */
 export class DatasetStore {
   private loader = new DatasetLoader();
@@ -22,7 +38,7 @@ export class DatasetStore {
 
   constructor(
     private log: (level: 'info' | 'warn' | 'error', message: string) => void,
-    private onLoaded: (id: string, table: Table, url: string) => void = () => {},
+    private onLoaded: (id: string, url: string) => void = () => {},
   ) {}
 
   get currentProject(): string {
@@ -33,8 +49,8 @@ export class DatasetStore {
     return this._errors;
   }
 
-  get(id: string): Table | null {
-    return this.entries.get(id)?.table ?? null;
+  get(id: string): LoadedDataset | null {
+    return this.entries.get(id)?.loaded ?? null;
   }
 
   /** Reconcile with the project's dataset list. Cheap when nothing changed. */
@@ -47,25 +63,32 @@ export class DatasetStore {
     for (const id of [...this.entries.keys()]) if (!wanted.has(id)) this.entries.delete(id);
     for (const d of datasets) {
       const e = this.entries.get(d.id);
-      if (!e || e.file !== d.file) this.load(d.id, d.file);
+      if (!e || e.file !== d.file || e.timeZone !== d.timeZone) this.load(d.id, d.file, d.timeZone);
     }
     this.refreshErrors();
   }
 
-  /** Re-fetch every dataset (e.g. after the server comes back). Keeps tables meanwhile. */
+  /** Retry failed datasets (e.g. after the server comes back). */
   reloadFailed(): void {
-    for (const [id, e] of this.entries) if (e.error) this.load(id, e.file);
+    for (const [id, e] of this.entries) if (e.error) this.load(id, e.file, e.timeZone);
   }
 
-  private load(id: string, file: string): void {
+  private load(id: string, file: string, timeZone: string): void {
     const prev = this.entries.get(id);
-    const entry: Entry = { file, table: prev?.file === file ? prev.table : null, error: null, token: (prev?.token ?? 0) + 1 };
+    const entry: Entry = {
+      file,
+      timeZone,
+      // Keep showing the previous copy of the same file while the new one loads.
+      loaded: prev?.file === file ? prev.loaded : null,
+      error: null,
+      token: (prev?.token ?? 0) + 1,
+    };
     this.entries.set(id, entry);
     const token = entry.token;
     const project = this.projectName;
     const url = dataUrl(project, file);
     this.loader
-      .load(url, file)
+      .load(url, file, timeZone)
       .then((loaded) => {
         const current = this.entries.get(id);
         if (!current || current.token !== token || this.projectName !== project) return;
@@ -74,7 +97,13 @@ export class DatasetStore {
           current.error = fatal?.message ?? 'no columns';
           this.log('error', `dataset ${id} (${file}): ${current.error}`);
         } else {
-          current.table = loaded.result.table;
+          current.loaded = {
+            table: loaded.result.table,
+            cadences: loaded.cadences,
+            calendars: loaded.calendars,
+            timeZone,
+            version: ++versionCounter,
+          };
           current.error = null;
           this.log(
             'info',
@@ -82,7 +111,7 @@ export class DatasetStore {
               `${loaded.result.table.columns.length} columns, parsed in ${loaded.parseMs.toFixed(0)} ms`,
           );
           try {
-            this.onLoaded(id, loaded.result.table, url);
+            this.onLoaded(id, url);
           } catch (err) {
             this.log('error', `dataset ${id}: consumer failed: ${String(err)}`);
           }
@@ -93,7 +122,7 @@ export class DatasetStore {
         const current = this.entries.get(id);
         if (!current || current.token !== token) return;
         current.error = err instanceof Error ? err.message : String(err);
-        this.log('error', `dataset ${id} (${file}) failed to load${current.table ? '; keeping the previous copy' : ''}: ${current.error}`);
+        this.log('error', `dataset ${id} (${file}) failed to load${current.loaded ? '; keeping the previous copy' : ''}: ${current.error}`);
         this.refreshErrors();
       });
   }

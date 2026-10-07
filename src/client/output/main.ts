@@ -4,7 +4,9 @@ import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '.
 import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { DatasetStore } from './datasets.ts';
+import { LayerManager } from './layer-manager.ts';
 import { LayerHost, type FrameContext } from './layers/layer.ts';
+import { invalidateRampTextures } from './layers/ramps.ts';
 import { createTestPattern } from './layers/test-pattern.ts';
 import { isPreferredGpu, OUTPUT_HEIGHT, OUTPUT_WIDTH, Stage } from './stage.ts';
 import { readCache, writeCache } from './state-cache.ts';
@@ -13,18 +15,25 @@ import { readCache, writeCache } from './state-cache.ts';
  * Output window. Rules: never fail dark, never block the loop, never show UI.
  * Everything that can fail is fenced and reported to the server; the last good frame
  * state keeps rendering whatever happens.
+ *
+ * With ?preview this page is the control window's embedded preview: it renders at half
+ * resolution and stays silent (no status, no logs, no state cache, no service worker), so
+ * it never masquerades as the real output.
  */
+
+const preview = new URLSearchParams(location.search).has('preview');
 
 const TEST_PATTERN_ID = '__test-pattern';
 const STATUS_INTERVAL_MS = 2_000;
 const REPORT_REPEAT_MS = 10_000;
 
-const clientId = makeClientId('output');
+const clientId = makeClientId(preview ? 'preview' : 'output');
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const debugEl = document.getElementById('debug') as HTMLDivElement;
 
 let stage: Stage | null = null;
 let layers: LayerHost | null = null;
+let layerManager: LayerManager | null = null;
 let socket: ReconnectingSocket | null = null;
 let connection: ConnectionState = 'closed';
 
@@ -42,6 +51,7 @@ function report(level: LogLevel, message: string): void {
     if (level === 'error') console.error(message);
     else if (level === 'warn') console.warn(message);
     else console.info(message);
+    if (preview) return;
     if (!socket?.send({ t: 'log', level, message })) {
       pendingLogs.push({ level, message });
       if (pendingLogs.length > 50) pendingLogs.shift();
@@ -58,7 +68,10 @@ window.addEventListener('unhandledrejection', (ev) => report('error', `unhandled
 
 const datasets = new DatasetStore(
   (level, message) => report(level, message),
-  (_id, _table, url) => precache([url]),
+  (_id, url) => {
+    precache([url]);
+    if (state.doc) syncLayers(state.doc);
+  },
 );
 
 // ---- state -----------------------------------------------------------------------
@@ -70,7 +83,7 @@ const state = new SyncedState(
     } catch (err) {
       report('error', `applying state failed: ${String(err)}`);
     }
-    writeCache(state.projectName, state.rev, doc);
+    if (!preview) writeCache(state.projectName, state.rev, doc);
   },
   () => socket?.send({ t: 'requestFull' }),
   (message) => report('warn', message),
@@ -78,7 +91,7 @@ const state = new SyncedState(
 
 /** Reconcile the scene with the state. Only touches what changed, so a resync is seamless. */
 function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
-  debugEl.hidden = !doc.session.debugOverlay;
+  debugEl.hidden = preview || !doc.session.debugOverlay;
   if (!prev || doc.project.datasets !== prev.project.datasets || state.projectName !== datasets.currentProject) {
     datasets.sync(state.projectName, doc.project.datasets);
   }
@@ -86,10 +99,20 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
   if (!prev || doc.project.output.background !== prev.project.output.background) {
     stage.setBackground(doc.project.output.background);
   }
+  if (!prev || doc.project.camera !== prev.project.camera) stage.setCamera(doc.project.camera);
+  syncLayers(doc);
   if (doc.session.testPattern) {
     if (!layers.get(TEST_PATTERN_ID)) layers.set(TEST_PATTERN_ID, () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT));
   } else {
     layers.remove(TEST_PATTERN_ID);
+  }
+}
+
+function syncLayers(doc: SyncDoc): void {
+  try {
+    layerManager?.sync(doc);
+  } catch (err) {
+    report('error', `layer sync failed: ${String(err)}`);
   }
 }
 
@@ -102,15 +125,22 @@ if (cached && state.seed(cached.projectName, cached.rev, cached.doc)) {
 
 function createStage(): void {
   try {
-    stage = new Stage(canvas, {
-      lost: () => report('error', 'WebGL context lost; waiting for restore'),
-      restored: () => {
-        report('warn', 'WebGL context restored; rebuilding layers');
-        layers?.rebuildAll((id) => (id === TEST_PATTERN_ID ? () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT) : null));
-        if (state.doc) applyDoc(state.doc, null);
+    stage = new Stage(
+      canvas,
+      {
+        lost: () => report('error', 'WebGL context lost; waiting for restore'),
+        restored: () => {
+          report('warn', 'WebGL context restored; rebuilding layers');
+          invalidateRampTextures();
+          layerManager?.reset();
+          layers?.rebuildAll((id) => (id === TEST_PATTERN_ID ? () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT) : null));
+          if (state.doc) applyDoc(state.doc, null);
+        },
       },
-    });
+      preview ? 0.5 : 1,
+    );
     layers = new LayerHost(stage.scene, (id, message) => report('error', `layer ${id}: ${message}`), stage.verify);
+    layerManager = new LayerManager(layers, datasets);
     report(isPreferredGpu(stage.rendererName) ? 'info' : 'warn', `renderer: ${stage.rendererName}`);
     if (state.doc) applyDoc(state.doc, null);
   } catch (err) {
@@ -124,7 +154,7 @@ function createStage(): void {
 createStage();
 window.addEventListener('resize', () => stage?.resize());
 window.addEventListener('keydown', (ev) => {
-  if (ev.key === 'f' && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
+  if (!preview && ev.key === 'f' && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
 });
 
 // ---- render loop (one clock, no per-frame allocation) ------------------------------
@@ -181,6 +211,7 @@ function status(): OutputStatus {
 }
 
 window.setInterval(() => {
+  if (preview) return;
   try {
     socket?.send({ t: 'status', status: status() });
   } catch {
@@ -207,7 +238,7 @@ function precache(urls: string[]): void {
   void navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage({ t: 'precache', urls })).catch(() => {});
 }
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !preview) {
   if (import.meta.env.PROD) {
     navigator.serviceWorker
       .register('/output/sw.js', { scope: '/output/' })
@@ -231,7 +262,7 @@ if ('serviceWorker' in navigator) {
 socket = new ReconnectingSocket(wsUrl(), {
   hello: () => ({
     t: 'hello',
-    role: 'output',
+    role: preview ? 'preview' : 'output',
     clientId,
     ...(state.rev >= 0 ? { rev: state.rev, projectName: state.projectName } : {}),
   }),
@@ -245,7 +276,7 @@ socket = new ReconnectingSocket(wsUrl(), {
         const entry = pendingLogs.shift()!;
         socket?.send({ t: 'log', ...entry });
       }
-      socket?.send({ t: 'status', status: status() });
+      if (!preview) socket?.send({ t: 'status', status: status() });
       datasets.reloadFailed();
     }
   },

@@ -66,6 +66,29 @@ export class LayerHost {
     return this.slots.find((s) => s.id === id)?.instance ?? null;
   }
 
+  /** Run `fn` on a layer's instance inside the fence; failed or missing layers are skipped. */
+  call<T extends LayerInstance>(id: string, fn: (instance: T) => void): void {
+    const slot = this.slots.find((s) => s.id === id);
+    if (!slot?.instance || slot.error) return;
+    try {
+      fn(slot.instance as T);
+    } catch (err) {
+      this.fail(slot, `update failed: ${describe(err)}`);
+    }
+  }
+
+  /** Draw order and visibility. A failed layer stays hidden whatever `visible` says. */
+  place(id: string, order: number, visible: boolean): void {
+    const slot = this.slots.find((s) => s.id === id);
+    if (!slot?.instance) return;
+    slot.instance.object.renderOrder = order;
+    slot.instance.object.visible = visible && !slot.error;
+  }
+
+  ids(): string[] {
+    return this.slots.map((s) => s.id);
+  }
+
   remove(id: string): void {
     const i = this.slots.findIndex((s) => s.id === id);
     if (i < 0) return;

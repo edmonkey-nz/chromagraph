@@ -1,4 +1,5 @@
 import type { ParseResult } from './columns.ts';
+import type { CalendarFields } from './calendar.ts';
 import type { Cadence } from './gaps.ts';
 import parseWorkerUrl from './parse.worker.ts?worker&url';
 
@@ -6,16 +7,28 @@ export interface WorkerRequest {
   id: number;
   url: string;
   fileName: string;
+  /** When set, calendar fields are derived for every time column in this zone. */
+  timeZone?: string;
 }
 
 export type WorkerResponse =
-  | { id: number; ok: true; result: ParseResult; cadences: Record<string, Cadence>; bytes: number; parseMs: number }
+  | {
+      id: number;
+      ok: true;
+      result: ParseResult;
+      cadences: Record<string, Cadence>;
+      calendars: Record<string, CalendarFields>;
+      bytes: number;
+      parseMs: number;
+    }
   | { id: number; ok: false; error: string };
 
 export interface LoadedFile {
   result: ParseResult;
   /** Cadence of each non-empty time column, by column name. */
   cadences: Record<string, Cadence>;
+  /** Calendar fields per time column (only when a timeZone was requested). */
+  calendars: Record<string, CalendarFields>;
   bytes: number;
   parseMs: number;
 }
@@ -42,7 +55,7 @@ export class DatasetLoader {
   private nextId = 1;
   private pending = new Map<number, Pending>();
 
-  load(url: string, fileName: string): Promise<LoadedFile> {
+  load(url: string, fileName: string, timeZone?: string): Promise<LoadedFile> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       const timer = window.setTimeout(() => {
@@ -51,7 +64,14 @@ export class DatasetLoader {
       this.pending.set(id, { resolve, reject, timer });
       this.ensureWorker()
         // Absolute: a worker started from a blob URL has no usable base for relative URLs.
-        .then((w) => w.postMessage({ id, url: new URL(url, location.href).href, fileName } satisfies WorkerRequest))
+        .then((w) =>
+          w.postMessage({
+            id,
+            url: new URL(url, location.href).href,
+            fileName,
+            ...(timeZone ? { timeZone } : {}),
+          } satisfies WorkerRequest),
+        )
         .catch((err: unknown) => this.settle(id, null, err instanceof Error ? err : new Error(String(err))));
     });
   }
@@ -83,8 +103,12 @@ export class DatasetLoader {
     const w = new Worker(src, { type: 'module', name: 'parse' });
     w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const m = ev.data;
-      if (m.ok) this.settle(m.id, { result: m.result, cadences: m.cadences, bytes: m.bytes, parseMs: m.parseMs }, null);
-      else this.settle(m.id, null, new Error(m.error));
+      if (m.ok) {
+        const { result, cadences, calendars, bytes, parseMs } = m;
+        this.settle(m.id, { result, cadences, calendars, bytes, parseMs }, null);
+      } else {
+        this.settle(m.id, null, new Error(m.error));
+      }
     };
     w.onerror = (ev) => {
       ev.preventDefault();
