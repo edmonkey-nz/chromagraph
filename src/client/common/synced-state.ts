@@ -1,5 +1,6 @@
 import { applyOps, type PatchOp } from '../../shared/patch.ts';
-import { ProjectSchema, SessionSchema, type SyncDoc } from '../../shared/project-schema.ts';
+import { wallMs } from '../../shared/modulators.ts';
+import { defaultSession, ProjectSchema, SessionSchema, type SyncDoc } from '../../shared/project-schema.ts';
 import type { ServerMessage } from '../../shared/protocol.ts';
 
 export interface ChangeInfo {
@@ -32,7 +33,7 @@ export class SyncedState {
     const s = SessionSchema.safeParse(d?.session);
     this.projectName = projectName;
     this.rev = rev;
-    this.set({ project: p.data, session: s.success ? s.data : { testPattern: false, debugOverlay: false } }, { full: true });
+    this.set({ project: p.data, session: s.success ? s.data : defaultSession(wallMs()) }, { full: true });
     return true;
   }
 

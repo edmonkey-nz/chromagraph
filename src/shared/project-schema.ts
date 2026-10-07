@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { hexColour, LayerSchema, vec3 } from './layer-schema.ts';
+import { ParameterSchema, TransportSchema, type Transport } from './modulators.ts';
 
 export { LayerSchema, type LayerConfig } from './layer-schema.ts';
 
@@ -43,7 +44,8 @@ export const ProjectSchema = z.object({
   name: z.string(),
   datasets: z.array(DatasetSchema),
   layers: z.array(LayerSchema),
-  parameters: z.record(z.string(), z.unknown()),
+  /** Modulators by parameter id (see parameters.ts). Base values live in the fields themselves. */
+  parameters: z.record(z.string(), ParameterSchema),
   timeline: z.object({
     /** Seconds for one full pass of the playhead. */
     duration: z.number().positive(),
@@ -132,10 +134,11 @@ export function migrate(raw: unknown, table: Record<number, Migration> = migrati
 export interface Session {
   testPattern: boolean;
   debugOverlay: boolean;
+  transport: Transport;
 }
 
-export function defaultSession(): Session {
-  return { testPattern: false, debugOverlay: false };
+export function defaultSession(nowMs = 0): Session {
+  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 } };
 }
 
 /** The document that patches address: paths start with "project" or "session". */
@@ -144,6 +147,10 @@ export interface SyncDoc {
   session: Session;
 }
 
-export const SessionSchema = z.object({ testPattern: z.boolean(), debugOverlay: z.boolean() });
+export const SessionSchema = z.object({
+  testPattern: z.boolean(),
+  debugOverlay: z.boolean(),
+  transport: TransportSchema,
+});
 
 export const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;

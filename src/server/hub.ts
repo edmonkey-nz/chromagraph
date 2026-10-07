@@ -7,6 +7,7 @@ import {
   ProjectSchema,
   SessionSchema,
   type Project,
+  type Session,
   type SyncDoc,
 } from '../shared/project-schema.ts';
 import {
@@ -34,6 +35,8 @@ interface Client {
 
 interface ServerState {
   lastProject?: string;
+  /** Live session (timeline transport, toggles), kept so a restart does not jump the playhead. */
+  session?: unknown;
 }
 
 /**
@@ -51,6 +54,8 @@ export class Hub {
   private saveChain: Promise<void> = Promise.resolve();
   private heartbeat: NodeJS.Timeout | null = null;
   private unsubscribeLog: () => void;
+  private bootSession: Session | null = null;
+  private stateTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private store: ProjectStore,
@@ -63,6 +68,8 @@ export class Hub {
   /** Open the last project (or create/open the demo project). */
   async init(): Promise<void> {
     const last = await this.readServerState();
+    const saved = SessionSchema.safeParse(last.session);
+    this.bootSession = saved.success ? saved.data : defaultSession(Date.now());
     const candidates = [last.lastProject, DEMO_PROJECT, ...(await this.store.list())].filter(
       (n): n is string => typeof n === 'string' && PROJECT_NAME_RE.test(n),
     );
@@ -138,6 +145,7 @@ export class Hub {
     this.rev++;
     this.broadcast({ t: 'patch', rev: this.rev, ops, origin });
     if (ops.some((op) => op.path[0] === 'project')) this.scheduleSave();
+    if (ops.some((op) => op.path[0] === 'session')) this.scheduleStateWrite();
     return null;
   }
 
@@ -229,7 +237,7 @@ export class Hub {
 
   private setProject(name: string, project: Project): void {
     this.projectName = name;
-    this.doc = { project, session: this.doc?.session ?? defaultSession() };
+    this.doc = { project, session: this.doc?.session ?? this.bootSession ?? defaultSession(Date.now()) };
     this.rev++;
   }
 
@@ -267,6 +275,14 @@ export class Hub {
     await this.saveChain;
   }
 
+  private scheduleStateWrite(): void {
+    if (this.stateTimer) clearTimeout(this.stateTimer);
+    this.stateTimer = setTimeout(() => {
+      this.stateTimer = null;
+      void this.writeServerState();
+    }, SAVE_DEBOUNCE_MS);
+  }
+
   private async readServerState(): Promise<ServerState> {
     try {
       const raw: unknown = JSON.parse(await readFile(this.stateFile, 'utf8'));
@@ -278,7 +294,8 @@ export class Hub {
 
   private async writeServerState(): Promise<void> {
     try {
-      await writeFileAtomic(this.stateFile, `${JSON.stringify({ lastProject: this.projectName }, null, 2)}\n`);
+      const state: ServerState = { lastProject: this.projectName, session: this.doc?.session };
+      await writeFileAtomic(this.stateFile, `${JSON.stringify(state, null, 2)}\n`);
     } catch (err) {
       this.log.warn(`could not write server state: ${String(err)}`);
     }
@@ -348,6 +365,10 @@ export class Hub {
 
   async close(): Promise<void> {
     if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.stateTimer) {
+      clearTimeout(this.stateTimer);
+      await this.writeServerState();
+    }
     this.unsubscribeLog();
     await this.flushSave();
     for (const c of this.clients) c.socket.close(1001, 'server shutting down');
