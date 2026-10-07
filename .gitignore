@@ -6,3 +6,6 @@ server-state.json
 .vite/
 *.log
 .claude/worktrees/
+output-profiles/*
+!output-profiles/default.json
+*.bak

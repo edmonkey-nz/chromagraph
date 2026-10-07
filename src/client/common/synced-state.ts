@@ -1,5 +1,6 @@
 import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { wallMs } from '../../shared/modulators.ts';
+import { defaultProfile, OutputProfileSchema } from '../../shared/output-profile.ts';
 import { defaultSession, ProjectSchema, SessionSchema, type SyncDoc } from '../../shared/project-schema.ts';
 import type { ServerMessage } from '../../shared/protocol.ts';
 
@@ -31,9 +32,17 @@ export class SyncedState {
     const p = ProjectSchema.safeParse(d?.project);
     if (!p.success) return false;
     const s = SessionSchema.safeParse(d?.session);
+    const pr = OutputProfileSchema.safeParse(d?.profile);
     this.projectName = projectName;
     this.rev = rev;
-    this.set({ project: p.data, session: s.success ? s.data : defaultSession(wallMs()) }, { full: true });
+    this.set(
+      {
+        project: p.data,
+        session: s.success ? s.data : defaultSession(wallMs()),
+        profile: pr.success ? pr.data : defaultProfile('default'),
+      },
+      { full: true },
+    );
     return true;
   }
 
@@ -42,13 +51,14 @@ export class SyncedState {
     if (msg.t === 'full') {
       const p = ProjectSchema.safeParse(msg.project);
       const s = SessionSchema.safeParse(msg.session);
-      if (!p.success || !s.success) {
+      const pr = OutputProfileSchema.safeParse(msg.profile);
+      if (!p.success || !s.success || !pr.success) {
         this.warn('server sent an invalid snapshot; keeping the last good state');
         return true;
       }
       this.projectName = msg.projectName;
       this.rev = msg.rev;
-      this.set({ project: p.data, session: s.data }, { full: true });
+      this.set({ project: p.data, session: s.data, profile: pr.data }, { full: true });
       return true;
     }
     if (msg.t === 'patch') {

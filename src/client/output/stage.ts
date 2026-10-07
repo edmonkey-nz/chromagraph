@@ -1,17 +1,47 @@
 import {
   Color,
   Mesh,
-  MeshBasicMaterial,
+  Matrix3,
   OrthographicCamera,
   PerspectiveCamera,
   PlaneGeometry,
+  ShaderMaterial,
   Scene,
   WebGLRenderer,
   WebGLRenderTarget,
   type Camera as ThreeCamera,
   type Object3D,
 } from 'three';
+import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
 import type { Camera } from '../../shared/project-schema.ts';
+
+/** Full-screen quad; the fragment shader does the keystone mapping per pixel. */
+const WARP_VERTEX = /* glsl */ `
+  varying vec2 vScreen;
+  void main() {
+    vScreen = vec2(uv.x, 1.0 - uv.y); // normalised window coords, y down
+    gl_Position = vec4(position.xy * 2.0, 0.0, 1.0);
+  }
+`;
+
+/**
+ * Inverse homography: window point -> image uv. Exact perspective-correct mapping (no mesh
+ * subdivision), black outside the image, with a one-pixel anti-aliased edge.
+ */
+const WARP_FRAGMENT = /* glsl */ `
+  uniform sampler2D uImage;
+  uniform mat3 uInverse;
+  varying vec2 vScreen;
+  void main() {
+    vec3 p = uInverse * vec3(vScreen, 1.0);
+    vec2 uv = p.xy / p.z;
+    float edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
+    float inside = p.z > 0.0 ? clamp(edge / max(fwidth(edge), 1e-6) + 0.5, 0.0, 1.0) : 0.0;
+    vec4 colour = texture2D(uImage, vec2(uv.x, 1.0 - uv.y));
+    gl_FragColor = vec4(colour.rgb * inside, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
 
 export const OUTPUT_WIDTH = 1920;
 export const OUTPUT_HEIGHT = 1080;
@@ -35,7 +65,8 @@ export class Stage {
   private target: WebGLRenderTarget;
   private warpScene = new Scene();
   private warpCamera = new OrthographicCamera(-0.5, 0.5, 0.5, -0.5, -1, 1);
-  private warpMaterial: MeshBasicMaterial;
+  private warpMaterial: ShaderMaterial;
+  private warpInverse = new Matrix3();
   private warpGeometry = new PlaneGeometry(1, 1);
   private lastShaderError: string | null = null;
   private background = new Color(0x000000);
@@ -61,7 +92,13 @@ export class Stage {
     this.scene.background = this.background;
     this.orthoCamera.position.z = 1000;
     this.target = this.makeTarget();
-    this.warpMaterial = new MeshBasicMaterial({ map: this.target.texture, toneMapped: false, depthTest: false });
+    this.warpMaterial = new ShaderMaterial({
+      depthTest: false,
+      depthWrite: false,
+      uniforms: { uImage: { value: this.target.texture }, uInverse: { value: this.warpInverse } },
+      vertexShader: WARP_VERTEX,
+      fragmentShader: WARP_FRAGMENT,
+    });
     const quad = new Mesh(this.warpGeometry, this.warpMaterial);
     quad.frustumCulled = false;
     this.warpScene.add(quad);
@@ -69,6 +106,18 @@ export class Stage {
     canvas.addEventListener('webglcontextlost', this.onLost, false);
     canvas.addEventListener('webglcontextrestored', this.onRestored, false);
     this.resize();
+  }
+
+  /**
+   * Keystone: where the image's corners land in the window (TL, TR, BR, BL, normalised,
+   * y down). Folded or degenerate quads are ignored, keeping the last good warp.
+   */
+  setWarp(corners: Quad): boolean {
+    if (!isConvexQuad(corners)) return false;
+    const inv = invert(squareToQuad(corners));
+    if (!inv) return false;
+    this.warpInverse.set(...inv);
+    return true;
   }
 
   setBackground(hex: string): void {
@@ -145,8 +194,7 @@ export class Stage {
     // references objects from the dead context, then the caller rebuilds the layers.
     this.target.dispose();
     this.target = this.makeTarget();
-    this.warpMaterial.map = this.target.texture;
-    this.warpMaterial.needsUpdate = true;
+    this.warpMaterial.uniforms.uImage!.value = this.target.texture;
     this.contextLost = false;
     this.events.restored();
   };

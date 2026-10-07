@@ -106,6 +106,10 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     stage.setBackground(doc.project.output.background);
   }
   if (!prev || doc.project.camera !== prev.project.camera) stage.setCamera(doc.project.camera);
+  // The preview shows the unwarped image; only the real output is keystoned.
+  if (!preview && (!prev || doc.profile !== prev.profile) && !stage.setWarp(doc.profile.corners)) {
+    report('warn', `output profile "${doc.profile.name}": corners do not form a usable shape; keeping the previous warp`);
+  }
   syncLayers(doc);
   modulation.sync(doc);
   if (prev && doc.project.parameters !== prev.project.parameters) {

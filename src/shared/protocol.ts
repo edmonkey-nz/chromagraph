@@ -1,4 +1,5 @@
 import { isPatchOp, type PatchOp } from './patch.ts';
+import type { OutputProfile } from './output-profile.ts';
 import type { Project, Session } from './project-schema.ts';
 
 /**
@@ -43,6 +44,8 @@ export type ClientMessage =
   | { t: 'requestFull' }
   | { t: 'openProject'; name: string }
   | { t: 'createProject'; name: string }
+  | { t: 'openProfile'; name: string }
+  | { t: 'createProfile'; name: string }
   | { t: 'status'; status: OutputStatus }
   | { t: 'log'; level: LogLevel; message: string }
   | { t: 'pong' };
@@ -61,9 +64,11 @@ export type ServerMessage =
       projectName: string;
       project: Project;
       session: Session;
+      profile: OutputProfile;
     }
   | { t: 'patch'; rev: number; ops: PatchOp[]; origin: string }
   | { t: 'projects'; names: string[]; current: string; problems: ProjectProblem[] }
+  | { t: 'profiles'; names: string[]; current: string }
   | { t: 'outputStatus'; clientId: string; status: OutputStatus | null }
   | { t: 'log'; entries: LogEntry[] }
   | { t: 'ping' }
@@ -123,6 +128,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { t: m.t };
     case 'openProject':
     case 'createProject':
+    case 'openProfile':
+    case 'createProfile':
       return str(m.name) ? { t: m.t, name: m.name } : null;
     case 'status':
       return isOutputStatus(m.status) ? { t: 'status', status: m.status } : null;
@@ -150,11 +157,13 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   if (!obj(m) || !str(m.t)) return null;
   switch (m.t) {
     case 'full':
-      return num(m.rev) && str(m.projectName) && obj(m.project) && obj(m.session) ? (m as ServerMessage) : null;
+      return num(m.rev) && str(m.projectName) && obj(m.project) && obj(m.session) && obj(m.profile) ? (m as ServerMessage) : null;
     case 'patch':
       return num(m.rev) && str(m.origin) && Array.isArray(m.ops) && m.ops.every(isPatchOp) ? (m as ServerMessage) : null;
     case 'projects':
       return Array.isArray(m.names) && str(m.current) && Array.isArray(m.problems) ? (m as ServerMessage) : null;
+    case 'profiles':
+      return Array.isArray(m.names) && str(m.current) ? (m as ServerMessage) : null;
     case 'outputStatus':
       return str(m.clientId) && (m.status === null || isOutputStatus(m.status)) ? (m as ServerMessage) : null;
     case 'log':

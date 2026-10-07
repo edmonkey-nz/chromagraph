@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { hexColour, LayerSchema, vec3 } from './layer-schema.ts';
 import { ParameterSchema, TransportSchema, type Transport } from './modulators.ts';
+import type { OutputProfile } from './output-profile.ts';
 
 export { LayerSchema, type LayerConfig } from './layer-schema.ts';
 
@@ -141,10 +142,15 @@ export function defaultSession(nowMs = 0): Session {
   return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 } };
 }
 
-/** The document that patches address: paths start with "project" or "session". */
+/**
+ * The document that patches address: paths start with "project" (saved in the project),
+ * "session" (live, kept in server-state.json) or "profile" (the active output profile,
+ * saved in output-profiles/).
+ */
 export interface SyncDoc {
   project: Project;
   session: Session;
+  profile: OutputProfile;
 }
 
 export const SessionSchema = z.object({

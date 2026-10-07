@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { WebSocket } from 'ws';
+import { defaultProfile, OutputProfileSchema, type OutputProfile } from '../shared/output-profile.ts';
 import { applyOps, PatchError, type PatchOp } from '../shared/patch.ts';
 import {
   defaultSession,
@@ -21,10 +23,12 @@ import {
   type ServerMessage,
 } from '../shared/protocol.ts';
 import type { Log } from './log.ts';
+import { ProfileStore } from './profiles.ts';
 import { ProjectError, writeFileAtomic, type ProjectStore } from './projects.ts';
 
 const SAVE_DEBOUNCE_MS = 500;
 const DEMO_PROJECT = 'demo';
+const DEFAULT_PROFILE = 'default';
 
 interface Client {
   socket: WebSocket;
@@ -35,6 +39,7 @@ interface Client {
 
 interface ServerState {
   lastProject?: string;
+  lastProfile?: string;
   /** Live session (timeline transport, toggles), kept so a restart does not jump the playhead. */
   session?: unknown;
 }
@@ -55,12 +60,15 @@ export class Hub {
   private heartbeat: NodeJS.Timeout | null = null;
   private unsubscribeLog: () => void;
   private bootSession: Session | null = null;
+  private bootProfile: OutputProfile | null = null;
+  private profileTimer: NodeJS.Timeout | null = null;
   private stateTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private store: ProjectStore,
     private log: Log,
     private stateFile: string,
+    private profiles: ProfileStore = new ProfileStore(join(dirname(stateFile), 'output-profiles')),
   ) {
     this.unsubscribeLog = log.subscribe((entry) => this.broadcast({ t: 'log', entries: [entry] }, 'control'));
   }
@@ -70,6 +78,13 @@ export class Hub {
     const last = await this.readServerState();
     const saved = SessionSchema.safeParse(last.session);
     this.bootSession = saved.success ? saved.data : defaultSession(Date.now());
+    const profileName = typeof last.lastProfile === 'string' && PROJECT_NAME_RE.test(last.lastProfile) ? last.lastProfile : DEFAULT_PROFILE;
+    const { profile, warning } = await this.profiles.load(profileName);
+    if (warning) {
+      this.log.warn(warning);
+      this.problems.push({ project: `profile ${profileName}`, message: warning });
+    }
+    this.bootProfile = profile;
     const candidates = [last.lastProject, DEMO_PROJECT, ...(await this.store.list())].filter(
       (n): n is string => typeof n === 'string' && PROJECT_NAME_RE.test(n),
     );
@@ -87,6 +102,10 @@ export class Hub {
       this.log.info(`created project "${name}"`);
     }
     this.heartbeat = setInterval(() => this.tick(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  get currentProfile(): OutputProfile {
+    return this.doc.profile;
   }
 
   get currentProject(): { name: string; project: Project } {
@@ -126,8 +145,10 @@ export class Hub {
    */
   applyPatch(ops: PatchOp[], origin: string): string | null {
     for (const op of ops) {
-      if (op.path[0] !== 'project' && op.path[0] !== 'session') return 'patch paths must start with "project" or "session"';
-      if (op.path.length < 2) return 'cannot replace the whole project or session';
+      if (op.path[0] !== 'project' && op.path[0] !== 'session' && op.path[0] !== 'profile') {
+        return 'patch paths must start with "project", "session" or "profile"';
+      }
+      if (op.path.length < 2) return 'cannot replace the whole project, session or profile';
     }
     let next: SyncDoc;
     try {
@@ -140,12 +161,16 @@ export class Hub {
     const s = SessionSchema.safeParse(next.session);
     if (!s.success) return `invalid session after patch: ${s.error.issues[0]?.message ?? 'unknown'}`;
     if (next.project.name !== this.doc.project.name) return 'project name cannot be changed by patch';
+    const pr = OutputProfileSchema.safeParse(next.profile);
+    if (!pr.success) return `invalid output profile after patch: ${pr.error.issues[0]?.message ?? 'unknown'}`;
+    if (next.profile.name !== this.doc.profile.name) return 'profile name cannot be changed by patch';
 
     this.doc = next;
     this.rev++;
     this.broadcast({ t: 'patch', rev: this.rev, ops, origin });
     if (ops.some((op) => op.path[0] === 'project')) this.scheduleSave();
     if (ops.some((op) => op.path[0] === 'session')) this.scheduleStateWrite();
+    if (ops.some((op) => op.path[0] === 'profile')) this.scheduleProfileSave();
     return null;
   }
 
@@ -160,6 +185,7 @@ export class Hub {
         if (msg.role === 'control') {
           this.send(client, { t: 'log', entries: this.log.recent() });
           await this.sendProjects(client);
+          await this.sendProfiles(client);
           for (const [clientId, status] of this.outputStatus) this.send(client, { t: 'outputStatus', clientId, status });
         }
         return;
@@ -203,6 +229,32 @@ export class Hub {
         await this.broadcastProjects();
         return;
       }
+      case 'openProfile': {
+        if (client.role !== 'control' || msg.name === this.doc.profile.name) return;
+        if (!(await this.profiles.list()).includes(msg.name)) {
+          this.send(client, { t: 'error', message: `no output profile "${msg.name}"` });
+          return;
+        }
+        await this.flushProfileSave();
+        const { profile, warning } = await this.profiles.load(msg.name);
+        if (warning) this.log.warn(warning);
+        this.setProfile(profile);
+        return;
+      }
+      case 'createProfile': {
+        if (client.role !== 'control') return;
+        if (!PROJECT_NAME_RE.test(msg.name) || (await this.profiles.list()).includes(msg.name)) {
+          this.send(client, { t: 'error', message: `cannot create output profile "${msg.name}"` });
+          return;
+        }
+        await this.flushProfileSave();
+        // A new profile starts from the current calibration, renamed.
+        const profile: OutputProfile = { ...this.doc.profile, name: msg.name };
+        await this.profiles.save(profile);
+        this.setProfile(profile);
+        this.log.info(`created output profile "${msg.name}"`);
+        return;
+      }
       case 'status':
         if (client.role !== 'output') return;
         this.outputStatus.set(client.id, msg.status);
@@ -237,7 +289,11 @@ export class Hub {
 
   private setProject(name: string, project: Project): void {
     this.projectName = name;
-    this.doc = { project, session: this.doc?.session ?? this.bootSession ?? defaultSession(Date.now()) };
+    this.doc = {
+      project,
+      session: this.doc?.session ?? this.bootSession ?? defaultSession(Date.now()),
+      profile: this.doc?.profile ?? this.bootProfile ?? defaultProfile(DEFAULT_PROFILE),
+    };
     this.rev++;
   }
 
@@ -275,6 +331,45 @@ export class Hub {
     await this.saveChain;
   }
 
+  private setProfile(profile: OutputProfile): void {
+    this.doc = { ...this.doc, profile };
+    this.rev++;
+    this.broadcastFull();
+    void this.writeServerState();
+    void this.broadcastProfiles();
+  }
+
+  private scheduleProfileSave(): void {
+    if (this.profileTimer) clearTimeout(this.profileTimer);
+    this.profileTimer = setTimeout(() => {
+      this.profileTimer = null;
+      void this.saveProfile();
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  private async saveProfile(): Promise<void> {
+    try {
+      await this.profiles.save(this.doc.profile);
+    } catch (err) {
+      this.log.error(`saving output profile "${this.doc.profile.name}" failed: ${String(err)}`);
+    }
+  }
+
+  private async flushProfileSave(): Promise<void> {
+    if (!this.profileTimer) return;
+    clearTimeout(this.profileTimer);
+    this.profileTimer = null;
+    await this.saveProfile();
+  }
+
+  private async sendProfiles(client: Client): Promise<void> {
+    this.send(client, { t: 'profiles', names: await this.profiles.list(), current: this.doc.profile.name });
+  }
+
+  private async broadcastProfiles(): Promise<void> {
+    this.broadcast({ t: 'profiles', names: await this.profiles.list(), current: this.doc.profile.name }, 'control');
+  }
+
   private scheduleStateWrite(): void {
     if (this.stateTimer) clearTimeout(this.stateTimer);
     this.stateTimer = setTimeout(() => {
@@ -294,7 +389,7 @@ export class Hub {
 
   private async writeServerState(): Promise<void> {
     try {
-      const state: ServerState = { lastProject: this.projectName, session: this.doc?.session };
+      const state: ServerState = { lastProject: this.projectName, lastProfile: this.doc?.profile.name, session: this.doc?.session };
       await writeFileAtomic(this.stateFile, `${JSON.stringify(state, null, 2)}\n`);
     } catch (err) {
       this.log.warn(`could not write server state: ${String(err)}`);
@@ -332,6 +427,7 @@ export class Hub {
       projectName: this.projectName,
       project: this.doc.project,
       session: this.doc.session,
+      profile: this.doc.profile,
     });
   }
 
@@ -369,6 +465,7 @@ export class Hub {
       clearTimeout(this.stateTimer);
       await this.writeServerState();
     }
+    await this.flushProfileSave();
     this.unsubscribeLog();
     await this.flushSave();
     for (const c of this.clients) c.socket.close(1001, 'server shutting down');
