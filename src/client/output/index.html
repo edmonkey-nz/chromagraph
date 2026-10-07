@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>data-wrangler output</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        cursor: none;
+        user-select: none;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      #debug {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        padding: 8px 12px;
+        font: 24px/1.3 ui-monospace, monospace;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.7);
+        white-space: pre;
+        pointer-events: none;
+      }
+      #debug[hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="debug" hidden></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
