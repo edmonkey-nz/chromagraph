@@ -1,13 +1,14 @@
 import { z } from 'zod';
+import { hexColour, LayerSchema, vec3 } from './layer-schema.ts';
+
+export { LayerSchema, type LayerConfig } from './layer-schema.ts';
 
 /**
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 1;
+export const CURRENT_VERSION = 2;
 
-const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'expected a #rrggbb colour');
-const vec3 = z.tuple([z.number(), z.number(), z.number()]);
 
 export const DatasetSchema = z.object({
   id: z.string().min(1),
@@ -18,14 +19,24 @@ export const DatasetSchema = z.object({
   timeZone: z.string().min(1),
 });
 
-/** Layers are fleshed out in phase 3; the common header is fixed now. */
-export const LayerSchema = z.looseObject({
-  id: z.string().min(1),
-  type: z.string().min(1),
-  name: z.string(),
-  enabled: z.boolean(),
-  datasetId: z.string().nullable(),
+/**
+ * 2D: orthographic camera in output pixels. 3D: perspective camera orbiting a target; at
+ * yaw = pitch = 0 and distance = 1 the z = 0 plane fills the frame exactly, so a 2D layout
+ * looks the same in both modes until the camera moves.
+ */
+export const CameraSchema = z.object({
+  mode: z.enum(['2d', '3d']),
+  /** Vertical field of view, degrees (3D). */
+  fov: z.number().min(5).max(120),
+  /** Degrees. Yaw turns about the vertical axis, pitch tilts up/down. */
+  yaw: z.number(),
+  pitch: z.number().min(-89).max(89),
+  /** Multiple of the frame-filling distance. */
+  distance: z.number().positive(),
+  /** Look-at point as an offset in px from the frame centre. */
+  target: vec3,
 });
+export type Camera = z.infer<typeof CameraSchema>;
 
 export const ProjectSchema = z.object({
   version: z.literal(CURRENT_VERSION),
@@ -38,19 +49,13 @@ export const ProjectSchema = z.object({
     duration: z.number().positive(),
     loop: z.boolean(),
   }),
-  camera: z.object({
-    mode: z.enum(['2d', '3d']),
-    position: vec3,
-    target: vec3,
-    fov: z.number().positive(),
-  }),
+  camera: CameraSchema,
   output: z.object({
     background: hexColour,
   }),
 });
 
 export type Dataset = z.infer<typeof DatasetSchema>;
-export type LayerConfig = z.infer<typeof LayerSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 
 export function defaultProject(name: string): Project {
@@ -61,15 +66,33 @@ export function defaultProject(name: string): Project {
     layers: [],
     parameters: {},
     timeline: { duration: 600, loop: true },
-    camera: { mode: '2d', position: [0, 0, 1000], target: [0, 0, 0], fov: 45 },
+    camera: defaultCamera(),
     output: { background: '#000000' },
   };
+}
+
+export function defaultCamera(): Camera {
+  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0] };
 }
 
 type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
 
 /** migrations[n] upgrades a version-n document to version n + 1. */
-export const migrations: Record<number, Migration> = {};
+export const migrations: Record<number, Migration> = {
+  // v2: orbit camera replaces position/target; layers became typed (v1 never had any).
+  1: (doc) => {
+    const old = (doc.camera ?? {}) as { mode?: unknown; fov?: unknown };
+    return {
+      ...doc,
+      camera: {
+        ...defaultCamera(),
+        mode: old.mode === '3d' ? '3d' : '2d',
+        fov: typeof old.fov === 'number' && old.fov >= 5 && old.fov <= 120 ? old.fov : 45,
+      },
+      layers: [],
+    };
+  },
+};
 
 export type MigrateResult =
   | { ok: true; project: Project; migratedFrom: number | null }
