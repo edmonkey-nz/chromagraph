@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # data-wrangler
 
 Realtime data visualisation instrument. Loads static CSV/JSON files, maps columns onto
@@ -153,6 +157,9 @@ mappable to MIDI/OSC.
 
 ## Build phases
 
+Status: phases 1 and 2 are done. Nothing draws data yet; the output shows only the
+background and the optional test pattern. Phase 3 is next.
+
 1. Server, project folders, two windows, state sync, reconnect behaviour.
 2. Data layer with tests against the rainfall fixture.
 3. Instancer layer with mappings and X/Y/Z offset. Tweakpane control.
@@ -163,18 +170,82 @@ mappable to MIDI/OSC.
 
 ## Commands
 
-- `npm run dev` : server plus Vite on :8080, control at `/control`, output at `/output`
+- `npm run dev` : one process on 127.0.0.1:8080 (override with `PORT` / `HOST`). Fastify
+  serves the server routes and mounts Vite as middleware. Control is at `/control`, output
+  at `/output`. `tsx watch` restarts the server on server-code edits; client edits go
+  through Vite HMR, which reloads the page.
 - `npm run build` then `npm start` : production (built bundle, no HMR). Use this for
   installations, because in dev a source edit reloads the output.
-- `npm test` : Vitest
-- `npm run typecheck`
+- `npm test` : runs all tests with Vitest. Tests are pure Node, with no browser or GPU.
+- `npx vitest run test/data/parse.test.ts` : runs one test file. Add `-t "name"` to run a
+  single test.
+- `npm run typecheck` : TypeScript 7 (native `tsc`), strict, with `noUncheckedIndexedAccess`.
+  Imports use explicit `.ts` extensions.
 
-## Implementation notes
+## Code map
 
-- **Offline boot (production only).** A service worker (`src/server/static/output-sw.js`)
-  lets the output reload while the server is down. It is network-first with a cache fallback.
-- **Parse worker in production.** It starts from a blob URL, because Chrome does not send a
-  dedicated worker's script load through the service worker. URLs passed to the worker must
-  be absolute.
-- **Sync model.** Patches address `project.*` (saved) or `session.*` (live only: test pattern,
-  debug overlay). The server validates every patch against the zod schema before applying it.
+`src/shared/` is imported by both the server and the browser, so it must stay free of DOM
+and Node APIs. `src/data/` is pure apart from the worker and loader files, and runs inside
+the parse worker.
+
+**State flow.** The synced document is `SyncDoc = { project, session }`
+(`shared/project-schema.ts`). Here is the path of a single change:
+1. Control calls `sendPatch` with ops such as `{op:'set', path:['project','output','background'], value}`.
+2. The server's `Hub.applyPatch` (`server/hub.ts`) applies the ops with structural sharing
+   (`shared/patch.ts`), then validates the whole doc against the zod schemas. An invalid
+   patch is rejected and the sender is resynced.
+3. If it is valid, the hub bumps `rev` and broadcasts `{t:'patch', rev, ops, origin}`.
+   Changes under `project.*` trigger a debounced atomic save; `session.*` is never saved.
+4. Each window's `SyncedState` (`client/common/synced-state.ts`) applies the patch only if
+   `rev === local + 1`. Otherwise it requests a full snapshot.
+5. The output's `applyDoc(doc, prev)` in `client/output/main.ts` reconciles the scene by
+   comparing references, so a full resync after a reconnect changes nothing visible.
+
+Message shapes and their runtime guards are in `shared/protocol.ts`. A client must send
+`hello` first; the server ignores anything before it. Only control windows may patch.
+
+**Schema changes.** When `project.json` changes shape:
+1. Edit `ProjectSchema` and bump `CURRENT_VERSION`.
+2. Add a `migrations[n]` step.
+3. Save an example of the old version as `test/fixtures/projects/vN.json`. A test migrates
+   every fixture in that folder.
+
+**Data flow.**
+1. `POST /api/projects/:name/data` (`server/data-routes.ts`) writes the upload into `data/`
+   unchanged and adds a dataset entry through `hub.applyPatch`.
+2. Each window parses the file itself. `DatasetLoader` (`data/dataset-loader.ts`) hands
+   the work to `parse.worker.ts`, which fetches the file, runs `parseText` and
+   `detectCadence`, and transfers the typed-array buffers back.
+3. Results use the column contract in `data/columns.ts`. Inference rules are in
+   `data/infer.ts`: no coercion, and only empty or whitespace values count as missing.
+4. The output keeps tables in `DatasetStore` (`client/output/datasets.ts`), which holds on
+   to the last good table if a reload fails.
+5. Control shows the per-file report in `client/control/datasets-panel.ts`.
+
+**Rendering.**
+- `Stage` (`client/output/stage.ts`) draws the scene into a 1920x1080 MSAA target, using a
+  pixel-space orthographic camera (x 0..1920, y 0..1080, y up). It then draws that target
+  to the screen through a quad, which will become the keystone warp mesh in phase 5.
+- Layers implement `LayerInstance { object, update(ctx), dispose() }` and are owned by
+  `LayerHost` (`client/output/layers/layer.ts`). `LayerHost` fences build, update and
+  dispose, and compiles every new layer's shaders immediately via `Stage.verify`, so a
+  shader error fails the layer instead of the frame.
+- `client/output/layers/test-pattern.ts` is the reference implementation of a layer.
+
+**Offline boot (production only).**
+- A service worker (`src/server/static/output-sw.js`, served at `/output/sw.js`) lets the
+  output reload while the server is down. It is network-first with a cache fallback.
+- After registering it, the page posts the URLs it has already loaded, plus each dataset
+  URL, so a first-boot reload can still come from the cache.
+- In production the parse worker starts from a blob URL, because Chrome does not send a
+  dedicated worker's script load through the service worker. URLs passed to the worker
+  must be absolute.
+- Dev mode unregisters any leftover service worker.
+
+**Persistence.**
+- `writeFileAtomic` (`server/projects.ts`) writes to a temp file, fsyncs it and renames it
+  into place. It makes `.bak` by hard-linking the old file.
+- If `project.json` is unusable, loading falls back to `.bak`. The bad file is renamed to
+  `project.json.corrupt-<time>`, so the next save can't rotate it over the good backup.
+- `server-state.json` records the last opened project, so the output boots into it even
+  when no control window is open.
