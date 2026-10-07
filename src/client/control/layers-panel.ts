@@ -12,6 +12,7 @@ import {
   type Arrangement,
   type InstancerLayer,
   type NumericChannel,
+  isInstancer,
 } from '../../shared/layer-schema.ts';
 import { layerParamCopyOps, layerParamRemovalOps } from '../../shared/modulation-helpers.ts';
 import { layerParamPrefix } from '../../shared/parameters.ts';
@@ -137,7 +138,7 @@ export class LayersPanel {
    * so a slider drag is never interrupted.
    */
   update(doc: SyncDoc, external: boolean): void {
-    const layers = doc.project.layers;
+    const layers = doc.project.layers.filter(isInstancer);
     const structural =
       layers.length !== this.order.length ||
       layers.some((l, i) => l.id !== this.order[i]) ||
@@ -210,7 +211,7 @@ export class LayersPanel {
       entry.folder.dispose();
     }
     this.entries.clear();
-    const layers = doc.project.layers;
+    const layers = doc.project.layers.filter(isInstancer);
     this.order = layers.map((l) => l.id);
     this.datasets = doc.project.datasets;
     const ids = new Set(this.order);
@@ -245,7 +246,7 @@ export class LayersPanel {
     if (!doc) return null;
     const index = doc.project.layers.findIndex((l) => l.id === id);
     const layer = doc.project.layers[index];
-    return layer ? { doc, index, layer } : null;
+    return layer && isInstancer(layer) ? { doc, index, layer } : null;
   }
 
   /**

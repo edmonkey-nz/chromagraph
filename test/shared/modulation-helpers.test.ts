@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankInstancerLayer } from '../../src/shared/layer-schema.ts';
+import { blankInstancerLayer, type InstancerLayer } from '../../src/shared/layer-schema.ts';
 import {
   addKeyframe,
   clampDuration,
@@ -180,7 +180,7 @@ describe('data playhead', () => {
     const next = applyOps({ project: p }, ops!).project;
     expect(next.parameters['layer.ly-a.rows.1']).toEqual(ramp(0, 1));
     expect(next.parameters['layer.ly-a.rows.0']).toBeUndefined();
-    expect(next.layers[0]!.rows).toEqual([0, 0.75]);
+    expect((next.layers[0] as InstancerLayer).rows).toEqual([0, 0.75]);
     expect(ProjectSchema.safeParse(next).success).toBe(true);
   });
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { blankInstancerLayer } from '../../src/shared/layer-schema.ts';
+import {
+  blankHeatmapLayer,
+  blankInstancerLayer,
+  blankLineLayer,
+  blankTextLayer,
+  LayerSchema,
+} from '../../src/shared/layer-schema.ts';
 import {
   clampParam,
   paramPatchPath,
@@ -13,7 +19,10 @@ function project(): Project {
   const p = defaultProject('t');
   const layer = blankInstancerLayer('ly-1', 'Rain', 'ds');
   layer.channels.height = { ...layer.channels.height, column: 'Rainfall [mm]', domain: [0, 200] };
-  return { ...p, layers: [layer] };
+  const line = blankLineLayer('ln-1', 'Line', 'ds');
+  line.y = { ...line.y, column: 'Rainfall [mm]', domain: [0, 100] };
+  const heat = { ...blankHeatmapLayer('hm-1', 'Heat', 'ds'), valueColumn: 'Rainfall [mm]', domain: [0, 50] as [number, number] };
+  return { ...p, layers: [layer, line, heat, blankTextLayer('tx-1', 'Text', null)] };
 }
 
 describe('parameter registry', () => {
@@ -29,6 +38,25 @@ describe('parameter registry', () => {
     expect(ids).toContain('layer.ly-1.channels.height.domain.0');
     // Unmapped channels have no range parameters.
     expect(ids).not.toContain('layer.ly-1.channels.y.range.0');
+  });
+
+  it('covers every layer type, transforms and the cloner', () => {
+    const ids = parameterDefs(project()).map((d) => d.id);
+    for (const id of [
+      'layer.ly-1.transform.rotation.1',
+      'layer.ly-1.cloner.count',
+      'layer.ly-1.cloner.dataStep',
+      'layer.ln-1.width',
+      'layer.ln-1.y.range.1',
+      'layer.ln-1.y.domain.0',
+      'layer.hm-1.domain.1',
+      'layer.hm-1.cell.0',
+      'layer.tx-1.row',
+      'layer.tx-1.transform.scale.0',
+    ]) {
+      expect(ids, id).toContain(id);
+    }
+    for (const l of project().layers) expect(LayerSchema.safeParse(l).success, l.type).toBe(true);
   });
 
   it('every listed parameter resolves to a number in the project', () => {

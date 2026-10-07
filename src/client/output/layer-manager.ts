@@ -4,6 +4,7 @@ import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { DatasetStore } from './datasets.ts';
 import { createInstancer, type InstancerInstance } from './layers/instancer.ts';
 import type { LayerHost } from './layers/layer.ts';
+import { applyLayerTransform } from './layers/transform.ts';
 
 /** Layers draw above anything with a lower order; the test pattern stays on top of all. */
 const LAYER_ORDER_BASE = 100;
@@ -49,6 +50,7 @@ export class LayerManager {
         this.host.call<InstancerInstance>(layer.id, (inst) => inst.apply(layer, cameraMode));
       }
       this.host.place(layer.id, LAYER_ORDER_BASE + index, layer.enabled);
+      this.host.call(layer.id, (inst) => applyLayerTransform(inst.object, layer.transform));
     });
 
     for (const id of [...this.keys.keys()]) if (!seen.has(id)) this.drop(id);
@@ -57,13 +59,19 @@ export class LayerManager {
   /** Push modulated (effective) values for one layer; called every frame by the modulation engine. */
   applyEffective(id: string, effective: InstancerLayer): void {
     if (!this.keys.has(id)) return;
-    this.host.call<InstancerInstance>(id, (inst) => inst.apply(effective, this.cameraMode));
+    this.host.call<InstancerInstance>(id, (inst) => {
+      inst.apply(effective, this.cameraMode);
+      applyLayerTransform(inst.object, effective.transform);
+    });
   }
 
   /** Re-apply every layer's base config (e.g. after its modulators were removed). */
   reapplyBase(): void {
     for (const [id, layer] of this.applied) {
-      this.host.call<InstancerInstance>(id, (inst) => inst.apply(layer, this.cameraMode));
+      this.host.call<InstancerInstance>(id, (inst) => {
+        inst.apply(layer, this.cameraMode);
+        applyLayerTransform(inst.object, layer.transform);
+      });
     }
   }
 

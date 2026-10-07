@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hexColour, LayerSchema, vec3 } from './layer-schema.ts';
+import { hexColour, identityCloner, identityTransform, LayerSchema, vec3 } from './layer-schema.ts';
 import { ParameterSchema, TransportSchema, type Transport } from './modulators.ts';
 import type { OutputProfile } from './output-profile.ts';
 
@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 2;
+export const CURRENT_VERSION = 3;
 
 
 export const DatasetSchema = z.object({
@@ -93,6 +93,19 @@ export const migrations: Record<number, Migration> = {
         fov: typeof old.fov === 'number' && old.fov >= 5 && old.fov <= 120 ? old.fov : 45,
       },
       layers: [],
+    };
+  },
+  // v3: every layer has a transform; instancers have a cloner. Parameters became typed in v2
+  // without a bump; v2 files only ever had an empty object there, so nothing to convert.
+  2: (doc) => {
+    const layers = Array.isArray(doc.layers) ? (doc.layers as Record<string, unknown>[]) : [];
+    return {
+      ...doc,
+      layers: layers.map((l) => ({
+        ...l,
+        transform: l.transform ?? identityTransform(),
+        ...(l.type === 'instancer' && !l.cloner ? { cloner: identityCloner() } : {}),
+      })),
     };
   },
 };

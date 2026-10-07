@@ -84,12 +84,79 @@ export type ColourMapping = z.infer<typeof ColourMappingSchema>;
 export const NUMERIC_CHANNELS = ['y', 'z', 'height', 'size', 'rotation', 'opacity'] as const;
 export type NumericChannel = (typeof NUMERIC_CHANNELS)[number];
 
-export const InstancerLayerSchema = z.object({
+/** The frame centre in output px: the default pivot for rotating and scaling a layer. */
+export const FRAME_CENTRE: [number, number, number] = [960, 540, 0];
+
+/**
+ * Whole-layer transform, applied on top of the layer's own layout. The layer is scaled and
+ * rotated about `pivot` (px, in the layer's own space), then moved by `position` (px).
+ * Rotation is in degrees, applied X then Y then Z (Euler 'XYZ'). Rotations other than about
+ * z only show depth with the 3D camera.
+ */
+export const TransformSchema = z.object({
+  position: vec3,
+  rotation: vec3,
+  scale: vec3,
+  pivot: vec3,
+});
+export type LayerTransform = z.infer<typeof TransformSchema>;
+
+export function identityTransform(): LayerTransform {
+  return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], pivot: [...FRAME_CENTRE] };
+}
+
+/**
+ * MoGraph-style cloner for the instancer: every data point is drawn `count` times. Clone k
+ * (0 = the original) is offset by k x each step:
+ *   position  px added to the point's position
+ *   rotation  degrees added to the point's own rotation (about its centre, XYZ)
+ *   scale     added to 1 per axis (clone k scale = 1 + k * scale, never below 0)
+ *   orbit     degrees the clone's position turns about the layer pivot (radial arrays, spirals)
+ *   fade      opacity multiplier per clone (clone k opacity x fade^k)
+ *   dataStep  rows stepped per clone: clone k shows row i + k * dataStep (trails/echoes
+ *             through the data); clones that step past the data are not drawn
+ * Instances drawn = visible rows x count, so count multiplies the GPU cost.
+ */
+export const ClonerSchema = z.object({
+  count: z.number().int().min(1).max(1000),
+  position: vec3,
+  rotation: vec3,
+  scale: vec3,
+  orbit: vec3,
+  fade: z.number().min(0).max(1),
+  dataStep: z.number().int().min(-100_000).max(100_000),
+  /** Colour clones along the ramp by clone index instead of by data. */
+  colourByClone: z.boolean(),
+});
+export type Cloner = z.infer<typeof ClonerSchema>;
+
+export function identityCloner(): Cloner {
+  return {
+    count: 1,
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: [0, 0, 0],
+    orbit: [0, 0, 0],
+    fade: 1,
+    dataStep: 0,
+    colourByClone: false,
+  };
+}
+
+/** Fields every layer type has. */
+export const LayerBaseSchema = z.object({
   id: z.string().min(1),
-  type: z.literal('instancer'),
   name: z.string(),
   enabled: z.boolean(),
   datasetId: z.string().nullable(),
+  opacity: z.number().min(0).max(1),
+  blend: z.enum(BLEND_MODES),
+  transform: TransformSchema,
+});
+export type LayerBase = z.infer<typeof LayerBaseSchema>;
+
+export const InstancerLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('instancer'),
 
   primitive: z.enum(PRIMITIVES),
   xMode: z.enum(X_MODES),
@@ -133,8 +200,7 @@ export const InstancerLayerSchema = z.object({
    */
   heightAxis: z.enum(['y', 'z']).default('y'),
   colour: hexColour,
-  opacity: z.number().min(0).max(1),
-  blend: z.enum(BLEND_MODES),
+  cloner: ClonerSchema,
 
   channels: z.object({
     y: MappingSchema,
@@ -148,9 +214,113 @@ export const InstancerLayerSchema = z.object({
 });
 export type InstancerLayer = z.infer<typeof InstancerLayerSchema>;
 
-/** Union of all layer types; more join in later phases. */
-export const LayerSchema = z.discriminatedUnion('type', [InstancerLayerSchema]);
+/**
+ * Line through the rows in order, as real screen-space geometry (`width` px, never GL
+ * 1 px lines). Each row's point is origin + t * step (t as for the instancer), plus the
+ * mapped y and z offsets.
+ */
+export const LineLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('line'),
+  xMode: z.enum(X_MODES),
+  timeColumn: z.string().nullable(),
+  rows: vec2,
+  followRange: z.boolean(),
+  origin: vec3,
+  step: vec3,
+  /** Value column -> y offset in px. Unmapped draws a flat line. */
+  y: MappingSchema,
+  z: MappingSchema,
+  /** Screen-space width in px (projection minimum is 2). */
+  width: z.number().min(1).max(200),
+  colour: hexColour,
+  /** Optional colour by value along the line (overrides `colour` where mapped). */
+  colourMap: ColourMappingSchema,
+  /**
+   * Break the line at missing values and, in time mode, across time gaps longer than
+   * gapFactor x the cadence step. Off joins across them (an explicit choice, never a default
+   * that hides gaps).
+   */
+  breakOnGaps: z.boolean(),
+  gapFactor: z.number().min(1),
+});
+export type LineLayer = z.infer<typeof LineLayerSchema>;
+
+export const HEATMAP_LAYOUTS = ['calendar', 'grid'] as const;
+export const AGGREGATES = ['mean', 'sum', 'min', 'max', 'last'] as const;
+
+/**
+ * Heat map drawn from a data texture (one texel per cell), so even 100k cells is one quad.
+ *   calendar  rows = years (first at the top), columns = day of year, in the dataset timezone
+ *   grid      cells in row order, gridColumns per line
+ * Cells with no data are transparent or `missingColour`; they are never filled in.
+ */
+export const HeatmapLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('heatmap'),
+  layout: z.enum(HEATMAP_LAYOUTS),
+  timeColumn: z.string().nullable(),
+  valueColumn: z.string().nullable(),
+  rows: vec2,
+  gridColumns: z.number().int().min(1),
+  /** Top-left corner of the map in px (y up, so the map extends downward from here). */
+  origin: vec3,
+  /** Cell width and height in px. */
+  cell: vec2,
+  scale: z.enum(SCALE_TYPES),
+  domain: vec2.nullable(),
+  ramp: z.enum(COLOUR_RAMPS),
+  reverse: z.boolean(),
+  steps: z.number().int().min(2).max(64),
+  /** Calendar only: how several rows on the same day combine (an explicit choice). */
+  aggregate: z.enum(AGGREGATES),
+  missing: z.enum(['transparent', 'colour']),
+  missingColour: hexColour,
+});
+export type HeatmapLayer = z.infer<typeof HeatmapLayerSchema>;
+
+/**
+ * Text overlay (troika-three-text, SDF). `text` is a template: {Column name} is replaced with
+ * that column's value at the current row, {Column name|format} formats it (see
+ * text-template.ts). The current row is `row` (0..1 of the row count), so a ramp
+ * modulator on it follows the data playhead. Without a dataset only static text shows.
+ */
+export const TextLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('text'),
+  text: z.string().max(2000),
+  row: z.number().min(0).max(1),
+  /** Anchor point in px. */
+  position: vec3,
+  /** px at 1080p (projection minimum is 24). */
+  fontSize: z.number().min(8).max(400),
+  colour: hexColour,
+  align: z.enum(['left', 'center', 'right']),
+  anchorX: z.enum(['left', 'center', 'right']),
+  anchorY: z.enum(['top', 'middle', 'bottom']),
+  /** Wrap width in px; 0 means no wrapping. */
+  maxWidth: z.number().min(0),
+  lineHeight: z.number().min(0.5).max(3),
+  letterSpacing: z.number().min(-0.5).max(2),
+  outlineWidth: z.number().min(0).max(20),
+  outlineColour: hexColour,
+  /** URL of a .ttf/.otf/.woff font served by the app, or null for the default font. */
+  font: z.string().nullable(),
+});
+export type TextLayer = z.infer<typeof TextLayerSchema>;
+
+export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text'] as const;
+export type LayerType = (typeof LAYER_TYPES)[number];
+
+/** Union of all layer types. */
+export const LayerSchema = z.discriminatedUnion('type', [
+  InstancerLayerSchema,
+  LineLayerSchema,
+  HeatmapLayerSchema,
+  TextLayerSchema,
+]);
 export type LayerConfig = z.infer<typeof LayerSchema>;
+
+export function isInstancer(l: LayerConfig): l is InstancerLayer {
+  return l.type === 'instancer';
+}
 
 export function unmapped(range: [number, number]): Mapping {
   return { column: null, scale: 'linear', domain: null, range, steps: 5, clamp: true };
@@ -194,6 +364,75 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     colour: '#e8e8e8',
     opacity: 1,
     blend: 'normal',
+    transform: identityTransform(),
+    cloner: identityCloner(),
     channels: defaultChannels(),
+  };
+}
+
+function base(id: string, name: string, datasetId: string | null): LayerBase {
+  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform() };
+}
+
+export function blankLineLayer(id: string, name: string, datasetId: string | null): LineLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'line',
+    xMode: 'index',
+    timeColumn: null,
+    rows: [0, 1],
+    followRange: false,
+    origin: [60, 540, 0],
+    step: [1, 0, 0],
+    y: unmapped([-300, 300]),
+    z: unmapped([0, 300]),
+    width: 2,
+    colour: '#e8e8e8',
+    colourMap: { column: null, scale: 'linear', domain: null, ramp: 'viridis', reverse: false, steps: 5 },
+    breakOnGaps: true,
+    gapFactor: 1.5,
+  };
+}
+
+export function blankHeatmapLayer(id: string, name: string, datasetId: string | null): HeatmapLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'heatmap',
+    layout: 'grid',
+    timeColumn: null,
+    valueColumn: null,
+    rows: [0, 1],
+    gridColumns: 100,
+    origin: [60, 1020, 0],
+    cell: [6, 6],
+    scale: 'linear',
+    domain: null,
+    ramp: 'viridis',
+    reverse: false,
+    steps: 5,
+    aggregate: 'mean',
+    missing: 'transparent',
+    missingColour: '#202020',
+  };
+}
+
+export function blankTextLayer(id: string, name: string, datasetId: string | null): TextLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'text',
+    text: 'data-wrangler',
+    row: 0,
+    position: [60, 1020, 0],
+    fontSize: 48,
+    colour: '#ffffff',
+    align: 'left',
+    anchorX: 'left',
+    anchorY: 'top',
+    maxWidth: 0,
+    lineHeight: 1.2,
+    letterSpacing: 0,
+    outlineWidth: 0,
+    outlineColour: '#000000',
+    font: null,
   };
 }
