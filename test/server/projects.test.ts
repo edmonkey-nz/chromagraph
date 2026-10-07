@@ -60,6 +60,12 @@ describe('ProjectStore', () => {
     const loaded = await store.load('rain');
     expect(loaded.project.output.background).toBe('#000000');
     expect(loaded.warnings[0]).toMatch(/\.bak/);
+
+    // The next save must not rotate the corrupt file into .bak over the good copy.
+    await store.save('rain', { ...loaded.project, output: { background: '#778899' } });
+    const files = await readdir(join(root, 'rain'));
+    expect(files.some((f) => f.startsWith('project.json.corrupt-'))).toBe(true);
+    expect(JSON.parse(await readFile(join(root, 'rain', 'project.json.bak'), 'utf8')).output.background).toBe('#000000');
   });
 
   it('throws a ProjectError when neither file is usable', async () => {

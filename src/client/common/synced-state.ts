@@ -30,9 +30,9 @@ export class SyncedState {
     const p = ProjectSchema.safeParse(d?.project);
     if (!p.success) return false;
     const s = SessionSchema.safeParse(d?.session);
-    this.set({ project: p.data, session: s.success ? s.data : { testPattern: false, debugOverlay: false } }, { full: true });
     this.projectName = projectName;
     this.rev = rev;
+    this.set({ project: p.data, session: s.success ? s.data : { testPattern: false, debugOverlay: false } }, { full: true });
     return true;
   }
 

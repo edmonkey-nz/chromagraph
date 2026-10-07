@@ -115,8 +115,61 @@
       }
       #side {
         display: grid;
-        grid-template-rows: auto auto 1fr;
+        grid-template-rows: auto auto auto 1fr;
         min-height: 0;
+      }
+      #datasets-section {
+        max-height: 55vh;
+        overflow: auto;
+      }
+      .ds-toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .dataset {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+      }
+      .ds-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 4px;
+      }
+      .ds-head select {
+        max-width: 200px;
+      }
+      table.cols {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 4px;
+        font-variant-numeric: tabular-nums;
+      }
+      table.cols th,
+      table.cols td {
+        text-align: left;
+        padding: 2px 10px 2px 0;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      table.cols th {
+        color: var(--muted);
+        font-weight: normal;
+      }
+      ul.issues {
+        margin: 6px 0 0;
+        padding-left: 18px;
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .error {
+        color: var(--err);
       }
       section {
         padding: 8px 12px;
@@ -189,6 +242,15 @@
         <section id="outputs">
           <h2>Output windows</h2>
           <div id="outputs-body" class="muted">No output window connected.</div>
+        </section>
+        <section id="datasets-section">
+          <h2>Datasets</h2>
+          <div class="ds-toolbar">
+            <label><button type="button" id="import-button">Import file…</button></label>
+            <input id="import-file" type="file" accept=".csv,.tsv,.txt,.json" hidden />
+            <span class="muted">CSV, TSV or JSON. Copied into the project unchanged.</span>
+          </div>
+          <div id="datasets"></div>
         </section>
         <section id="problems-section">
           <h2>Problems</h2>

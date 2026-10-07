@@ -4,6 +4,7 @@ import { PROJECT_NAME_RE, type SyncDoc } from '../../shared/project-schema.ts';
 import type { LogEntry, OutputStatus, ProjectProblem } from '../../shared/protocol.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
 import { SyncedState } from '../common/synced-state.ts';
+import { DatasetsPanel } from './datasets-panel.ts';
 
 const MAX_LOG_LINES = 500;
 
@@ -21,6 +22,9 @@ const el = {
   outputsBody: $('outputs-body'),
   problems: $('problems'),
   log: $('log'),
+  datasets: $('datasets'),
+  importButton: $<HTMLButtonElement>('import-button'),
+  importFile: $<HTMLInputElement>('import-file'),
 };
 
 const outputs = new Map<string, OutputStatus>();
@@ -67,6 +71,14 @@ function syncGui(doc: SyncDoc): void {
   }
 }
 
+// ---- datasets ----------------------------------------------------------------------
+
+const datasetsPanel = new DatasetsPanel(el.datasets, el.importFile, sendPatch, (message) => {
+  lastError = message;
+  renderBanners();
+});
+el.importButton.addEventListener('click', () => el.importFile.click());
+
 // ---- state -------------------------------------------------------------------------
 
 const state = new SyncedState(
@@ -74,6 +86,7 @@ const state = new SyncedState(
     // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the user.
     if (info.full || info.origin !== clientId) syncGui(doc);
     renderProjects();
+    datasetsPanel.update(state.projectName, doc.project.datasets);
   },
   () => socket.send({ t: 'requestFull' }),
   (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),

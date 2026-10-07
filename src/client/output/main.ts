@@ -2,6 +2,8 @@ import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { LogLevel, OutputStatus } from '../../shared/protocol.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
 import { SyncedState } from '../common/synced-state.ts';
+import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
+import { DatasetStore } from './datasets.ts';
 import { LayerHost, type FrameContext } from './layers/layer.ts';
 import { createTestPattern } from './layers/test-pattern.ts';
 import { isPreferredGpu, OUTPUT_HEIGHT, OUTPUT_WIDTH, Stage } from './stage.ts';
@@ -52,6 +54,13 @@ function report(level: LogLevel, message: string): void {
 window.addEventListener('error', (ev) => report('error', `uncaught: ${ev.message}`));
 window.addEventListener('unhandledrejection', (ev) => report('error', `unhandled rejection: ${String(ev.reason)}`));
 
+// ---- data ------------------------------------------------------------------------
+
+const datasets = new DatasetStore(
+  (level, message) => report(level, message),
+  (_id, _table, url) => precache([url]),
+);
+
 // ---- state -----------------------------------------------------------------------
 
 const state = new SyncedState(
@@ -70,6 +79,9 @@ const state = new SyncedState(
 /** Reconcile the scene with the state. Only touches what changed, so a resync is seamless. */
 function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
   debugEl.hidden = !doc.session.debugOverlay;
+  if (!prev || doc.project.datasets !== prev.project.datasets || state.projectName !== datasets.currentProject) {
+    datasets.sync(state.projectName, doc.project.datasets);
+  }
   if (!stage || !layers) return;
   if (!prev || doc.project.output.background !== prev.project.output.background) {
     stage.setBackground(doc.project.output.background);
@@ -164,7 +176,7 @@ function status(): OutputStatus {
     contextLost: stage?.contextLost ?? false,
     rev: state.rev,
     layerErrors: layers ? [...layers.errors] : [],
-    datasetErrors: [],
+    datasetErrors: [...datasets.errors],
   };
 }
 
@@ -184,6 +196,35 @@ window.setInterval(() => {
     `${stage?.rendererName ?? 'no renderer'}` +
     (layers?.errors.length ? `\n${layers.errors.length} layer error(s)` : '');
 }, 500);
+
+// ---- offline boot ------------------------------------------------------------------
+// In production a service worker caches the page, bundle and data files so the output can
+// reload and keep rendering while the server is down. In dev it would cache Vite modules,
+// so any registration left over from a production run is removed.
+
+function precache(urls: string[]): void {
+  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return;
+  void navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage({ t: 'precache', urls })).catch(() => {});
+}
+
+if ('serviceWorker' in navigator) {
+  if (import.meta.env.PROD) {
+    navigator.serviceWorker
+      .register('/output/sw.js', { scope: '/output/' })
+      .then(() => {
+        const loaded = performance
+          .getEntriesByType('resource')
+          .map((e) => e.name)
+          .filter((u) => u.startsWith(location.origin));
+        precache([location.href, new URL(PARSE_WORKER_URL, location.href).href, ...loaded]);
+      })
+      .catch((err: unknown) => {
+        report('warn', `service worker registration failed: ${String(err)}`);
+      });
+  } else {
+    void navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => void r.unregister()));
+  }
+}
 
 // ---- connection --------------------------------------------------------------------
 
@@ -205,6 +246,7 @@ socket = new ReconnectingSocket(wsUrl(), {
         socket?.send({ t: 'log', ...entry });
       }
       socket?.send({ t: 'status', status: status() });
+      datasets.reloadFailed();
     }
   },
 });

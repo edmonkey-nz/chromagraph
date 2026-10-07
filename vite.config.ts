@@ -19,6 +19,12 @@ export default defineConfig({
     },
   },
   worker: { format: 'es' },
+  // Pre-bundle up front: a dependency discovered at runtime makes Vite reload every page,
+  // which would interrupt a running output window in dev.
+  optimizeDeps: {
+    entries: ['control/index.html', 'output/index.html', '../data/parse.worker.ts'],
+    include: ['three', 'tweakpane', 'papaparse', 'zod'],
+  },
   test: {
     root: import.meta.dirname,
     include: ['test/**/*.test.ts'],

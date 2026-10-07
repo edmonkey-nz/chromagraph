@@ -16,12 +16,16 @@ function isNoEnt(err: unknown): boolean {
  * hard-linking the old file and renaming the link into place, so it is atomic too and
  * no bytes are copied.
  */
-export async function writeFileAtomic(path: string, data: string, opts: { backup?: boolean } = {}): Promise<void> {
+export async function writeFileAtomic(
+  path: string,
+  data: string | Uint8Array,
+  opts: { backup?: boolean } = {},
+): Promise<void> {
   const tmp = `${path}.${process.pid}.${tmpCounter++}.tmp`;
   try {
     const fh = await open(tmp, 'w');
     try {
-      await fh.writeFile(data, 'utf8');
+      await fh.writeFile(data);
       await fh.sync();
     } finally {
       await fh.close();
@@ -118,9 +122,21 @@ export class ProjectStore {
     }
     const backup = await readProjectFile(`${base}.bak`);
     if (backup.ok) {
+      // Move the bad file aside (kept for inspection) so the next save cannot rotate it
+      // into project.json.bak over the good copy.
+      let aside = '';
+      if (primary.error !== 'file missing') {
+        const asideName = `project.json.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        try {
+          await rename(base, join(this.dir(name), asideName));
+          aside = `; the bad file was kept as ${asideName}`;
+        } catch {
+          // leave it; the warning still reports the problem
+        }
+      }
       return {
         project: backup.project,
-        warnings: [`project.json unusable (${primary.error}); loaded project.json.bak instead`],
+        warnings: [`project.json unusable (${primary.error}); loaded project.json.bak instead${aside}`],
       };
     }
     throw new ProjectError(`cannot load "${name}": ${primary.error}; backup: ${backup.error}`);

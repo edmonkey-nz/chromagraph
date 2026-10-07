@@ -1,7 +1,9 @@
+import { createReadStream } from 'node:fs';
 import { resolve } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
+import { registerDataRoutes } from './data-routes.ts';
 import { Hub } from './hub.ts';
 import { Log } from './log.ts';
 import { ProjectStore } from './projects.ts';
@@ -25,6 +27,8 @@ await app.register(fastifyWebsocket, { options: { maxPayload: 8 * 1024 * 1024 } 
 
 app.get('/ws', { websocket: true }, (socket) => hub.attach(socket));
 
+await registerDataRoutes(app, store, hub, log);
+
 app.get('/api/projects', async () => ({ names: await store.list(), current: hub.currentProject.name }));
 
 for (const page of ['control', 'output'] as const) {
@@ -35,6 +39,12 @@ app.get('/', (_req, reply) => reply.redirect('/control/'));
 if (isProd) {
   // Built bundle, no HMR: editing source can never reload a running output.
   await app.register(fastifyStatic, { root: resolve(ROOT, 'dist/client'), prefix: '/', wildcard: true });
+  app.get('/output/sw.js', (_req, reply) =>
+    reply
+      .header('content-type', 'text/javascript; charset=utf-8')
+      .header('cache-control', 'no-cache')
+      .send(createReadStream(resolve(import.meta.dirname, 'static/output-sw.js'))),
+  );
 } else {
   const { default: middie } = await import('@fastify/middie');
   const { createServer } = await import('vite');

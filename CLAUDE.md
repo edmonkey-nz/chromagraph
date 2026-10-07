@@ -83,6 +83,12 @@ Projector calibration is NOT in the project. It lives in `output-profiles/<name>
 
 Reference dataset: NIWA daily rainfall (`Observation time UTC`, `Rainfall [mm]`, mostly
 empty deficit/runoff columns, irregular gaps). Keep a copy in `test/fixtures/`.
+Readings are taken at 09:00 local time, but before 1941 NZ ran on NZ Mean Time (+11:30), so those
+rows show as 08:30 Pacific/Auckland. That is correct, not a parsing bug.
+`3384__Rain__daily-sample1.csv` has one corrupt row (row 24), so one of its columns parses as text.
+
+GPU precision: time columns are epoch-ms float64. Upload offsets from the column's `min` to the
+GPU, never raw epoch-ms, because at 1879 dates the float32 step is about 4 minutes.
 
 ### Layer stack
 
@@ -157,6 +163,18 @@ mappable to MIDI/OSC.
 
 ## Commands
 
-- `npm run dev` : server plus Vite, control at `/control`, output at `/output`
+- `npm run dev` : server plus Vite on :8080, control at `/control`, output at `/output`
+- `npm run build` then `npm start` : production (built bundle, no HMR). Use this for
+  installations, because in dev a source edit reloads the output.
 - `npm test` : Vitest
 - `npm run typecheck`
+
+## Implementation notes
+
+- **Offline boot (production only).** A service worker (`src/server/static/output-sw.js`)
+  lets the output reload while the server is down. It is network-first with a cache fallback.
+- **Parse worker in production.** It starts from a blob URL, because Chrome does not send a
+  dedicated worker's script load through the service worker. URLs passed to the worker must
+  be absolute.
+- **Sync model.** Patches address `project.*` (saved) or `session.*` (live only: test pattern,
+  debug overlay). The server validates every patch against the zod schema before applying it.
