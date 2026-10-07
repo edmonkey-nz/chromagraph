@@ -13,6 +13,8 @@ import {
   type InstancerLayer,
   type NumericChannel,
 } from '../../shared/layer-schema.ts';
+import { layerParamCopyOps, layerParamRemovalOps } from '../../shared/modulation-helpers.ts';
+import { layerParamPrefix } from '../../shared/parameters.ts';
 import { applyOps, type Path, type PatchOp } from '../../shared/patch.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
 
@@ -41,7 +43,24 @@ interface Entry {
   folders: { key: string; api: FolderApi }[];
   /** Rebuild on the next echo of our own patch (after a multi-field edit such as Fit). */
   forceRebuild: boolean;
+  /** Bindings of modulatable fields, with their plain label and parameter id suffixes. */
+  marks: Mark[];
 }
+
+/** Any binding: only its label is touched. */
+interface Labelled {
+  label: string | null | undefined;
+}
+
+interface Mark {
+  api: Labelled;
+  label: string;
+  /** Parameter ids relative to the layer prefix, e.g. "rows.0". */
+  fields: string[];
+}
+
+/** Appended to the label of a field whose parameter has a modulator. */
+const MODULATED_SUFFIX = ' ~';
 
 interface Change {
   path: Path;
@@ -102,6 +121,8 @@ export class LayersPanel {
   private expanded = new Map<string, boolean>();
   /** Non-zero while the panel itself writes into bindings; change events are ignored then. */
   private quietDepth = 0;
+  /** The modulators the field labels were last marked from. */
+  private parameters: SyncDoc['project']['parameters'] | null = null;
 
   constructor(parent: FolderApi, private deps: LayersPanelDeps) {
     this.root = parent.addFolder({ title: 'Layers' });
@@ -123,6 +144,7 @@ export class LayersPanel {
       doc.project.datasets !== this.datasets;
     if (structural) {
       this.rebuildAll(doc);
+      this.parameters = doc.project.parameters;
       return;
     }
     for (const layer of layers) {
@@ -143,6 +165,25 @@ export class LayersPanel {
         entry.folder.title = this.titleOf(layer);
       }
     }
+    if (doc.project.parameters !== this.parameters) {
+      this.parameters = doc.project.parameters;
+      for (const entry of this.entries.values()) this.applyMarks(entry, doc);
+    }
+  }
+
+  /** Label each modulatable field " ~" when any of its parameters has a modulator. */
+  private applyMarks(entry: Entry, doc: SyncDoc): void {
+    const params = doc.project.parameters;
+    const prefix = layerParamPrefix(entry.layer.id);
+    for (const m of entry.marks) {
+      const modulated = m.fields.some((f) => params[prefix + f] !== undefined);
+      m.api.label = modulated ? m.label + MODULATED_SUFFIX : m.label;
+    }
+  }
+
+  private mark<T extends Labelled>(entry: Entry, api: T, label: string, ...fields: string[]): T {
+    entry.marks.push({ api, label, fields });
+    return api;
   }
 
   /** Call when a dataset finishes parsing, so layers waiting for its columns can rebuild. */
@@ -303,6 +344,8 @@ export class LayersPanel {
     const ops: PatchOp[] = [];
     for (let k = layers.length; k > cur.index + 1; k--) ops.push({ op: 'set', path: ['project', 'layers', k], value: layers[k - 1] });
     ops.push({ op: 'set', path: ['project', 'layers', cur.index + 1], value: copy });
+    // The copy gets the original's modulators too, in the same patch.
+    ops.push(...layerParamCopyOps(cur.doc.project.parameters, id, newId));
     for (const f of this.entries.get(id)?.folders ?? []) this.expanded.set(`${newId}${f.key.slice(id.length)}`, f.api.expanded);
     this.deps.sendPatch(ops);
   }
@@ -313,7 +356,10 @@ export class LayersPanel {
     if (!window.confirm(`Delete layer "${cur.layer.name}"?`)) return;
     // Re-resolve: the document may have changed while the dialog was open.
     const now = this.currentIndex(id);
-    if (now) this.deps.sendPatch([{ op: 'remove', path: ['project', 'layers', now.index] }]);
+    // Its modulators go in the same patch, so none are left orphaned.
+    if (now) {
+      this.deps.sendPatch([{ op: 'remove', path: ['project', 'layers', now.index] }, ...layerParamRemovalOps(now.doc.project.parameters, id)]);
+    }
   }
 
   private fit(id: string): void {
@@ -372,7 +418,7 @@ export class LayersPanel {
     const id = layer.id;
     const summary = this.summaryFor(layer);
     const dataset = doc.project.datasets.find((d) => d.id === layer.datasetId);
-    const entry: Entry = { layer, summary, folder: null as unknown as FolderApi, folders: [], forceRebuild: false };
+    const entry: Entry = { layer, summary, folder: null as unknown as FolderApi, folders: [], forceRebuild: false, marks: [] };
     // Child 0 of the Layers folder is the "Add layer" button.
     entry.folder = this.folderIn(entry, this.root, this.titleOf(layer), `${id}/`, false, position + 1);
     this.entries.set(id, entry);
@@ -383,6 +429,7 @@ export class LayersPanel {
       this.buildChannels(entry, layer, summary);
       this.buildActions(entry, layer, position, count);
     });
+    this.applyMarks(entry, doc);
   }
 
   private buildGeneral(entry: Entry, doc: SyncDoc, layer: InstancerLayer, summary: DatasetSummary | null): void {
@@ -428,8 +475,8 @@ export class LayersPanel {
       f.addButton({ title: 'Waiting for data…', label: 'time column', disabled: true });
     }
 
-    const start = f.addBinding(m, 'rowStart', { label: 'rows start', min: 0, max: 1, step: 0.001 });
-    const end = f.addBinding(m, 'rowEnd', { label: 'rows end', min: 0, max: 1, step: 0.001 });
+    const start = this.mark(entry, f.addBinding(m, 'rowStart', { label: 'rows start', min: 0, max: 1, step: 0.001 }), 'rows start', 'rows.0');
+    const end = this.mark(entry, f.addBinding(m, 'rowEnd', { label: 'rows end', min: 0, max: 1, step: 0.001 }), 'rows end', 'rows.1');
     const MIN_GAP = 0.001;
     const sendRows = (moved: 'start' | 'end') => {
       if (this.quietDepth > 0) return;
@@ -473,28 +520,62 @@ export class LayersPanel {
     const radial = a === 'radial' || a === 'spiral';
     const cells = a === 'grid' || a === 'calendar';
 
-    f.addBinding(m, 'origin', { label: radial ? 'centre' : cells ? 'top-left' : 'origin', format: fmt }).on('change', (ev) =>
-      this.set(id, ['origin'], [ev.value.x, ev.value.y, ev.value.z]),
+    const originLabel = radial ? 'centre' : cells ? 'top-left' : 'origin';
+    const xyz = (field: string) => [0, 1, 2].map((i) => `${field}.${i}`);
+    this.mark(
+      entry,
+      f.addBinding(m, 'origin', { label: originLabel, format: fmt }).on('change', (ev) => this.set(id, ['origin'], [ev.value.x, ev.value.y, ev.value.z])),
+      originLabel,
+      ...xyz('origin'),
     );
     const bindings: { api: BladeApi; show: boolean }[] = [];
     const add = (api: BladeApi, show: boolean) => bindings.push({ api, show });
 
     add(
-      f.addBinding(m, 'step', { label: 'step', format: fmt }).on('change', (ev) => this.set(id, ['step'], [ev.value.x, ev.value.y, ev.value.z])),
+      this.mark(
+        entry,
+        f.addBinding(m, 'step', { label: 'step', format: fmt }).on('change', (ev) => this.set(id, ['step'], [ev.value.x, ev.value.y, ev.value.z])),
+        'step',
+        ...xyz('step'),
+      ),
       a === 'linear',
     );
     add(
-      f.addBinding(m, 'gridColumns', { label: 'grid columns', min: 1, step: 1 }).on('change', (ev) =>
-        this.set(id, ['gridColumns'], Math.max(1, Math.round(ev.value))),
+      this.mark(
+        entry,
+        f.addBinding(m, 'gridColumns', { label: 'grid columns', min: 1, step: 1 }).on('change', (ev) =>
+          this.set(id, ['gridColumns'], Math.max(1, Math.round(ev.value))),
+        ),
+        'grid columns',
+        'gridColumns',
       ),
       a === 'grid',
     );
     const sendCell = () => this.set(id, ['cell'], [m.cellW, m.cellH]);
-    add(f.addBinding(m, 'cellW', { label: 'cell w', format: fmt }).on('change', sendCell), cells);
-    add(f.addBinding(m, 'cellH', { label: 'cell h', format: fmt }).on('change', sendCell), cells);
-    add(f.addBinding(m, 'radius', { format: fmt }).on('change', (ev) => this.set(id, ['radius'], ev.value)), radial);
-    add(f.addBinding(m, 'angleStep', { label: 'angle step', format: fmt }).on('change', (ev) => this.set(id, ['angleStep'], ev.value)), radial);
-    add(f.addBinding(m, 'radiusStep', { label: 'radius step', format: fmt }).on('change', (ev) => this.set(id, ['radiusStep'], ev.value)), a === 'spiral');
+    add(this.mark(entry, f.addBinding(m, 'cellW', { label: 'cell w', format: fmt }).on('change', sendCell), 'cell w', 'cell.0'), cells);
+    add(this.mark(entry, f.addBinding(m, 'cellH', { label: 'cell h', format: fmt }).on('change', sendCell), 'cell h', 'cell.1'), cells);
+    add(
+      this.mark(entry, f.addBinding(m, 'radius', { label: 'radius', format: fmt }).on('change', (ev) => this.set(id, ['radius'], ev.value)), 'radius', 'radius'),
+      radial,
+    );
+    add(
+      this.mark(
+        entry,
+        f.addBinding(m, 'angleStep', { label: 'angle step', format: fmt }).on('change', (ev) => this.set(id, ['angleStep'], ev.value)),
+        'angle step',
+        'angleStep',
+      ),
+      radial,
+    );
+    add(
+      this.mark(
+        entry,
+        f.addBinding(m, 'radiusStep', { label: 'radius step', format: fmt }).on('change', (ev) => this.set(id, ['radiusStep'], ev.value)),
+        'radius step',
+        'radiusStep',
+      ),
+      a === 'spiral',
+    );
     for (const b of bindings) b.api.hidden = !b.show;
 
     f.addButton({ title: canFit ? 'Fit to output' : 'Fit to output (waiting for data)', disabled: !canFit }).on('click', () => this.fit(id));
@@ -510,13 +591,25 @@ export class LayersPanel {
       opacity: layer.opacity,
       blend: layer.blend,
     };
-    f.addBinding(m, 'size', { format: fmt }).on('change', (ev) => this.set(id, ['size'], [ev.value.x, ev.value.y, ev.value.z]));
+    this.mark(
+      entry,
+      f.addBinding(m, 'size', { label: 'size', format: fmt }).on('change', (ev) => this.set(id, ['size'], [ev.value.x, ev.value.y, ev.value.z])),
+      'size',
+      'size.0',
+      'size.1',
+      'size.2',
+    );
     f.addBinding(m, 'heightAxis', {
       label: 'height along',
       options: { 'y (up the frame)': 'y', 'z (out of the frame)': 'z' },
     }).on('change', (ev) => this.set(id, ['heightAxis'], ev.value));
     f.addBinding(m, 'colour').on('change', (ev) => this.set(id, ['colour'], ev.value));
-    f.addBinding(m, 'opacity', { min: 0, max: 1, step: 0.01 }).on('change', (ev) => this.set(id, ['opacity'], ev.value));
+    this.mark(
+      entry,
+      f.addBinding(m, 'opacity', { label: 'opacity', min: 0, max: 1, step: 0.01 }).on('change', (ev) => this.set(id, ['opacity'], ev.value)),
+      'opacity',
+      'opacity',
+    );
     f.addBinding(m, 'blend', { options: options(BLEND_MODES) }).on('change', (ev) => this.set(id, ['blend'], ev.value));
   }
 
@@ -585,8 +678,19 @@ export class LayersPanel {
       }
       showDomain();
     });
-    const domainMin = f.addBinding(m, 'domainMin', { label: 'domain min', format: fmt }).on('change', sendDomain);
-    const domainMax = f.addBinding(m, 'domainMax', { label: 'domain max', format: fmt }).on('change', sendDomain);
+    const chPrefix = `channels.${ch}`;
+    const domainMin = this.mark(
+      entry,
+      f.addBinding(m, 'domainMin', { label: 'domain min', format: fmt }).on('change', sendDomain),
+      'domain min',
+      `${chPrefix}.domain.0`,
+    );
+    const domainMax = this.mark(
+      entry,
+      f.addBinding(m, 'domainMax', { label: 'domain max', format: fmt }).on('change', sendDomain),
+      'domain max',
+      `${chPrefix}.domain.1`,
+    );
     showDomain();
 
     let clampModel: { clamp: boolean } | null = null;
@@ -599,8 +703,8 @@ export class LayersPanel {
       const nm = layer.channels[ch];
       const r = { rangeMin: nm.range[0], rangeMax: nm.range[1] };
       const sendRange = () => this.set(id, path('range'), [r.rangeMin, r.rangeMax]);
-      f.addBinding(r, 'rangeMin', { label: 'range min', format: fmt }).on('change', sendRange);
-      f.addBinding(r, 'rangeMax', { label: 'range max', format: fmt }).on('change', sendRange);
+      this.mark(entry, f.addBinding(r, 'rangeMin', { label: 'range min', format: fmt }).on('change', sendRange), 'range min', `${chPrefix}.range.0`);
+      this.mark(entry, f.addBinding(r, 'rangeMax', { label: 'range max', format: fmt }).on('change', sendRange), 'range max', `${chPrefix}.range.1`);
       clampModel = { clamp: nm.clamp };
     }
 

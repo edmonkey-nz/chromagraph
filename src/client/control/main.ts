@@ -1,4 +1,5 @@
 import { Pane } from 'tweakpane';
+import { wallMs } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import { PROJECT_NAME_RE, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
 import type { LogEntry, OutputStatus, ProjectProblem } from '../../shared/protocol.ts';
@@ -6,6 +7,8 @@ import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '.
 import { SyncedState } from '../common/synced-state.ts';
 import { DatasetsPanel } from './datasets-panel.ts';
 import { LayersPanel } from './layers-panel.ts';
+import { ModulationPanel } from './modulation-panel.ts';
+import { TimelinePanel } from './timeline-panel.ts';
 
 const MAX_LOG_LINES = 500;
 
@@ -74,6 +77,10 @@ cameraFolder
   .addBinding(cam, 'target', { label: 'target' })
   .on('change', (ev) => setCamera('target', [ev.value.x, ev.value.y, ev.value.z]));
 
+// Pane order: Output, Diagnostics, Camera, Timeline, Layers, Modulation (folders are added
+// in that order below).
+const timelinePanel = new TimelinePanel(pane, { sendPatch, getDoc: () => state.doc });
+
 /** Set while copying server state into the GUI, so the resulting change events don't echo back. */
 let syncingGui = false;
 
@@ -117,6 +124,25 @@ const layersPanel = new LayersPanel(pane, {
   },
 });
 datasetsPanel.onChange = () => layersPanel.refreshSummaries();
+
+// ---- modulation --------------------------------------------------------------------
+
+const modulationPanel = new ModulationPanel(pane, {
+  sendPatch,
+  getDoc: () => state.doc,
+  showError: (message) => {
+    lastError = message;
+    renderBanners();
+  },
+});
+
+/** The live phase slider and modulator value monitors move locally, about 10 times a second. */
+const LIVE_TICK_MS = 100;
+setInterval(() => {
+  const now = wallMs();
+  timelinePanel.tick(now);
+  modulationPanel.tick(now);
+}, LIVE_TICK_MS);
 
 // ---- live preview ------------------------------------------------------------------
 // A small output window embedded in the side column. Hiding it removes the iframe, so it
@@ -165,7 +191,9 @@ const state = new SyncedState(
     if (external) syncGui(doc);
     renderProjects();
     datasetsPanel.update(state.projectName, doc.project.datasets);
+    timelinePanel.update(doc);
     layersPanel.update(doc, external);
+    modulationPanel.update(doc, external);
   },
   () => socket.send({ t: 'requestFull' }),
   (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
