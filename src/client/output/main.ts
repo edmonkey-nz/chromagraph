@@ -5,6 +5,7 @@ import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { DatasetStore } from './datasets.ts';
 import { LayerManager } from './layer-manager.ts';
+import { ModulationEngine } from './modulation.ts';
 import { LayerHost, type FrameContext } from './layers/layer.ts';
 import { invalidateRampTextures } from './layers/ramps.ts';
 import { createTestPattern } from './layers/test-pattern.ts';
@@ -34,6 +35,11 @@ const debugEl = document.getElementById('debug') as HTMLDivElement;
 let stage: Stage | null = null;
 let layers: LayerHost | null = null;
 let layerManager: LayerManager | null = null;
+
+const modulation = new ModulationEngine({
+  applyLayer: (id, effective) => layerManager?.applyEffective(id, effective),
+  applyCamera: (effective) => stage?.setCamera(effective),
+});
 let socket: ReconnectingSocket | null = null;
 let connection: ConnectionState = 'closed';
 
@@ -101,6 +107,13 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
   }
   if (!prev || doc.project.camera !== prev.project.camera) stage.setCamera(doc.project.camera);
   syncLayers(doc);
+  modulation.sync(doc);
+  if (prev && doc.project.parameters !== prev.project.parameters) {
+    // Removed or disabled modulators leave their last value behind; restore the bases
+    // (modulators still present overwrite them again on the next frame).
+    layerManager?.reapplyBase();
+    stage.setCamera(doc.project.camera);
+  }
   if (doc.session.testPattern) {
     if (!layers.get(TEST_PATTERN_ID)) layers.set(TEST_PATTERN_ID, () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT));
   } else {
@@ -177,6 +190,7 @@ function tick(now: number): void {
     ctx.frame++;
     lastFrame = now;
     if (stage && layers && !stage.contextLost) {
+      modulation.frame(performance.timeOrigin + now);
       layers.update(ctx);
       stage.render();
     }
@@ -224,6 +238,7 @@ window.setInterval(() => {
   debugEl.textContent =
     `${fps.toFixed(1)} fps  ${frameMs.toFixed(2)} ms cpu\n` +
     `${connection}  rev ${state.rev}  ${state.projectName}\n` +
+    `timeline ${(modulation.phase * 100).toFixed(1)}%  ${modulation.active} modulated\n` +
     `${stage?.rendererName ?? 'no renderer'}` +
     (layers?.errors.length ? `\n${layers.errors.length} layer error(s)` : '');
 }, 500);

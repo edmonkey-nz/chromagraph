@@ -23,10 +23,11 @@ import {
   buildInstanceData,
   firstDefinedT,
   resolveDomain,
+  type ChannelData,
   type ChannelName,
   type InstanceData,
 } from '../../../data/instance-data.ts';
-import type { InstancerLayer, Mapping, NumericChannel, Primitive, ScaleType } from '../../../shared/layer-schema.ts';
+import type { ColourMapping, InstancerLayer, Mapping, NumericChannel, Primitive, ScaleType } from '../../../shared/layer-schema.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
 
@@ -284,13 +285,41 @@ const fragmentShader = /* glsl */ `
   }
 `;
 
-function uniformScale(m: Pick<Mapping, 'scale' | 'steps'>, domain: [number, number], target: Vector4): void {
+function uniformScale(m: Pick<Mapping, 'scale' | 'steps'>, domain: readonly [number, number], target: Vector4): void {
   target.set(domain[0], domain[1], SCALE_CODE[m.scale], m.steps);
+}
+
+/**
+ * resolveDomain memoised on the inputs that affect it. apply() runs every frame for a
+ * modulated layer, and an auto log domain scans every row, so recompute only on change.
+ */
+function domainMemo(data: ChannelData): (m: Mapping | ColourMapping) => readonly [number, number] {
+  let scale: ScaleType | null = null;
+  let d0 = NaN;
+  let d1 = NaN;
+  let auto = false;
+  let result: readonly [number, number] = [0, 1];
+  return (m) => {
+    const isAuto = m.domain === null;
+    const a = m.domain?.[0] ?? NaN;
+    const b = m.domain?.[1] ?? NaN;
+    if (m.scale !== scale || isAuto !== auto || (!isAuto && (a !== d0 || b !== d1))) {
+      scale = m.scale;
+      auto = isAuto;
+      d0 = a;
+      d1 = b;
+      result = resolveDomain(m, data);
+    }
+    return result;
+  };
 }
 
 export function createInstancer(layer: InstancerLayer, source: InstancerData, cameraMode: '2d' | '3d'): InstancerInstance {
   const data: InstanceData = buildInstanceData(layer, source.table, source.cadences, source.calendars);
   const channelNames = Object.keys(data.channels) as ChannelName[];
+  const domains = new Map<ChannelName, (m: Mapping | ColourMapping) => readonly [number, number]>();
+  for (const name of channelNames) domains.set(name, domainMemo(data.channels[name]!));
+  const translucentChannels = channelNames.includes('opacity');
 
   const base = baseGeometry(layer.primitive); // only its attributes are used
   const geometry = new InstancedBufferGeometry();
@@ -383,19 +412,19 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
       if (!d) continue;
       const m = next.channels[ch.name];
       const suffix = ch.attr.slice(3);
-      uniformScale(m, resolveDomain(m, d), uniforms[`uScale${suffix}`]!.value as Vector4);
+      uniformScale(m, domains.get(ch.name)!(m), uniforms[`uScale${suffix}`]!.value as Vector4);
       (uniforms[`uRange${suffix}`]!.value as Vector3).set(m.range[0], m.range[1], m.clamp ? 1 : 0);
     }
     if (colourData) {
       const m = next.channels.colour;
-      uniformScale(m, resolveDomain(m, colourData), uniforms.uScaleColour!.value as Vector4);
+      uniformScale(m, domains.get('colour')!(m), uniforms.uScaleColour!.value as Vector4);
       uniforms.uReverse!.value = m.reverse ? 1 : 0;
       if (colourData.categories === 0) uniforms.uRamp!.value = rampTexture(m.ramp);
     }
 
     const additive = next.blend === 'additive';
     const translucent =
-      additive || next.opacity < 1 || next.primitive === 'point' || channelNames.includes('opacity');
+      additive || next.opacity < 1 || next.primitive === 'point' || translucentChannels;
     material.transparent = translucent;
     material.blending = additive ? AdditiveBlending : NormalBlending;
     // 2D layers sit on one plane, so depth testing would only cause z-fighting; draw order

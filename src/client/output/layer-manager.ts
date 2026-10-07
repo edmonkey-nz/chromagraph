@@ -54,6 +54,19 @@ export class LayerManager {
     for (const id of [...this.keys.keys()]) if (!seen.has(id)) this.drop(id);
   }
 
+  /** Push modulated (effective) values for one layer; called every frame by the modulation engine. */
+  applyEffective(id: string, effective: InstancerLayer): void {
+    if (!this.keys.has(id)) return;
+    this.host.call<InstancerInstance>(id, (inst) => inst.apply(effective, this.cameraMode));
+  }
+
+  /** Re-apply every layer's base config (e.g. after its modulators were removed). */
+  reapplyBase(): void {
+    for (const [id, layer] of this.applied) {
+      this.host.call<InstancerInstance>(id, (inst) => inst.apply(layer, this.cameraMode));
+    }
+  }
+
   /** Forget everything, e.g. after a WebGL context restore, so the next sync rebuilds all. */
   reset(): void {
     for (const id of [...this.keys.keys()]) this.drop(id);
