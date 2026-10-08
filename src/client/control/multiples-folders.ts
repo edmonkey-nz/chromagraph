@@ -17,7 +17,6 @@ import {
   addValueColumn,
   addVec3,
   buildTransform,
-  columnOptions,
   numericColumns,
   type DomainControl,
   type LayerUi,
@@ -121,9 +120,12 @@ function buildSplitColumn(ui: LayerUi, f: FolderApi, layer: SmallMultiplesLayer)
   }
   const columns = levelColumns(isTimeSplit(layer.splitBy) ? 'time' : 'category', ui.summary);
   const m = { column: layer.splitColumn ?? '' };
-  f.addBinding(m, 'column', { label: 'split column', options: columnOptions(columns, layer.splitColumn) }).on('change', (ev) =>
-    ui.set(['splitColumn'], ev.value || null),
-  );
+  // No "none": a calendar or category split needs a column.
+  const options = columns.map((c) => ({ text: c.name, value: c.name }));
+  if (!columns.some((c) => c.name === layer.splitColumn)) {
+    options.unshift({ text: layer.splitColumn === null ? '(no suitable column)' : `${layer.splitColumn} (missing)`, value: m.column });
+  }
+  f.addBinding(m, 'column', { label: 'split column', options }).on('change', (ev) => ui.set(['splitColumn'], ev.value || null));
 }
 
 /** Read-only "panels: 119 in 10 lines" for the current split, rows and panels per line. */
