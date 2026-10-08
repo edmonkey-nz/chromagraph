@@ -276,7 +276,6 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
   return out;
 }
 
-/** Every modulatable parameter in the project, camera first, then layers in stack order. */
 /** Output effects: ids `output.effects.bloom.strength`, `output.effects.trails.persistence`, ... */
 const EFFECT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   'effects.bloom.strength': { label: 'glow strength', min: 0, max: 3, hardMin: 0, hardMax: 3 },
@@ -285,6 +284,7 @@ const EFFECT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   'effects.trails.persistence': { label: 'trail length', min: 0, max: 0.99, hardMin: 0, hardMax: 0.99 },
 };
 
+/** Every modulatable parameter in the project: camera, output effects, then layers in stack order. */
 export function parameterDefs(project: Project): ParamDef[] {
   const out: ParamDef[] = [];
   addFields(out, 'camera', 'Camera', CAMERA_FIELDS);
