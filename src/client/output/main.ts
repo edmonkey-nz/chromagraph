@@ -151,6 +151,7 @@ function createStage(): void {
       canvas,
       {
         lost: () => report('error', 'WebGL context lost; waiting for restore'),
+        report: (message) => report('error', `output effects: ${message}`),
         restored: () => {
           report('warn', 'WebGL context restored; rebuilding layers');
           invalidateRampTextures();
@@ -213,7 +214,7 @@ function tick(now: number): void {
       modulation.frame(performance.timeOrigin + now);
       layers.update(ctx);
       editor?.frame();
-      stage.render();
+      stage.render(ctx.dt);
       editor?.renderOverlay();
     }
   } catch (err) {
