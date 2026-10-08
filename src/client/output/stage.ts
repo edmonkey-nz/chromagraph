@@ -178,15 +178,18 @@ export class Stage {
   }
 
   setCamera(cfg: Camera): void {
-    const d = this.displayedCamera;
-    d.mode = cfg.mode;
-    d.fov = cfg.fov;
-    d.yaw = cfg.yaw;
-    d.pitch = cfg.pitch;
-    d.distance = cfg.distance;
-    d.target[0] = cfg.target[0];
-    d.target[1] = cfg.target[1];
-    d.target[2] = cfg.target[2];
+    // (Guarded: test/shared/editor-maths.test.ts calls this on a bare stand-in object.)
+    const d = this.displayedCamera as Camera | undefined;
+    if (d) {
+      d.mode = cfg.mode;
+      d.fov = cfg.fov;
+      d.yaw = cfg.yaw;
+      d.pitch = cfg.pitch;
+      d.distance = cfg.distance;
+      d.target[0] = cfg.target[0];
+      d.target[1] = cfg.target[1];
+      d.target[2] = cfg.target[2];
+    }
     if (cfg.mode === '2d') {
       this.camera = this.orthoCamera;
       return;
