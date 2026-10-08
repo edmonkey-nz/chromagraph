@@ -157,7 +157,8 @@ mappable to MIDI/OSC.
 
 ## Build phases
 
-Status: phases 1–7 are done. All seven layer types work: instancer, line, heat map, text,
+Status: phases 1–7 are done, plus the first round of FUTURE.md: save, Save As and
+snapshots; scenes with morphs; bloom and trails; and the redesigned control window. All seven layer types work: instancer, line, heat map, text,
 small multiples, hierarchy and 3D surface. Instancers and lines have cloners; lines have
 area fill for ridgelines. Layers have transforms with gizmo editing; modulators and the
 timeline work; the keystone works. Nothing has been checked on the target GTX 1650 yet.
@@ -358,6 +359,21 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   `session.morph`. The output then morphs from what is on screen: matching layers
   interpolate, others crossfade.
 - The sender treats that patch's echo as external, so its own panes refresh.
+- **Output side** (`client/output/morph.ts`, with pure lerp plans in `shared/morph-plan.ts`):
+  - It freezes what is on screen, including any morph still in progress, and lerps
+    towards the live target. Modulators keep running during a morph.
+  - Layers with the same structure key interpolate; instancers can move between any two
+    arrangements. Others crossfade, and their outgoing instances are kept until faded.
+  - Splitting a scene change into two patches shows as a cut.
+
+**Output effects** (`client/output/effects.ts`).
+- The chain is scene → MSAA target → bloom (a half-resolution glow added later) →
+  trails (ping-pong history: the channel furthest from the background wins, faded by
+  persistence^(dt·60)) → warp.
+- Render targets are created on first enable and released 10 s after disabling. Both
+  effects off costs nothing.
+- `Stage.verify` forces the shader error check at build time. In three 0.186,
+  `compile()` alone doesn't run it.
 
 **Control window start-up order.** `client/control/main.ts` creates `SyncedState` before
 the panels, because some panels read `state.doc` while they are being built. In the
