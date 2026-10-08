@@ -13,7 +13,7 @@ import {
   type Object3D,
 } from 'three';
 import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
-import type { Camera } from '../../shared/project-schema.ts';
+import type { Camera, Effects } from '../../shared/project-schema.ts';
 
 /** Full-screen quad; the fragment shader does the keystone mapping per pixel. */
 const WARP_VERTEX = /* glsl */ `
@@ -61,6 +61,8 @@ export class Stage {
   camera: ThreeCamera = this.orthoCamera;
   readonly rendererName: string;
   contextLost = false;
+  /** Current output effects (see setEffects). */
+  protected effects: Effects | null = null;
 
   private target: WebGLRenderTarget;
   private warpScene = new Scene();
@@ -118,6 +120,15 @@ export class Stage {
     if (!inv) return false;
     this.warpInverse.set(...inv);
     return true;
+  }
+
+  /**
+   * Output effects (bloom glow, motion trails) on the 1080p image before the warp.
+   * Contract stub: the effects pass is implemented by the post-processing work; until then
+   * effects are accepted and ignored. Called on state changes and per frame when modulated.
+   */
+  setEffects(effects: Effects): void {
+    this.effects = effects;
   }
 
   setBackground(hex: string): void {

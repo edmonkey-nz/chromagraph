@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 4;
+export const CURRENT_VERSION = 5;
 
 
 export const DatasetSchema = z.object({
@@ -40,6 +40,55 @@ export const CameraSchema = z.object({
 });
 export type Camera = z.infer<typeof CameraSchema>;
 
+/**
+ * Whole-output effects, applied to the rendered 1080p image before the keystone warp.
+ *   bloom   glow around bright marks (threshold = luminance where glow starts, 0..1)
+ *   trails  motion trails: each frame keeps `persistence` of the previous one (0 = off,
+ *           0.95 = long smears). Frame-rate independent: persistence is per 1/60 s.
+ */
+export const EffectsSchema = z.object({
+  bloom: z.object({
+    enabled: z.boolean(),
+    strength: z.number().min(0).max(3),
+    radius: z.number().min(0).max(1),
+    threshold: z.number().min(0).max(1),
+  }),
+  trails: z.object({
+    enabled: z.boolean(),
+    persistence: z.number().min(0).max(0.99),
+  }),
+});
+
+export function defaultEffects(): z.infer<typeof EffectsSchema> {
+  return {
+    bloom: { enabled: false, strength: 0.8, radius: 0.4, threshold: 0.2 },
+    trails: { enabled: false, persistence: 0.85 },
+  };
+}
+
+export const EASINGS_MORPH = ['linear', 'smooth', 'ease-in', 'ease-out'] as const;
+
+export const TransitionSchema = z.object({
+  /** Seconds, 0.1..10. */
+  duration: z.number().min(0.1).max(10),
+  easing: z.enum(EASINGS_MORPH),
+});
+
+export function defaultTransition(): z.infer<typeof TransitionSchema> {
+  return { duration: 2, easing: 'smooth' };
+}
+
+export const SceneSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  layers: z.array(LayerSchema),
+  camera: CameraSchema,
+  output: z.object({ background: hexColour, effects: EffectsSchema }),
+  parameters: z.record(z.string(), ParameterSchema),
+  /** Optional per-scene transition (overrides project.transition when going to this scene). */
+  transition: TransitionSchema.nullable(),
+});
+
 export const ProjectSchema = z.object({
   version: z.literal(CURRENT_VERSION),
   name: z.string(),
@@ -55,10 +104,22 @@ export const ProjectSchema = z.object({
   camera: CameraSchema,
   output: z.object({
     background: hexColour,
+    effects: EffectsSchema.default(defaultEffects),
   }),
+  /**
+   * Scenes: named looks (layers, camera, output and modulators) captured from the project.
+   * Going to a scene copies it into the project and starts a morph (see session.morph).
+   * Datasets and the timeline are shared by all scenes.
+   */
+  scenes: z.array(SceneSchema).default([]),
+  /** Default transition used when going to a scene. */
+  transition: TransitionSchema.default(defaultTransition),
 });
 
 export type Dataset = z.infer<typeof DatasetSchema>;
+export type Effects = z.infer<typeof EffectsSchema>;
+export type Scene = z.infer<typeof SceneSchema>;
+export type Transition = z.infer<typeof TransitionSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 
 export function defaultProject(name: string): Project {
@@ -70,7 +131,9 @@ export function defaultProject(name: string): Project {
     parameters: {},
     timeline: { duration: 600, loop: true },
     camera: defaultCamera(),
-    output: { background: '#000000' },
+    output: { background: '#000000', effects: defaultEffects() },
+    scenes: [],
+    transition: defaultTransition(),
   };
 }
 
@@ -120,6 +183,16 @@ export const migrations: Record<number, Migration> = {
       ),
     };
   },
+  // v5: output effects (bloom, trails), scenes and a default scene transition.
+  4: (doc) => {
+    const output = (doc.output ?? {}) as Record<string, unknown>;
+    return {
+      ...doc,
+      output: { ...output, effects: output.effects ?? defaultEffects() },
+      scenes: doc.scenes ?? [],
+      transition: doc.transition ?? defaultTransition(),
+    };
+  },
 };
 
 export type MigrateResult =
@@ -161,10 +234,24 @@ export interface Session {
   testPattern: boolean;
   debugOverlay: boolean;
   transport: Transport;
+  /**
+   * The most recent scene change. A control window sends it in the same patch that copies
+   * the scene into the project; the output then morphs from what it was showing to the new
+   * state over `duration` seconds from `startWallMs` (wall clock, see modulators.ts).
+   * Each new `startWallMs` starts a new morph from whatever is on screen at that moment.
+   */
+  morph: Morph | null;
+}
+
+export interface Morph {
+  startWallMs: number;
+  duration: number;
+  easing: (typeof EASINGS_MORPH)[number];
+  sceneId: string | null;
 }
 
 export function defaultSession(nowMs = 0): Session {
-  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 } };
+  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 }, morph: null };
 }
 
 /**
@@ -178,10 +265,18 @@ export interface SyncDoc {
   profile: OutputProfile;
 }
 
+export const MorphSchema = z.object({
+  startWallMs: z.number(),
+  duration: z.number().min(0.1).max(10),
+  easing: z.enum(EASINGS_MORPH),
+  sceneId: z.string().nullable(),
+});
+
 export const SessionSchema = z.object({
   testPattern: z.boolean(),
   debugOverlay: z.boolean(),
   transport: TransportSchema,
+  morph: MorphSchema.nullable().default(null),
 });
 
 export const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;

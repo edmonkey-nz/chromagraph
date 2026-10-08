@@ -73,6 +73,8 @@ describe('parameter registry', () => {
       'layer.hi-1.linkWidth',
       'layer.su-1.height.1',
       'layer.su-1.domain.0',
+      'output.effects.bloom.strength',
+      'output.effects.trails.persistence',
     ]) {
       expect(ids, id).toContain(id);
     }

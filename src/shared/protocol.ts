@@ -46,11 +46,27 @@ export type ClientMessage =
   | { t: 'createProject'; name: string }
   | { t: 'openProfile'; name: string }
   | { t: 'createProfile'; name: string }
+  /** Write the open project to disk now (autosave already does this within 0.5 s). */
+  | { t: 'saveNow' }
+  /** Save As: copy the open project (and its data files) to `name`, then open the copy. */
+  | { t: 'duplicateProject'; name: string }
+  /** Snapshots: named versions inside the open project (projects/<name>/snapshots/). */
+  | { t: 'snapshotCreate'; label: string }
+  | { t: 'snapshotRestore'; id: string }
+  | { t: 'snapshotDelete'; id: string }
   | { t: 'status'; status: OutputStatus }
   | { t: 'log'; level: LogLevel; message: string }
   | { t: 'pong' };
 
 // ---- server -> client ----------------------------------------------------------
+
+export interface SnapshotInfo {
+  id: string;
+  label: string;
+  /** Server wall-clock ms. */
+  createdAt: number;
+  layerCount: number;
+}
 
 export interface ProjectProblem {
   project: string;
@@ -69,6 +85,10 @@ export type ServerMessage =
   | { t: 'patch'; rev: number; ops: PatchOp[]; origin: string }
   | { t: 'projects'; names: string[]; current: string; problems: ProjectProblem[] }
   | { t: 'profiles'; names: string[]; current: string }
+  /** The open project was written to disk (autosave or saveNow), at server wall time `at`. */
+  | { t: 'saved'; project: string; at: number }
+  /** Snapshots of the open project, newest first. Sent on hello, on change and on project switch. */
+  | { t: 'snapshots'; project: string; list: SnapshotInfo[] }
   | { t: 'outputStatus'; clientId: string; status: OutputStatus | null }
   | { t: 'log'; entries: LogEntry[] }
   | { t: 'ping' }
@@ -130,7 +150,15 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'createProject':
     case 'openProfile':
     case 'createProfile':
+    case 'duplicateProject':
       return str(m.name) ? { t: m.t, name: m.name } : null;
+    case 'saveNow':
+      return { t: 'saveNow' };
+    case 'snapshotCreate':
+      return str(m.label) ? { t: 'snapshotCreate', label: m.label.slice(0, 120) } : null;
+    case 'snapshotRestore':
+    case 'snapshotDelete':
+      return str(m.id) ? { t: m.t, id: m.id } : null;
     case 'status':
       return isOutputStatus(m.status) ? { t: 'status', status: m.status } : null;
     case 'log':
@@ -164,6 +192,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return Array.isArray(m.names) && str(m.current) && Array.isArray(m.problems) ? (m as ServerMessage) : null;
     case 'profiles':
       return Array.isArray(m.names) && str(m.current) ? (m as ServerMessage) : null;
+    case 'saved':
+      return str(m.project) && num(m.at) ? (m as ServerMessage) : null;
+    case 'snapshots':
+      return str(m.project) && Array.isArray(m.list) ? (m as ServerMessage) : null;
     case 'outputStatus':
       return str(m.clientId) && (m.status === null || isOutputStatus(m.status)) ? (m as ServerMessage) : null;
     case 'log':

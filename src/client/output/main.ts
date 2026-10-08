@@ -41,6 +41,7 @@ let layerManager: LayerManager | null = null;
 const modulation = new ModulationEngine({
   applyLayer: (id, effective) => layerManager?.applyEffective(id, effective),
   applyCamera: (effective) => stage?.setCamera(effective),
+  applyOutput: (effective) => stage?.setEffects(effective.effects),
 });
 let socket: ReconnectingSocket | null = null;
 let connection: ConnectionState = 'closed';
@@ -108,6 +109,7 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     stage.setBackground(doc.project.output.background);
   }
   if (!prev || doc.project.camera !== prev.project.camera) stage.setCamera(doc.project.camera);
+  if (!prev || doc.project.output.effects !== prev.project.output.effects) stage.setEffects(doc.project.output.effects);
   // The preview shows the unwarped image; only the real output is keystoned.
   if (!preview && (!prev || doc.profile !== prev.profile) && !stage.setWarp(doc.profile.corners)) {
     report('warn', `output profile "${doc.profile.name}": corners do not form a usable shape; keeping the previous warp`);
@@ -119,6 +121,7 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     // (modulators still present overwrite them again on the next frame).
     layerManager?.reapplyBase();
     stage.setCamera(doc.project.camera);
+    stage.setEffects(doc.project.output.effects);
   }
   if (doc.session.testPattern) {
     if (!layers.get(TEST_PATTERN_ID)) layers.set(TEST_PATTERN_ID, () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT));

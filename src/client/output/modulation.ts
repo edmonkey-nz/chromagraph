@@ -1,7 +1,7 @@
 import type { LayerConfig } from '../../shared/layer-schema.ts';
 import { evaluate, sortKeys, timelinePhase, type Modulator } from '../../shared/modulators.ts';
 import { clampParam, parameterDefs, parseParamId, readParam, type ParamDef } from '../../shared/parameters.ts';
-import type { Camera, SyncDoc } from '../../shared/project-schema.ts';
+import type { Camera, Project, SyncDoc } from '../../shared/project-schema.ts';
 
 interface Binding {
   def: ParamDef;
@@ -13,15 +13,18 @@ interface Binding {
 }
 
 interface Owner {
-  /** Layer id, or null for the camera. */
+  kind: 'camera' | 'output' | 'layer';
+  /** Layer id for layer owners. */
   layerId: string | null;
-  scratch: LayerConfig | Camera;
+  scratch: LayerConfig | Camera | Project['output'];
   dirty: boolean;
 }
 
 export interface ModulationTargets {
   applyLayer(layerId: string, effective: LayerConfig): void;
   applyCamera(effective: Camera): void;
+  /** Effective output settings (effects) when one of them is modulated. */
+  applyOutput(effective: Project['output']): void;
 }
 
 /**
@@ -59,7 +62,8 @@ export class ModulationEngine {
       prev &&
       prev.project.parameters === doc.project.parameters &&
       prev.project.layers === doc.project.layers &&
-      prev.project.camera === doc.project.camera
+      prev.project.camera === doc.project.camera &&
+      prev.project.output === doc.project.output
     ) {
       return;
     }
@@ -79,13 +83,23 @@ export class ModulationEngine {
       const base = readParam(project, id);
       if (!def || !target || base === undefined) continue;
 
-      const key = target.kind === 'camera' ? '' : target.layerId;
+      const key = target.kind === 'layer' ? `layer:${target.layerId}` : target.kind;
       let index = ownerIndex.get(key);
       if (index === undefined) {
-        const source = target.kind === 'camera' ? project.camera : project.layers.find((l) => l.id === target.layerId);
+        const source =
+          target.kind === 'camera'
+            ? project.camera
+            : target.kind === 'output'
+              ? project.output
+              : project.layers.find((l) => l.id === target.layerId);
         if (!source) continue;
         index = owners.length;
-        owners.push({ layerId: target.kind === 'camera' ? null : target.layerId, scratch: structuredClone(source) as LayerConfig | Camera, dirty: false });
+        owners.push({
+          kind: target.kind,
+          layerId: target.kind === 'layer' ? target.layerId : null,
+          scratch: structuredClone(source) as Owner['scratch'],
+          dirty: false,
+        });
         ownerIndex.set(key, index);
       }
       const scratch = owners[index]!.scratch as unknown as Record<string | number, unknown>;
@@ -117,8 +131,9 @@ export class ModulationEngine {
       const o = this.owners[i]!;
       if (!o.dirty) continue;
       o.dirty = false;
-      if (o.layerId === null) this.targets.applyCamera(o.scratch as Camera);
-      else this.targets.applyLayer(o.layerId, o.scratch as LayerConfig);
+      if (o.kind === 'camera') this.targets.applyCamera(o.scratch as Camera);
+      else if (o.kind === 'output') this.targets.applyOutput(o.scratch as Project['output']);
+      else this.targets.applyLayer(o.layerId!, o.scratch as LayerConfig);
     }
   }
 }

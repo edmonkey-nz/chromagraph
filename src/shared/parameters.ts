@@ -277,15 +277,25 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
 }
 
 /** Every modulatable parameter in the project, camera first, then layers in stack order. */
+/** Output effects: ids `output.effects.bloom.strength`, `output.effects.trails.persistence`, ... */
+const EFFECT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  'effects.bloom.strength': { label: 'glow strength', min: 0, max: 3, hardMin: 0, hardMax: 3 },
+  'effects.bloom.radius': { label: 'glow radius', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'effects.bloom.threshold': { label: 'glow threshold', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'effects.trails.persistence': { label: 'trail length', min: 0, max: 0.99, hardMin: 0, hardMax: 0.99 },
+};
+
 export function parameterDefs(project: Project): ParamDef[] {
   const out: ParamDef[] = [];
   addFields(out, 'camera', 'Camera', CAMERA_FIELDS);
+  addFields(out, 'output', 'Effects', EFFECT_FIELDS);
   for (const layer of project.layers) out.push(...layerDefs(layer));
   return out;
 }
 
 export type ParamTarget =
   | { kind: 'camera'; path: (string | number)[] }
+  | { kind: 'output'; path: (string | number)[] }
   | { kind: 'layer'; layerId: string; path: (string | number)[] };
 
 /** Split an id into its owner and the path inside the camera or layer object. */
@@ -293,6 +303,7 @@ export function parseParamId(id: string): ParamTarget | null {
   const parts = id.split('.');
   const toPath = (segs: string[]) => segs.map((s) => (/^\d+$/.test(s) ? Number(s) : s));
   if (parts[0] === 'camera' && parts.length >= 2) return { kind: 'camera', path: toPath(parts.slice(1)) };
+  if (parts[0] === 'output' && parts.length >= 2) return { kind: 'output', path: toPath(parts.slice(1)) };
   if (parts[0] === 'layer' && parts.length >= 3 && parts[1]) return { kind: 'layer', layerId: parts[1], path: toPath(parts.slice(2)) };
   return null;
 }
@@ -310,7 +321,12 @@ function readPath(obj: unknown, path: (string | number)[]): unknown {
 export function readParam(project: Project, id: string): number | undefined {
   const target = parseParamId(id);
   if (!target) return undefined;
-  const owner = target.kind === 'camera' ? project.camera : project.layers.find((l) => l.id === target.layerId);
+  const owner =
+    target.kind === 'camera'
+      ? project.camera
+      : target.kind === 'output'
+        ? project.output
+        : project.layers.find((l) => l.id === target.layerId);
   const v = readPath(owner, target.path);
   return typeof v === 'number' ? v : undefined;
 }
@@ -320,6 +336,7 @@ export function paramPatchPath(project: Project, id: string): (string | number)[
   const target = parseParamId(id);
   if (!target) return null;
   if (target.kind === 'camera') return ['project', 'camera', ...target.path];
+  if (target.kind === 'output') return ['project', 'output', ...target.path];
   const index = project.layers.findIndex((l) => l.id === target.layerId);
   return index < 0 ? null : ['project', 'layers', index, ...target.path];
 }

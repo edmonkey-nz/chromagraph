@@ -37,7 +37,7 @@ describe('ProjectStore', () => {
     const store = new ProjectStore(root);
     const p = await store.create('rain');
     expect(await store.list()).toEqual(['rain']);
-    await store.save('rain', { ...p, output: { background: '#112233' } });
+    await store.save('rain', { ...p, output: { ...p.output, background: '#112233' } });
     const loaded = await store.load('rain');
     expect(loaded.project.output.background).toBe('#112233');
     expect(loaded.warnings).toEqual([]);
@@ -55,14 +55,14 @@ describe('ProjectStore', () => {
   it('falls back to .bak when project.json is corrupt', async () => {
     const store = new ProjectStore(root);
     const p = await store.create('rain');
-    await store.save('rain', { ...p, output: { background: '#445566' } });
+    await store.save('rain', { ...p, output: { ...p.output, background: '#445566' } });
     await writeFile(join(root, 'rain', 'project.json'), '{"version": 1, "name": "rain", trunc');
     const loaded = await store.load('rain');
     expect(loaded.project.output.background).toBe('#000000');
     expect(loaded.warnings[0]).toMatch(/\.bak/);
 
     // The next save must not rotate the corrupt file into .bak over the good copy.
-    await store.save('rain', { ...loaded.project, output: { background: '#778899' } });
+    await store.save('rain', { ...loaded.project, output: { ...loaded.project.output, background: '#778899' } });
     const files = await readdir(join(root, 'rain'));
     expect(files.some((f) => f.startsWith('project.json.corrupt-'))).toBe(true);
     expect(JSON.parse(await readFile(join(root, 'rain', 'project.json.bak'), 'utf8')).output.background).toBe('#000000');
