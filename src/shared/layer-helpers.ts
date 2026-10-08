@@ -1,5 +1,14 @@
-import { isDailyStep, timeColumns, type DatasetSummary } from './layer-defaults.ts';
-import { NUMERIC_CHANNELS, type Cloner, type InstancerLayer, type LayerConfig, type LayerType } from './layer-schema.ts';
+import { FRAME_H, firstVaryingNumber, fitLineLayer, isDailyStep, timeColumns, type DatasetSummary } from './layer-defaults.ts';
+import {
+  NUMERIC_CHANNELS,
+  type Cloner,
+  type HeatmapLayer,
+  type InstancerLayer,
+  type LayerConfig,
+  type LayerType,
+  type LineLayer,
+} from './layer-schema.ts';
+import { repairLevels, repairSplit } from './level-helpers.ts';
 import type { Path } from './patch.ts';
 
 /**
@@ -38,20 +47,37 @@ export function visibleRowCount(rowCount: number, rows: readonly [number, number
   return Math.max(0, last - first + 1);
 }
 
-/** Instances a layer draws: visible rows x clone count for an instancer, 0 for other types. */
+/** Segments a line draws for `rowCount` rows: one between each pair of consecutive visible rows. */
+export function lineSegmentCount(rowCount: number, rows: readonly [number, number]): number {
+  return Math.max(0, visibleRowCount(rowCount, rows) - 1);
+}
+
+/**
+ * Instances a layer draws (an upper bound, before missing values are dropped): visible rows x
+ * clone count for an instancer, segments x clone count for a line (each segment is one
+ * instanced quad), one mark per visible row for small multiples, 0 for the other types.
+ */
 export function instanceCount(layer: LayerConfig, rowCount: number): number {
-  if (layer.type !== 'instancer') return 0;
-  return visibleRowCount(rowCount, layer.rows) * Math.max(1, layer.cloner.count);
+  switch (layer.type) {
+    case 'instancer':
+      return visibleRowCount(rowCount, layer.rows) * Math.max(1, layer.cloner.count);
+    case 'line':
+      return lineSegmentCount(rowCount, layer.rows) * Math.max(1, layer.cloner.count);
+    case 'multiples':
+      return visibleRowCount(rowCount, layer.rows);
+    default:
+      return 0;
+  }
 }
 
 const num = (v: number) => v.toLocaleString('en-NZ');
 
 /**
- * Two-line readout for an instancer's cloner: "instances: 42,748 rows × 3 = 128,244" and
- * either the total against the budget or a warning when it is over.
+ * Two-line readout for a cloner: "instances: 42,748 rows × 3 = 128,244" (`unit` is "segments"
+ * for a line) and either the total against the budget or a warning when it is over.
  */
-export function budgetReadout(rows: number, count: number, allLayers: number): string {
-  const line1 = `instances: ${num(rows)} rows × ${num(count)} = ${num(rows * count)}`;
+export function budgetReadout(rows: number, count: number, allLayers: number, unit = 'rows'): string {
+  const line1 = `instances: ${num(rows)} ${unit} × ${num(count)} = ${num(rows * count)}`;
   const own = rows * count;
   if (own > FRAME_BUDGET) return `${line1}\nWARNING: over the ${num(FRAME_BUDGET)} frame budget`;
   if (allLayers > FRAME_BUDGET) return `${line1}\nWARNING: all layers ${num(allLayers)}, over the ${num(FRAME_BUDGET)} budget`;
@@ -68,11 +94,54 @@ export const RIDGELINE_COUNT = 40;
  * visible rows), so the clones become a waterfall of successive years.
  */
 export function ridgelineCloner(layer: InstancerLayer, summary: DatasetSummary | null): Pick<Cloner, 'count' | 'position' | 'dataStep' | 'fade'> {
+  return { count: RIDGELINE_COUNT, position: [0, 12, 0], dataStep: ridgelineDataStep(layer, summary), fade: 0.98 };
+}
+
+/** Rows a clone steps for a ridgeline: a year of a daily time column, else 1/40 of the visible rows. */
+function ridgelineDataStep(layer: { timeColumn: string | null; rows: [number, number] }, summary: DatasetSummary | null): number {
   const step = layer.timeColumn !== null ? summary?.cadences[layer.timeColumn]?.step : undefined;
-  const daily = step !== undefined && isDailyStep(step);
+  if (step !== undefined && isDailyStep(step)) return 365;
   const rows = summary ? visibleRowCount(summary.rowCount, layer.rows) : 0;
-  const dataStep = daily ? 365 : Math.max(1, Math.round(rows / RIDGELINE_COUNT));
-  return { count: RIDGELINE_COUNT, position: [0, 12, 0], dataStep, fade: 0.98 };
+  return Math.max(1, Math.round(rows / RIDGELINE_COUNT));
+}
+
+/** px between the baselines of a line ridgeline's clones. */
+export const LINE_RIDGE_SPACING = 14;
+/** y range px of a line ridgeline: values rise from each clone's baseline. */
+export const LINE_RIDGE_HEIGHT = 160;
+
+/**
+ * The "Ridgeline" preset on a line layer (Joy Division style): 40 clones 14 px apart, each
+ * showing the data one "year" of rows further on (dataStep = 365 for a daily time column,
+ * otherwise about 1/40 of the visible rows), no fade, filled below in `background` so nearer
+ * clones hide the ones behind; a 2 px white line over the first year's rows
+ * (rows [0, dataStep / rowCount]). The layout is refitted so that year runs across the frame,
+ * with values rising 0..160 px from each baseline and the whole stack centred vertically.
+ * An unmapped y takes the first varying numeric column. Returns the new layer (diff it).
+ */
+export function ridgelineLine(layer: LineLayer, summary: DatasetSummary | null, background: string): LineLayer {
+  const out = structuredClone(layer);
+  const dataStep = ridgelineDataStep(layer, summary);
+  out.cloner = {
+    ...out.cloner,
+    count: RIDGELINE_COUNT,
+    position: [0, LINE_RIDGE_SPACING, 0],
+    orbit: [0, 0, 0],
+    dataStep,
+    fade: 1,
+  };
+  out.fill = { mode: 'below', colour: background, opacity: 1 };
+  out.width = 2;
+  out.colour = '#ffffff';
+  const rowCount = summary && Number.isFinite(summary.rowCount) ? summary.rowCount : 0;
+  out.rows = rowCount > 0 ? [0, Math.min(1, dataStep / rowCount)] : [0, 1];
+  out.y.range = [0, LINE_RIDGE_HEIGHT];
+  if (out.y.column === null && summary) out.y.column = firstVaryingNumber(summary)?.name ?? null;
+  if (!summary) return out;
+  const fitted = fitLineLayer(out, summary);
+  const stack = (RIDGELINE_COUNT - 1) * LINE_RIDGE_SPACING + LINE_RIDGE_HEIGHT;
+  fitted.origin = [fitted.origin[0], (FRAME_H - stack) / 2, fitted.origin[2]];
+  return fitted;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -109,22 +178,43 @@ export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | nul
     if (column !== null && !names.has(column)) changes.push({ path: [...base, 'column'], value: null }, { path: [...base, 'domain'], value: null });
   };
 
-  if (layer.type === 'heatmap') {
-    let timeColumn = layer.timeColumn;
-    if (timeColumn === null || !timeNames.includes(timeColumn)) {
-      const daily = times.find((c) => isDailyStep(summary.cadences[c.name]?.step ?? NaN));
-      timeColumn = (daily ?? times[0])?.name ?? null;
-    }
-    if (timeColumn !== layer.timeColumn) changes.push({ path: ['timeColumn'], value: timeColumn });
-    if (layer.layout === 'calendar' && timeColumn === null) changes.push({ path: ['layout'], value: 'grid' });
-    if (layer.valueColumn !== null && !names.has(layer.valueColumn)) {
-      changes.push({ path: ['valueColumn'], value: null }, { path: ['domain'], value: null });
-    }
-    return changes;
-  }
+  /** Drop a top-level value column the dataset doesn't have, with its manual domain. */
+  const dropValue = (valueColumn: string | null) => {
+    if (valueColumn !== null && !names.has(valueColumn)) changes.push({ path: ['valueColumn'], value: null }, { path: ['domain'], value: null });
+  };
 
-  // Phase 7 types: column clean-up is added with their control UI.
-  if (layer.type !== 'instancer' && layer.type !== 'line') return changes;
+  switch (layer.type) {
+    case 'heatmap':
+    case 'surface': {
+      // Cell layouts: keep a time column (preferring a daily one) for the calendar, else a grid.
+      const cells: Pick<HeatmapLayer, 'timeColumn' | 'layout'> = layer;
+      let timeColumn = cells.timeColumn;
+      if (timeColumn === null || !timeNames.includes(timeColumn)) {
+        const daily = times.find((c) => isDailyStep(summary.cadences[c.name]?.step ?? NaN));
+        timeColumn = (daily ?? times[0])?.name ?? null;
+      }
+      if (timeColumn !== cells.timeColumn) changes.push({ path: ['timeColumn'], value: timeColumn });
+      if (cells.layout === 'calendar' && timeColumn === null) changes.push({ path: ['layout'], value: 'grid' });
+      dropValue(layer.valueColumn);
+      return changes;
+    }
+    case 'multiples': {
+      const split = repairSplit(layer.splitBy, layer.splitColumn, summary);
+      if (split.splitBy !== layer.splitBy) changes.push({ path: ['splitBy'], value: split.splitBy });
+      if (split.splitColumn !== layer.splitColumn) changes.push({ path: ['splitColumn'], value: split.splitColumn });
+      dropValue(layer.valueColumn);
+      return changes;
+    }
+    case 'hierarchy': {
+      const levels = repairLevels(layer.levels, summary);
+      if (JSON.stringify(levels) !== JSON.stringify(layer.levels)) changes.push({ path: ['levels'], value: levels });
+      dropValue(layer.valueColumn);
+      return changes;
+    }
+    case 'instancer':
+    case 'line':
+      break;
+  }
 
   // Instancer and line share the x mode / time column pair.
   let timeColumn = layer.timeColumn;
