@@ -54,6 +54,28 @@ const params = {
   debugOverlay: false,
   camera: { mode: '2d' as Camera['mode'], fov: 45, yaw: 0, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 } },
 };
+// ---- state -------------------------------------------------------------------------
+// Created before the panels: several read `state.doc` while they are being built. The change
+// callback only runs once messages arrive, after everything below is initialised.
+
+const state = new SyncedState(
+  (doc, prev, info) => {
+    // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the user.
+    const external = info.full || info.origin !== clientId;
+    if (external) syncGui(doc);
+    else if (prev && doc.project.camera !== prev.project.camera) refreshCameraGui(doc.project.camera);
+    renderProjects();
+    datasetsPanel.update(state.projectName, doc.project.datasets);
+    timelinePanel.update(doc);
+    layersPanel.update(doc, external);
+    editMode.update(doc);
+    modulationPanel.update(doc, external);
+    calibrationPanel.update(doc, external);
+  },
+  () => socket.send({ t: 'requestFull' }),
+  (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
+);
+
 const pane = new Pane({ container: el.pane, title: 'Controls' });
 
 const outputFolder = pane.addFolder({ title: 'Output' });
@@ -239,26 +261,6 @@ const calibrationPanel = new CalibrationPanel(
     lastError = message;
     renderBanners();
   },
-);
-
-// ---- state -------------------------------------------------------------------------
-
-const state = new SyncedState(
-  (doc, prev, info) => {
-    // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the user.
-    const external = info.full || info.origin !== clientId;
-    if (external) syncGui(doc);
-    else if (prev && doc.project.camera !== prev.project.camera) refreshCameraGui(doc.project.camera);
-    renderProjects();
-    datasetsPanel.update(state.projectName, doc.project.datasets);
-    timelinePanel.update(doc);
-    layersPanel.update(doc, external);
-    editMode.update(doc);
-    modulationPanel.update(doc, external);
-    calibrationPanel.update(doc, external);
-  },
-  () => socket.send({ t: 'requestFull' }),
-  (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
 );
 
 let projectNames: string[] = [];
