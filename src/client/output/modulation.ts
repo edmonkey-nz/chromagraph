@@ -1,4 +1,4 @@
-import type { InstancerLayer } from '../../shared/layer-schema.ts';
+import type { LayerConfig } from '../../shared/layer-schema.ts';
 import { evaluate, sortKeys, timelinePhase, type Modulator } from '../../shared/modulators.ts';
 import { clampParam, parameterDefs, parseParamId, readParam, type ParamDef } from '../../shared/parameters.ts';
 import type { Camera, SyncDoc } from '../../shared/project-schema.ts';
@@ -15,12 +15,12 @@ interface Binding {
 interface Owner {
   /** Layer id, or null for the camera. */
   layerId: string | null;
-  scratch: InstancerLayer | Camera;
+  scratch: LayerConfig | Camera;
   dirty: boolean;
 }
 
 export interface ModulationTargets {
-  applyLayer(layerId: string, effective: InstancerLayer): void;
+  applyLayer(layerId: string, effective: LayerConfig): void;
   applyCamera(effective: Camera): void;
 }
 
@@ -85,7 +85,7 @@ export class ModulationEngine {
         const source = target.kind === 'camera' ? project.camera : project.layers.find((l) => l.id === target.layerId);
         if (!source) continue;
         index = owners.length;
-        owners.push({ layerId: target.kind === 'camera' ? null : target.layerId, scratch: structuredClone(source) as InstancerLayer | Camera, dirty: false });
+        owners.push({ layerId: target.kind === 'camera' ? null : target.layerId, scratch: structuredClone(source) as LayerConfig | Camera, dirty: false });
         ownerIndex.set(key, index);
       }
       const scratch = owners[index]!.scratch as unknown as Record<string | number, unknown>;
@@ -118,7 +118,7 @@ export class ModulationEngine {
       if (!o.dirty) continue;
       o.dirty = false;
       if (o.layerId === null) this.targets.applyCamera(o.scratch as Camera);
-      else this.targets.applyLayer(o.layerId, o.scratch as InstancerLayer);
+      else this.targets.applyLayer(o.layerId, o.scratch as LayerConfig);
     }
   }
 }
