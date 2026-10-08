@@ -214,6 +214,7 @@ export function createSurface(layer: SurfaceLayer, source: SurfaceSourceData, ca
     if (aggregate !== autoAggregate) {
       fillCells(src!, aggregate, 0, src!.rowCount - 1, cells, scratch, autoStats);
       autoAggregate = aggregate;
+      autoDomainSet = false;
       filledAggregate = aggregate;
       filledFirst = 0;
       filledLast = src!.rowCount - 1;
@@ -257,19 +258,40 @@ export function createSurface(layer: SurfaceLayer, source: SurfaceSourceData, ca
   mesh.frustumCulled = false;
   root.add(mesh);
 
-  function apply(next: SurfaceLayer, mode: '2d' | '3d'): void {
-    const [first, last] = rowRange(next.rows, src!.rowCount);
-    refill(next.aggregate, first, last);
-    (uniforms.uRows!.value as Vector2).set(first, last);
+  // Derived values, recomputed only when their inputs change (apply runs every frame for a
+  // modulated layer, and this keeps it allocation-free otherwise).
+  let rows0 = NaN;
+  let rows1 = NaN;
+  let gridColumns = NaN;
+  let autoDomainSet = false;
 
-    const [cols, rows] = surfaceGrid(src!, next.gridColumns);
-    (uniforms.uGrid!.value as Vector2).set(cols, rows);
+  function apply(next: SurfaceLayer, mode: '2d' | '3d'): void {
+    if (next.rows[0] !== rows0 || next.rows[1] !== rows1 || next.aggregate !== filledAggregate) {
+      rows0 = next.rows[0];
+      rows1 = next.rows[1];
+      const [first, last] = rowRange(next.rows, src!.rowCount);
+      refill(next.aggregate, first, last);
+      (uniforms.uRows!.value as Vector2).set(first, last);
+    }
+    if (next.gridColumns !== gridColumns) {
+      gridColumns = next.gridColumns;
+      const [cols, rows] = surfaceGrid(src!, next.gridColumns);
+      (uniforms.uGrid!.value as Vector2).set(cols, rows);
+    }
     (uniforms.uOrigin!.value as Vector3).fromArray(next.origin);
     (uniforms.uCell!.value as Vector2).fromArray(next.cell);
     (uniforms.uHeight!.value as Vector2).fromArray(next.height);
 
-    const domain = heatmapDomain(next.scale, next.domain, autoStats);
-    (uniforms.uScale!.value as Vector4).set(domain[0], domain[1], SCALE_CODE[next.scale], SURFACE_QUANTISE_STEPS);
+    const scale = uniforms.uScale!.value as Vector4;
+    if (next.domain) {
+      scale.set(next.domain[0], next.domain[1], SCALE_CODE[next.scale], SURFACE_QUANTISE_STEPS);
+      autoDomainSet = false;
+    } else if (scale.z !== SCALE_CODE[next.scale] || !autoDomainSet) {
+      // The auto domain only depends on the scale (and the aggregate, which refills autoStats).
+      const domain = heatmapDomain(next.scale, null, autoStats);
+      scale.set(domain[0], domain[1], SCALE_CODE[next.scale], SURFACE_QUANTISE_STEPS);
+      autoDomainSet = true;
+    }
     uniforms.uReverse!.value = next.reverse ? 1 : 0;
     uniforms.uRamp!.value = rampTexture(next.ramp);
     uniforms.uLit!.value = next.lit ? 1 : 0;

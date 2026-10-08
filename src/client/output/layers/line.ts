@@ -463,12 +463,25 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
     uniforms[name]!.value = value;
   };
 
+  // Row range results, recomputed only when `rows` or followRange change (apply runs every
+  // frame for a modulated layer, and this keeps it allocation-free otherwise).
+  let rows0 = NaN;
+  let rows1 = NaN;
+  let follow = false;
+  let segFirst = 0;
+  let segCount = 0;
+
   function apply(next: LineLayer, mode: '2d' | '3d'): void {
     vec3u('uOrigin').fromArray(next.origin);
     vec3u('uStep').fromArray(next.step);
-    const [first, last] = rowRange(next.rows, data.rowCount);
-    const [segFirst, segCount] = segmentRange(data, first, last);
-    set('uTStart', lineTStart(data, next.followRange, first));
+    if (next.rows[0] !== rows0 || next.rows[1] !== rows1 || next.followRange !== follow) {
+      rows0 = next.rows[0];
+      rows1 = next.rows[1];
+      follow = next.followRange;
+      const [first, last] = rowRange(next.rows, data.rowCount);
+      [segFirst, segCount] = segmentRange(data, first, last);
+      set('uTStart', lineTStart(data, next.followRange, first));
+    }
     set('uBreak', next.breakOnGaps ? 1 : 0);
     set('uGapFactor', next.gapFactor);
     set('uWidth', next.width);

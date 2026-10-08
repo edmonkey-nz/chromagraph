@@ -358,10 +358,27 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
   const v3 = (u: IUniform) => u.value as Vector3;
   const v2 = (u: IUniform) => u.value as Vector2;
 
+  // Row range results and the shared domain, recomputed only when their inputs change (apply
+  // runs every frame for a modulated layer, and this keeps it allocation-free otherwise).
+  let rows0 = NaN;
+  let rows1 = NaN;
+  let start = 0;
+  let count = 0;
+  let panelStart = 0;
+  let panelCount = 0;
+  let domainScale: ScaleType | null = null;
+  let domainLo = NaN;
+  let domainHi = NaN;
+  let domainAuto = false;
+
   function apply(next: SmallMultiplesLayer, mode: '2d' | '3d'): void {
-    const [first, last] = rowRange(next.rows, d.rowCount);
-    const [start, count] = visibleEntries(d, first, last);
-    const [panelStart, panelCount] = visiblePanels(d, start, count);
+    if (next.rows[0] !== rows0 || next.rows[1] !== rows1) {
+      rows0 = next.rows[0];
+      rows1 = next.rows[1];
+      const [first, last] = rowRange(next.rows, d.rowCount);
+      [start, count] = visibleEntries(d, first, last);
+      [panelStart, panelCount] = visiblePanels(d, start, count);
+    }
     const columns = Math.max(1, Math.floor(next.columns));
 
     layout.uPanelStart.value = panelStart;
@@ -374,8 +391,17 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
     markGeometry.instanceCount = count;
     markUniforms.uMarkSize!.value = next.markSize;
     markUniforms.uChart!.value = CHART_CODE[next.chart];
-    const domain = multiplesDomain(next.scale, next.domain, d);
-    (markUniforms.uScale!.value as Vector4).set(domain[0], domain[1], SCALE_CODE[next.scale], QUANTISE_STEPS);
+    const auto = next.domain === null;
+    const lo = next.domain?.[0] ?? NaN;
+    const hi = next.domain?.[1] ?? NaN;
+    if (next.scale !== domainScale || auto !== domainAuto || (!auto && (lo !== domainLo || hi !== domainHi))) {
+      domainScale = next.scale;
+      domainAuto = auto;
+      domainLo = lo;
+      domainHi = hi;
+      const domain = multiplesDomain(next.scale, next.domain, d);
+      (markUniforms.uScale!.value as Vector4).set(domain[0], domain[1], SCALE_CODE[next.scale], QUANTISE_STEPS);
+    }
     markUniforms.uPerPanel!.value = next.domainMode === 'per-panel' ? 1 : 0;
     markUniforms.uColourByValue!.value = next.colourByValue ? 1 : 0;
     markUniforms.uReverse!.value = next.reverse ? 1 : 0;
