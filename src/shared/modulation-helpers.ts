@@ -188,10 +188,22 @@ function ramp(from: number, to: number): Parameter {
 
 /**
  * How the data playhead drives a layer: `rows` (a row range to reveal or window through) for
- * instancer, line and heat map layers; `row` (one current row to follow) for text layers.
+ * every layer type with a row range (instancer, line, heat map, small multiples, hierarchy,
+ * 3D surface); `row` (one current row to follow) for text layers. Null for a layer with
+ * neither (none yet), which the data playhead does not offer.
  */
-export function playheadKind(layer: LayerConfig): 'rows' | 'row' {
-  return layer.type === 'text' ? 'row' : 'rows';
+export function playheadKind(layer: LayerConfig): 'rows' | 'row' | null {
+  switch (layer.type) {
+    case 'text':
+      return 'row';
+    case 'instancer':
+    case 'line':
+    case 'heatmap':
+    case 'multiples':
+    case 'hierarchy':
+    case 'surface':
+      return 'rows';
+  }
 }
 
 /**
@@ -205,7 +217,9 @@ export function playheadKind(layer: LayerConfig): 'rows' | 'row' {
 export function dataPlayheadOps(project: Project, layerId: string, mode: PlayheadMode, width = 0.1): PatchOp[] | null {
   const layer = project.layers.find((l) => l.id === layerId);
   if (!layer) return null;
-  if (playheadKind(layer) === 'row') return [{ op: 'set', path: paramPath(`${layerParamPrefix(layerId)}row`), value: ramp(0, 1) }];
+  const kind = playheadKind(layer);
+  if (kind === null) return null;
+  if (kind === 'row') return [{ op: 'set', path: paramPath(`${layerParamPrefix(layerId)}row`), value: ramp(0, 1) }];
   const startId = `${layerParamPrefix(layerId)}rows.0`;
   const endId = `${layerParamPrefix(layerId)}rows.1`;
   const ops: PatchOp[] = [{ op: 'set', path: paramPath(endId), value: ramp(0, 1) }];

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { blankHeatmapLayer, blankInstancerLayer, blankLineLayer, blankTextLayer, type InstancerLayer } from '../../src/shared/layer-schema.ts';
+import {
+  blankHeatmapLayer,
+  blankHierarchyLayer,
+  blankInstancerLayer,
+  blankLineLayer,
+  blankMultiplesLayer,
+  blankSurfaceLayer,
+  blankTextLayer,
+  type InstancerLayer,
+} from '../../src/shared/layer-schema.ts';
 import {
   addKeyframe,
   clampDuration,
@@ -209,6 +218,20 @@ describe('data playhead', () => {
     expect(next.parameters['layer.ly-l.rows.1']).toEqual(ramp(0, 1));
     expect(next.parameters['layer.ly-h.rows.0']).toEqual(ramp(-0.2, 0.8));
     expect(ProjectSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('sweeps rows on small multiples, hierarchy and surface layers, with valid parameters', () => {
+    const p = project();
+    p.layers.push(blankMultiplesLayer('ly-m', 'Years', 'ds'), blankHierarchyLayer('ly-x', 'Tree', 'ds'), blankSurfaceLayer('ly-s', 'Relief', 'ds'));
+    const ops = [];
+    for (const id of ['ly-m', 'ly-x', 'ly-s']) {
+      expect(playheadKind(p.layers.find((l) => l.id === id)!)).toBe('rows');
+      ops.push(...dataPlayheadOps(p, id, 'window', 0.1)!);
+    }
+    const next = applyOps({ project: p }, ops).project;
+    expect(ProjectSchema.safeParse(next).success).toBe(true);
+    for (const id of ['ly-m', 'ly-x', 'ly-s']) expect(next.parameters[`layer.${id}.rows.1`]).toEqual(ramp(0, 1));
+    expect(orphanParamIds(next)).toEqual([]);
   });
 
   it('follows the playhead on a text layer with a ramp on its row, whatever the mode', () => {
