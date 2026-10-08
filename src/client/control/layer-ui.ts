@@ -49,6 +49,8 @@ export interface Entry {
   showTransform: ((t: LayerTransform) => void) | null;
   /** Recompute the cloner's instance readout (instancers only). */
   refreshReadout: (() => void) | null;
+  /** Show a new title on the layer's card. */
+  retitle(title: string): void;
 }
 
 /** What a folder builder can do for its layer. */
@@ -135,11 +137,11 @@ export function addIdentity(ui: LayerUi, f: FolderApi, layer: LayerConfig, title
   const m = { name: layer.name, enabled: layer.enabled, dataset: layer.datasetId ?? '' };
   f.addBinding(m, 'name').on('change', (ev) => {
     ui.set(['name'], ev.value);
-    ui.entry.folder.title = titleOf({ ...ui.entry.layer, name: ev.value });
+    ui.entry.retitle(titleOf({ ...ui.entry.layer, name: ev.value }));
   });
   f.addBinding(m, 'enabled').on('change', (ev) => {
     ui.set(['enabled'], ev.value);
-    ui.entry.folder.title = titleOf({ ...ui.entry.layer, enabled: ev.value });
+    ui.entry.retitle(titleOf({ ...ui.entry.layer, enabled: ev.value }));
   });
   const datasets = ui.doc.project.datasets;
   const dsOptions: { text: string; value: string }[] = datasets.map((d) => ({ text: d.label || d.file, value: d.id }));

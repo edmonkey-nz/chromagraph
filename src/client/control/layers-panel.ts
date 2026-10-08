@@ -1,4 +1,4 @@
-import type { FolderApi } from 'tweakpane';
+import { Pane, type FolderApi } from 'tweakpane';
 import { defaultLayerOfType, fitAnyLayer, type DatasetSummary } from '../../shared/layer-defaults.ts';
 import { datasetSwitchChanges, diffChanges, instanceCount, LAYER_TYPE_TITLES, type LayerChange } from '../../shared/layer-helpers.ts';
 import { LAYER_TYPES, LayerSchema, type LayerConfig, type LayerType } from '../../shared/layer-schema.ts';
@@ -14,17 +14,22 @@ import { buildLine } from './line-folders.ts';
 import { buildMultiples } from './multiples-folders.ts';
 import { buildSurface } from './surface-folders.ts';
 import { buildText } from './text-folders.ts';
+import { Card, h, iconButton } from './ui.ts';
 
 /**
- * "Layers" folder of the control pane: one sub-folder per layer of any type, editing the
- * layer config through minimal `set` patches. The GUI never holds authoritative state: every
+ * "Layers" zone of the control window: a header with Add layer, then one card per layer of
+ * any type (each with its own Tweakpane pane), editing the layer config through minimal
+ * `set` patches. The GUI never holds authoritative state: every
  * edit is sent to the server and the folder is rebuilt from the synced document when the
  * layer changes structurally or someone else edits it. The per-type folders are built in
  * instancer-folders.ts, line-folders.ts, heatmap-folders.ts, text-folders.ts,
  * multiples-folders.ts, hierarchy-folders.ts and surface-folders.ts.
  *
  * One layer can be selected (for the preview's transform gizmo): pointing anywhere in its
- * folder selects it, and its folder is highlighted.
+ * card selects it, and its card is highlighted.
+ *
+ * Cards are dealt into columns in stack order (layer 1 in the first column, layer 2 in the
+ * second, ...), so a card never moves when another one is expanded or collapsed.
  */
 
 export interface LayersPanelDeps {
@@ -40,10 +45,10 @@ export interface LayersPanelDeps {
 
 /** Appended to the label of a field whose parameter has a modulator. */
 const MODULATED_SUFFIX = ' ~';
-/** Class on the selected layer's folder element (styled in index.html). */
-const SELECTED_CLASS = 'dw-layer-selected';
-/** Children of the Layers folder before the first layer folder (type list, Add button). */
-const HEAD = 2;
+/** Class on the selected layer's card (styled in index.html). */
+const SELECTED_CLASS = 'selected';
+/** The zone is split into two columns of cards when it is at least this wide. */
+const TWO_COLUMNS_PX = 760;
 
 function randomId(): string {
   return `ly-${Math.random().toString(36).slice(2, 10)}`;
@@ -82,8 +87,13 @@ function titleOf(layer: LayerConfig): string {
 }
 
 export class LayersPanel {
-  private root: FolderApi;
   private entries = new Map<string, Entry>();
+  private cards = new Map<string, Card>();
+  private columns: HTMLElement[];
+  private columnHost = h('div', { className: 'layer-columns' });
+  private empty = h('div', { className: 'card empty-card' });
+  private countNote = h('span', { className: 'zone-note' });
+  private typeSelect = h('select');
   private order: string[] = [];
   private datasets: readonly Dataset[] | null = null;
   private expanded = new Map<string, boolean>();
@@ -96,13 +106,59 @@ export class LayersPanel {
   /** A layer we just added, to select once it arrives. */
   private pendingSelect: string | null = null;
 
-  constructor(parent: FolderApi, private deps: LayersPanelDeps) {
-    this.root = parent.addFolder({ title: 'Layers' });
-    this.root.addBinding(this.addModel, 'type', {
-      label: 'new layer',
-      options: LAYER_TYPES.map((t) => ({ text: LAYER_TYPE_TITLES[t], value: t })),
+  constructor(zone: HTMLElement, private deps: LayersPanelDeps) {
+    this.typeSelect.append(...LAYER_TYPES.map((t) => h('option', { value: t, textContent: LAYER_TYPE_TITLES[t] })));
+    this.typeSelect.setAttribute('aria-label', 'Type of the new layer');
+    this.typeSelect.addEventListener('change', () => (this.addModel.type = this.typeSelect.value as LayerType));
+    const add = h('button', { type: 'button', className: 'btn primary', textContent: 'Add layer' });
+    add.addEventListener('click', () => this.addLayer());
+    const collapseAll = h('button', { type: 'button', className: 'btn ghost', textContent: 'Collapse all' });
+    collapseAll.addEventListener('click', () => this.collapseAll());
+    this.empty.append(
+      h('p', { className: 'muted', textContent: 'No layers yet. Import a dataset (Datasets tab), pick a layer type above and press Add layer.' }),
+    );
+    zone.append(
+      h('div', { className: 'zone-head' }, h('h2', { className: 'zone-title', textContent: 'Layers' }), this.countNote, h('span', { className: 'spacer' }), collapseAll, this.typeSelect, add),
+      this.empty,
+      this.columnHost,
+    );
+    this.columns = [h('div', { className: 'layer-col' }), h('div', { className: 'layer-col' })];
+    // Two columns when there is room; re-deal the cards when that changes.
+    let count = 0;
+    new ResizeObserver(() => {
+      const n = zone.clientWidth >= TWO_COLUMNS_PX ? 2 : 1;
+      if (n === count) return;
+      count = n;
+      this.columnHost.replaceChildren(...this.columns.slice(0, n));
+      this.columnHost.dataset.columns = String(n);
+      this.layout();
+    }).observe(zone);
+  }
+
+  /** Put the cards into the visible columns in stack order (layer i into column i mod n). */
+  private layout(): void {
+    const n = Math.max(1, this.columnHost.childElementCount);
+    const want: HTMLElement[][] = this.columns.map(() => []);
+    this.order.forEach((id, i) => {
+      const card = this.cards.get(id);
+      if (card) want[i % n]!.push(card.root);
     });
-    this.root.addButton({ title: 'Add layer' }).on('click', () => this.addLayer());
+    this.columns.forEach((col, c) => {
+      const list = want[c]!;
+      // Only touch a column whose contents changed: moving a card would drop keyboard focus.
+      const same = list.length === col.childElementCount && list.every((el, i) => col.children[i] === el);
+      if (!same) col.replaceChildren(...list);
+    });
+    this.cards.forEach((card, id) => card.setBadge(String(this.order.indexOf(id) + 1)));
+    this.empty.hidden = this.order.length > 0;
+    this.countNote.textContent = this.order.length === 0 ? '' : `${this.order.length} layer${this.order.length === 1 ? '' : 's'}`;
+  }
+
+  private collapseAll(): void {
+    for (const [id, card] of this.cards) {
+      card.setCollapsed(true);
+      this.expanded.set(`${id}/`, false);
+    }
   }
 
   // ---- selection -----------------------------------------------------------------------
@@ -113,11 +169,13 @@ export class LayersPanel {
    */
   setSelected(id: string | null, reveal = false): void {
     this.selected = id;
-    for (const [lid, e] of this.entries) e.folder.element.classList.toggle(SELECTED_CLASS, lid === id);
-    const entry = id === null ? undefined : this.entries.get(id);
-    if (entry && reveal) {
-      entry.folder.expanded = true;
-      entry.folder.element.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    for (const [lid, card] of this.cards) card.root.classList.toggle(SELECTED_CLASS, lid === id);
+    const card = id === null ? undefined : this.cards.get(id);
+    if (card && id !== null && reveal) {
+      card.setCollapsed(false);
+      this.expanded.set(`${id}/`, true);
+      const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      card.root.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
     }
   }
 
@@ -156,7 +214,7 @@ export class LayersPanel {
         continue;
       }
       entry.layer = layer;
-      entry.folder.title = titleOf(layer);
+      entry.retitle(titleOf(layer));
       if (layer.transform !== prev.transform) entry.showTransform?.(layer.transform);
     }
     if (doc.project.parameters !== this.parameters) {
@@ -190,28 +248,35 @@ export class LayersPanel {
     for (const f of entry.folders) this.expanded.set(f.key, f.api.expanded);
   }
 
+  /** Dispose a layer's pane and forget its card (the caller removes or replaces the element). */
+  private disposeEntry(id: string, entry: Entry): void {
+    this.saveExpanded(entry);
+    entry.folder.dispose();
+    this.entries.delete(id);
+    this.cards.delete(id);
+  }
+
   private rebuildAll(doc: SyncDoc): void {
-    for (const entry of this.entries.values()) {
-      this.saveExpanded(entry);
-      entry.folder.dispose();
-    }
-    this.entries.clear();
+    for (const [id, entry] of [...this.entries]) this.disposeEntry(id, entry);
+    for (const col of this.columns) col.replaceChildren();
     const layers = doc.project.layers;
     this.order = layers.map((l) => l.id);
     this.datasets = doc.project.datasets;
     const ids = new Set(this.order);
     for (const key of [...this.expanded.keys()]) if (!ids.has(key.slice(0, key.indexOf('/')))) this.expanded.delete(key);
     layers.forEach((layer, i) => this.build(doc, layer, i, layers.length));
+    this.layout();
   }
 
   private rebuildOne(doc: SyncDoc, layer: LayerConfig): void {
     const entry = this.entries.get(layer.id);
     if (!entry) return;
-    this.saveExpanded(entry);
+    const old = this.cards.get(layer.id);
     const at = doc.project.layers.findIndex((l) => l.id === layer.id);
-    entry.folder.dispose();
-    this.entries.delete(layer.id);
-    this.build(doc, layer, at, doc.project.layers.length);
+    this.disposeEntry(layer.id, entry);
+    const card = this.build(doc, layer, at, doc.project.layers.length);
+    // Swap in place, so no other card moves.
+    if (old) old.root.replaceWith(card.root);
   }
 
   /** Run `fn` with change events suppressed (used when the panel writes to its own bindings). */
@@ -334,6 +399,7 @@ export class LayersPanel {
     // The copy gets the original's modulators too, in the same patch.
     ops.push(...layerParamCopyOps(cur.doc.project.parameters, id, newId));
     for (const f of this.entries.get(id)?.folders ?? []) this.expanded.set(`${newId}${f.key.slice(id.length)}`, f.api.expanded);
+    this.expanded.set(`${newId}/`, !(this.cards.get(id)?.collapsed ?? true));
     this.deps.sendPatch(ops);
   }
 
@@ -380,34 +446,56 @@ export class LayersPanel {
 
   // ---- building a layer's folder -------------------------------------------------------
 
-  private folderIn(entry: Entry, parent: FolderApi, title: string, key: string, def: boolean, index?: number): FolderApi {
-    const expanded = this.expanded.get(key) ?? def;
-    const api = parent.addFolder(index === undefined ? { title, expanded } : { title, expanded, index });
+  private folderIn(entry: Entry, parent: FolderApi, title: string, key: string, def: boolean): FolderApi {
+    const api = parent.addFolder({ title, expanded: this.expanded.get(key) ?? def });
     entry.folders.push({ key, api });
     return api;
   }
 
-  private build(doc: SyncDoc, layer: LayerConfig, position: number, count: number): void {
+  /** Build a layer's card (not yet placed in a column) and its pane. */
+  private build(doc: SyncDoc, layer: LayerConfig, position: number, count: number): Card {
     const id = layer.id;
     const summary = this.summaryFor(layer);
     const dataset = doc.project.datasets.find((d) => d.id === layer.datasetId);
+    const rootKey = `${id}/`;
+    const card = new Card({
+      title: titleOf(layer),
+      className: 'layer-card',
+      collapsed: !(this.expanded.get(rootKey) ?? false),
+      onToggle: (collapsed) => this.expanded.set(rootKey, !collapsed),
+    });
+    card.root.classList.toggle(SELECTED_CLASS, id === this.selected);
+    card.root.classList.toggle('off', !layer.enabled);
+    card.setBadge(String(position + 1));
+    card.root.dataset.type = layer.type;
+    // Pointing anywhere in the layer's card (its header included), or tabbing into it, selects the layer.
+    const select = () => {
+      if (this.selected !== id) this.deps.select(id);
+    };
+    card.root.addEventListener('pointerdown', select);
+    card.root.addEventListener('focusin', select);
+    const up = iconButton('up', 'Move up (drawn earlier)', () => this.move(id, -1));
+    const down = iconButton('down', 'Move down (drawn later)', () => this.move(id, 1));
+    up.disabled = position <= 0;
+    down.disabled = position >= count - 1;
+    card.actions.append(up, down, iconButton('copy', 'Duplicate', () => this.duplicate(id)), iconButton('trash', 'Delete…', () => this.remove(id), 'danger'));
+    const pane = new Pane({ container: card.body });
     const entry: Entry = {
       layer,
       summary,
-      folder: null as unknown as FolderApi,
+      folder: pane,
       folders: [],
       forceRebuild: false,
       marks: [],
       showTransform: null,
       refreshReadout: null,
+      retitle: (title) => {
+        card.setTitle(title);
+        card.root.classList.toggle('off', title.endsWith('(off)'));
+      },
     };
-    entry.folder = this.folderIn(entry, this.root, titleOf(layer), `${id}/`, false, position + HEAD);
-    entry.folder.element.classList.toggle(SELECTED_CLASS, id === this.selected);
-    // Pointing anywhere in the layer's folder (its title included) selects the layer.
-    entry.folder.element.addEventListener('pointerdown', () => {
-      if (this.selected !== id) this.deps.select(id);
-    });
     this.entries.set(id, entry);
+    this.cards.set(id, card);
 
     const ui: LayerUi = {
       id,
@@ -453,17 +541,8 @@ export class LayersPanel {
           buildSurface(ui, layer, titleOf);
           break;
       }
-      this.buildActions(entry, id, position, count);
     });
     this.applyMarks(entry, doc);
-  }
-
-  private buildActions(entry: Entry, id: string, position: number, count: number): void {
-    const f = entry.folder;
-    f.addBlade({ view: 'separator' });
-    f.addButton({ title: 'Move up', disabled: position <= 0 }).on('click', () => this.move(id, -1));
-    f.addButton({ title: 'Move down', disabled: position >= count - 1 }).on('click', () => this.move(id, 1));
-    f.addButton({ title: 'Duplicate' }).on('click', () => this.duplicate(id));
-    f.addButton({ title: 'Delete' }).on('click', () => this.remove(id));
+    return card;
   }
 }

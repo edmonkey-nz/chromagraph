@@ -5,7 +5,7 @@ import type { PatchOp } from '../../shared/patch.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 
 /**
- * "Timeline" folder of the control pane: duration, loop, play/pause, restart and a live
+ * "Timeline" card: duration, loop, play/pause, restart and a live
  * phase slider. The transport is shared session state; the slider follows it locally
  * (about 10 times a second, via `tick`) without sending anything, and only a user drag
  * sends a seek.
@@ -45,7 +45,8 @@ export class TimelinePanel {
   private lastScrubMs = 0;
 
   constructor(parent: FolderApi, private deps: TimelinePanelDeps) {
-    const f = parent.addFolder({ title: 'Timeline', expanded: true });
+    // The card's pane is the panel's own container.
+    const f = parent;
     const m = this.model;
 
     this.durationApi = f.addBinding(m, 'duration', { label: 'duration (s)', min: 1, step: 1 }).on('change', (ev) => {
