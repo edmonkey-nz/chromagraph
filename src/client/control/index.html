@@ -33,7 +33,6 @@
         --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.2);
         --gap: 12px;
         --preview-w: clamp(360px, 28vw, 560px);
-        --band-h: calc(var(--preview-w) * 9 / 16 + 48px);
 
         /* Tweakpane, themed to sit inside the cards. */
         --tp-base-background-color: transparent;
@@ -158,6 +157,20 @@
       }
       input[type='range'] {
         accent-color: var(--accent-strong);
+      }
+      /* Plain buttons built by older panels (datasets, calibration) look like small .btn. */
+      button:not([class]) {
+        min-height: 28px;
+        padding: 2px 10px;
+        border-radius: var(--radius-s);
+        border: 1px solid var(--line);
+        background: var(--raised);
+        cursor: pointer;
+        font-size: 12px;
+      }
+      button:not([class]):hover {
+        background: #252b36;
+        border-color: #323946;
       }
       .btn {
         display: inline-flex;
@@ -616,7 +629,8 @@
         grid-template-columns: var(--preview-w) minmax(0, 1fr);
         gap: var(--gap);
         padding: var(--gap) 16px 0;
-        height: calc(var(--band-h) + var(--gap));
+        /* Preview height plus its toolbar; declared here so it follows --preview-w in edit mode. */
+        height: calc(var(--preview-w) * 9 / 16 + 48px + var(--gap));
       }
       .preview-panel {
         display: flex;
@@ -642,7 +656,7 @@
       }
       body:not(.editing) #gizmo-modes,
       body:not(.editing) .snap-label {
-        opacity: 0.45;
+        display: none;
       }
       .seg {
         display: inline-flex;
@@ -719,7 +733,7 @@
       }
       /* Edit mode: a much larger preview that spans into the tab area, with an accent ring. */
       body.editing {
-        --preview-w: min(calc(58vh * 16 / 9), calc(100vw - 32px - 380px - var(--gap)));
+        --preview-w: min(calc(52vh * 16 / 9), calc(100vw - 32px - 380px - var(--gap)));
       }
       body.editing .preview-panel {
         box-shadow:
