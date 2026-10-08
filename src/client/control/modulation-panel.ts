@@ -279,12 +279,13 @@ export class ModulationPanel {
   }
 
   /**
-   * Layers with a row range (instancer, line, heat map) get reveal/window sweeps of `rows`;
-   * text layers, which show one row, get "Follow playhead" (a 0 -> 1 ramp on `row`).
+   * Layers with a row range (instancer, line, heat map, small multiples, hierarchy, 3D
+   * surface) get reveal/window sweeps of `rows`; text layers, which show one row, get
+   * "Follow playhead" (a 0 -> 1 ramp on `row`).
    */
   private buildPlayhead(doc: SyncDoc): void {
     const f = this.folder(this.root, 'Data playhead', 'playhead', false);
-    const layers = doc.project.layers;
+    const layers = doc.project.layers.filter((l) => playheadKind(l) !== null);
     const m = this.playheadModel;
     if (layers.length === 0) {
       f.addButton({ title: 'Add a layer first', disabled: true });

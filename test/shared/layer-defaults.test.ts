@@ -5,7 +5,17 @@ import { detectCadence } from '../../src/data/gaps.ts';
 import { parseCsv } from '../../src/data/parse.ts';
 import {
   defaultHeatmapLayerFor,
+  defaultHierarchyLayerFor,
+  defaultHierarchyLevels,
   defaultLayerFor,
+  defaultMultiplesLayerFor,
+  defaultSurfaceLayerFor,
+  fitHierarchyLayer,
+  fitMultiplesLayer,
+  isRoundLayout,
+  panelCount,
+  panelGrid,
+  panelLabelSize,
   defaultLayerOfType,
   defaultLineLayerFor,
   defaultTextLayerFor,
@@ -22,8 +32,11 @@ import {
 import {
   ARRANGEMENTS,
   blankHeatmapLayer,
+  blankHierarchyLayer,
   blankInstancerLayer,
   blankLineLayer,
+  blankMultiplesLayer,
+  blankSurfaceLayer,
   blankTextLayer,
   InstancerLayerSchema,
   LAYER_TYPES,
@@ -442,6 +455,135 @@ describe('text defaults', () => {
   });
 });
 
+describe('small multiples defaults', () => {
+  it('splits the rainfall by year: 119 bar panels, 12 per line, filling the frame', () => {
+    expect(rain.columns.find((c) => c.name === 'Frequency [D/H]')!.categories).toBeGreaterThan(0);
+    const m = defaultMultiplesLayerFor('sm-1', 'Years', dataset, rain);
+    expectLayerValid(m);
+    expect(m.splitBy).toBe('year');
+    expect(m.splitColumn).toBe('Observation time UTC');
+    expect(m.valueColumn).toBe('Rainfall [mm]');
+    expect(m.chart).toBe('bars');
+    expect([m.colourByValue, m.scale, m.domain]).toEqual([true, 'sqrt', null]);
+    expect(panelCount(m, rain, TZ)).toBe(119);
+    expect(m.columns).toBe(12);
+    const lines = Math.ceil(119 / m.columns);
+    expect(m.columns * m.panelSize[0] + (m.columns - 1) * m.gap[0]).toBeCloseTo(1800);
+    expect(lines * m.panelSize[1] + (lines - 1) * m.gap[1]).toBeCloseTo(960);
+    expect(m.gap[0]).toBeGreaterThan(0);
+    expect(m.gap[0]).toBeLessThanOrEqual(8);
+    expect(m.origin).toEqual([60, 1020, 0]);
+    expect(m.labelSize).toBe(14);
+  });
+
+  it('counts panels for every split and the visible rows', () => {
+    const m = defaultMultiplesLayerFor('sm', 'S', dataset, rain);
+    expect(panelCount({ ...m, splitBy: 'decade' }, rain, TZ)).toBe(13); // 1870s..1990s
+    expect(panelCount({ ...m, splitBy: 'month' }, rain, TZ)).toBe(118 * 12 + 2 + 1); // Jan 1879 (NZ) .. Mar 1997 (NZ)
+    expect(panelCount({ ...m, rows: [0, 0.5] }, rain, TZ)).toBeLessThan(62);
+    expect(panelCount({ ...m, splitBy: 'rows', chunkRows: 1000 }, rain, TZ)).toBe(43);
+    expect(panelCount({ ...m, splitBy: 'category', splitColumn: 'Frequency [D/H]' }, rain, TZ)).toBe(
+      rain.columns.find((c) => c.name === 'Frequency [D/H]')!.categories,
+    );
+    expect(panelCount({ ...m, splitColumn: 'nope' }, rain, TZ)).toBe(1);
+  });
+
+  it('falls back to categories, then row chunks', () => {
+    const cats = syntheticSummary({
+      rowCount: 600,
+      columns: [
+        { name: 'site', type: 'category', min: NaN, max: NaN, empty: false, categories: 6 },
+        { name: 'v', type: 'number', min: -1, max: 1, empty: false },
+      ],
+    });
+    const c = defaultMultiplesLayerFor('sm', 'S', dataset, cats);
+    expectLayerValid(c);
+    expect([c.splitBy, c.splitColumn, c.scale]).toEqual(['category', 'site', 'linear']);
+    expect(c.columns).toBe(3);
+    expect(c.labelSize).toBe(24);
+    const plain = syntheticSummary({ rowCount: 600, columns: [{ name: 'v', type: 'number', min: 0, max: 1, empty: false }] });
+    const r = defaultMultiplesLayerFor('sm', 'S', dataset, plain);
+    expectLayerValid(r);
+    expect([r.splitBy, r.splitColumn, r.chunkRows]).toEqual(['rows', null, 10]);
+    expect(panelCount(r, plain, TZ)).toBe(60);
+  });
+
+  it('turns labels off when the panels are small', () => {
+    expect(panelLabelSize(200)).toBe(24);
+    expect(panelLabelSize(88)).toBe(14);
+    expect(panelLabelSize(30)).toBe(0);
+    const tiny = defaultMultiplesLayerFor('sm', 'S', dataset, syntheticSummary({ rowCount: 5000, columns: [{ name: 'v', type: 'number', min: 0, max: 1, empty: false }] }));
+    expect(fitMultiplesLayer({ ...tiny, chunkRows: 5 }, syntheticSummary({ rowCount: 5000 }), TZ).panelSize[1]).toBeLessThan(60);
+  });
+
+  it('panel grids always fill the usable frame', () => {
+    for (const n of [1, 2, 7, 119, 1000, 42748]) {
+      const g = panelGrid(n);
+      const lines = Math.ceil(n / g.columns);
+      expect(g.columns).toBeGreaterThanOrEqual(1);
+      expect(g.columns * g.panel[0] + (g.columns - 1) * g.gap[0]).toBeCloseTo(1800);
+      if (g.panel[1] > 1) expect(lines * g.panel[1] + (lines - 1) * g.gap[1]).toBeCloseTo(960);
+    }
+    expect(panelGrid(1).panel).toEqual([1800, 960]);
+  });
+});
+
+describe('hierarchy defaults', () => {
+  it('groups the rainfall by decade then year, summing rainfall, as a centred radial dendrogram', () => {
+    const h = defaultHierarchyLayerFor('hi-1', 'Tree', dataset, rain);
+    expectLayerValid(h);
+    expect(h.levels).toEqual([
+      { kind: 'time', column: 'Observation time UTC', unit: 'decade' },
+      { kind: 'time', column: 'Observation time UTC', unit: 'year' },
+    ]);
+    expect([h.valueColumn, h.aggregate, h.layout, h.scale, h.colourBy]).toEqual(['Rainfall [mm]', 'sum', 'radial-dendrogram', 'sqrt', 'value']);
+    expect(h.size).toEqual([960, 960]);
+    expect(h.origin).toEqual([480, 1020, 0]);
+    expect(h.origin[0] + h.size[0] / 2).toBe(960);
+    expect(h.origin[1] - h.size[1] / 2).toBe(540);
+  });
+
+  it('uses a category level without a time column, and fills the frame for box layouts', () => {
+    const cats = syntheticSummary({
+      rowCount: 10,
+      columns: [
+        { name: 'site', type: 'category', min: NaN, max: NaN, empty: false, categories: 3 },
+        { name: 'v', type: 'number', min: 0, max: 1, empty: false },
+      ],
+    });
+    const h = defaultHierarchyLayerFor('hi', 'H', dataset, cats);
+    expectLayerValid(h);
+    expect(h.levels).toEqual([{ kind: 'category', column: 'site' }]);
+    const box = fitHierarchyLayer({ ...h, layout: 'treemap' });
+    expect([box.origin, box.size]).toEqual([[60, 1020, 0], [1800, 960]]);
+    expect(isRoundLayout('sunburst')).toBe(true);
+    expect(isRoundLayout('icicle')).toBe(false);
+    expect(defaultHierarchyLevels(syntheticSummary())).toBeNull();
+  });
+});
+
+describe('surface defaults', () => {
+  it('is a calendar of daily rainfall, 0..200 px high on a sqrt scale, fitted like the heat map', () => {
+    const s = defaultSurfaceLayerFor('sf-1', 'Relief', dataset, rain);
+    expectLayerValid(s);
+    expect([s.layout, s.timeColumn, s.valueColumn, s.scale]).toEqual(['calendar', 'Observation time UTC', 'Rainfall [mm]', 'sqrt']);
+    expect(s.height).toEqual([0, 200]);
+    const heat = defaultHeatmapLayerFor('hm', 'H', dataset, rain);
+    expect([s.cell, s.origin]).toEqual([heat.cell, heat.origin]);
+    expect(s.cell[1] * years).toBeCloseTo(960);
+  });
+
+  it('is a grid without a daily time column', () => {
+    const hourly: DatasetSummary = { ...rain, cadences: { 'Observation time UTC': { step: 3_600_000 } } };
+    const s = defaultSurfaceLayerFor('sf', 'S', dataset, hourly);
+    expectLayerValid(s);
+    expect(s.layout).toBe('grid');
+    expect(s.gridColumns * s.cell[0]).toBeCloseTo(1800);
+    const heat = fitHeatmapLayer({ ...blankHeatmapLayer('h', 'H', 'ds'), layout: 'grid' }, hourly, TZ);
+    expect([s.gridColumns, s.cell]).toEqual([heat.gridColumns, heat.cell]);
+  });
+});
+
 describe('any layer type', () => {
   for (const type of LAYER_TYPES) {
     it(`${type}: defaults with and without data, and every fit, validate`, () => {
@@ -476,5 +618,19 @@ describe('any layer type', () => {
     expect(fitAnyLayer(heat, rain, TZ)).toEqual(fitHeatmapLayer(heat, rain, TZ));
     const inst = defaultLayerFor('i', 'I', dataset, rain);
     expect(fitAnyLayer({ ...inst, arrangement: 'grid' }, rain, TZ)).toEqual(fitLayer({ ...inst, arrangement: 'grid' }, rain, TZ));
+    const multiples = { ...defaultMultiplesLayerFor('m', 'M', dataset, rain), columns: 3, splitBy: 'decade' as const };
+    expect(fitAnyLayer(multiples, rain, TZ)).toEqual(fitMultiplesLayer(multiples, rain, TZ));
+    expect((fitAnyLayer(multiples, rain, TZ) as typeof multiples).columns).toBe(4); // 13 decades
+    const tree = { ...defaultHierarchyLayerFor('t', 'T', dataset, rain), layout: 'icicle' as const };
+    expect(fitAnyLayer(tree, rain, TZ)).toEqual(fitHierarchyLayer(tree));
+    const surface = { ...defaultSurfaceLayerFor('s', 'S', dataset, rain), cell: [1, 1] as [number, number] };
+    expect((fitAnyLayer(surface, rain, TZ) as typeof surface).cell).toEqual(defaultSurfaceLayerFor('s', 'S', dataset, rain).cell);
+  });
+
+  it('fitAnyLayer leaves phase 7 layers alone without a summary', () => {
+    for (const l of [blankMultiplesLayer('a', 'A', null), blankHierarchyLayer('b', 'B', null), blankSurfaceLayer('c', 'C', null)]) {
+      const before = JSON.stringify(l);
+      expect(JSON.stringify(fitAnyLayer(l, null, TZ))).toBe(before);
+    }
   });
 });

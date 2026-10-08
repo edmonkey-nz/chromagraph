@@ -7,9 +7,12 @@ import { layerParamPrefix } from '../../shared/parameters.ts';
 import { applyOps, type Path, type PatchOp } from '../../shared/patch.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
 import { buildHeatmap } from './heatmap-folders.ts';
+import { buildHierarchy } from './hierarchy-folders.ts';
 import { buildInstancer } from './instancer-folders.ts';
 import type { Entry, Labelled, LayerUi } from './layer-ui.ts';
 import { buildLine } from './line-folders.ts';
+import { buildMultiples } from './multiples-folders.ts';
+import { buildSurface } from './surface-folders.ts';
 import { buildText } from './text-folders.ts';
 
 /**
@@ -17,7 +20,8 @@ import { buildText } from './text-folders.ts';
  * layer config through minimal `set` patches. The GUI never holds authoritative state: every
  * edit is sent to the server and the folder is rebuilt from the synced document when the
  * layer changes structurally or someone else edits it. The per-type folders are built in
- * instancer-folders.ts, line-folders.ts, heatmap-folders.ts and text-folders.ts.
+ * instancer-folders.ts, line-folders.ts, heatmap-folders.ts, text-folders.ts,
+ * multiples-folders.ts, hierarchy-folders.ts and surface-folders.ts.
  *
  * One layer can be selected (for the preview's transform gizmo): pointing anywhere in its
  * folder selects it, and its folder is highlighted.
@@ -52,6 +56,13 @@ function shapeKey(layer: LayerConfig): string {
       return `instancer:${layer.arrangement}`;
     case 'heatmap':
       return `heatmap:${layer.layout}`;
+    case 'surface':
+      return `surface:${layer.layout}`;
+    case 'multiples':
+      return `multiples:${layer.splitBy}`;
+    case 'hierarchy':
+      // Adding, removing or re-kinding a level changes which fields each level shows.
+      return `hierarchy:${layer.levels.map((l) => l.kind).join(',')}`;
     default:
       return layer.type;
   }
@@ -416,6 +427,7 @@ export class LayersPanel {
       fit: () => this.fit(id),
       changeDataset: (datasetId) => this.changeDataset(id, datasetId),
       instanceTotal: () => this.instanceTotal(),
+      getDoc: () => this.deps.getDoc(),
     };
     this.quiet(() => {
       switch (layer.type) {
@@ -430,6 +442,15 @@ export class LayersPanel {
           break;
         case 'text':
           buildText(ui, layer, titleOf);
+          break;
+        case 'multiples':
+          buildMultiples(ui, layer, titleOf);
+          break;
+        case 'hierarchy':
+          buildHierarchy(ui, layer, titleOf);
+          break;
+        case 'surface':
+          buildSurface(ui, layer, titleOf);
           break;
       }
       this.buildActions(entry, id, position, count);

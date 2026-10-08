@@ -73,8 +73,10 @@ export interface LayerUi {
   isQuiet(): boolean;
   fit(): void;
   changeDataset(datasetId: string | null): void;
-  /** Instances drawn by all instancer layers (for the budget readout). */
+  /** Instances drawn by all enabled layers (for the budget readouts; see instanceCount). */
   instanceTotal(): number;
+  /** The current synced document (read at click time, e.g. for the project's background). */
+  getDoc(): SyncDoc | null;
 }
 
 export type Vec3Obj = { x: number; y: number; z: number };
@@ -207,6 +209,184 @@ export function addOpacityBlend(ui: LayerUi, f: FolderApi, layer: LayerConfig): 
 
 export function addFitButton(ui: LayerUi, f: FolderApi): void {
   f.addButton({ title: ui.canFit ? 'Fit to output' : 'Fit to output (waiting for data)', disabled: !ui.canFit }).on('click', () => ui.fit());
+}
+
+// ---- plain fields --------------------------------------------------------------------------
+
+export interface NumberOptions {
+  /** Slider bounds (both given) or text-box limits. */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Hard limits the sent value is clamped to (the schema's), defaulting to min/max. */
+  hardMin?: number;
+  hardMax?: number;
+  integer?: boolean;
+  /** Parameter id suffix, for the " ~" modulation mark. */
+  field?: string;
+  /** Tooltip. */
+  hint?: string;
+}
+
+/** A number field at `path`, clamped (and rounded) to its valid range before sending. */
+export function addNumber(ui: LayerUi, f: FolderApi, value: number, label: string, path: Path, o: NumberOptions = {}) {
+  const m = { v: value };
+  const lo = o.hardMin ?? o.min ?? -Infinity;
+  const hi = o.hardMax ?? o.max ?? Infinity;
+  const params: Record<string, unknown> = { label };
+  if (o.min !== undefined) params.min = o.min;
+  if (o.max !== undefined) params.max = o.max;
+  if (o.step !== undefined) params.step = o.step;
+  else if (o.integer) params.step = 1;
+  if (o.min === undefined || o.max === undefined) params.format = fmt;
+  const api = f.addBinding(m, 'v', params).on('change', (ev) => {
+    if (!Number.isFinite(ev.value)) return;
+    const v = Math.min(hi, Math.max(lo, o.integer ? Math.round(ev.value) : ev.value));
+    ui.set(path, v);
+  });
+  if (o.hint) api.element.title = o.hint;
+  return o.field ? ui.mark(api, label, o.field) : api;
+}
+
+/**
+ * Two number fields for a 2-tuple at `path` (sent whole), e.g. a size or a min/max pair.
+ * `field` is the parameter id prefix, marked as `<field>.0` and `<field>.1`.
+ */
+export function addPair(
+  ui: LayerUi,
+  f: FolderApi,
+  value: readonly [number, number],
+  labels: readonly [string, string],
+  path: Path,
+  o: Pick<NumberOptions, 'min' | 'max' | 'step' | 'hardMin' | 'field' | 'hint'> = {},
+): BladeApi[] {
+  const m = { a: value[0], b: value[1] };
+  const params: Record<string, unknown> = {};
+  if (o.min !== undefined) params.min = o.min;
+  if (o.max !== undefined) params.max = o.max;
+  if (o.step !== undefined) params.step = o.step;
+  if (o.min === undefined || o.max === undefined) params.format = fmt;
+  const send = () => {
+    if (!Number.isFinite(m.a) || !Number.isFinite(m.b)) return;
+    const lo = o.hardMin ?? -Infinity;
+    ui.set(path, [Math.max(lo, m.a), Math.max(lo, m.b)]);
+  };
+  return (['a', 'b'] as const).map((key, i) => {
+    const label = labels[i]!;
+    const api = f.addBinding(m, key, { ...params, label }).on('change', send);
+    if (o.hint) api.element.title = o.hint;
+    return o.field ? ui.mark(api, label, `${o.field}.${i}`) : api;
+  });
+}
+
+/** A list field at `path`; `titles` optionally renames the values shown. */
+export function addChoice<T extends string>(
+  ui: LayerUi,
+  f: FolderApi,
+  value: T,
+  label: string,
+  path: Path,
+  values: readonly T[],
+  titles: Partial<Record<T, string>> = {},
+) {
+  const m = { v: value };
+  return f
+    .addBinding(m, 'v', { label, options: values.map((v) => ({ text: titles[v] ?? v, value: v })) })
+    .on('change', (ev) => ui.set(path, ev.value));
+}
+
+/** A boolean or #rrggbb colour field at `path`. */
+export function addPlain<T extends boolean | string>(ui: LayerUi, f: FolderApi, value: T, label: string, path: Path) {
+  const m = { v: value };
+  return f.addBinding(m, 'v', { label }).on('change', (ev) => ui.set(path, ev.value));
+}
+
+// ---- value column and domain (layers with top-level valueColumn / domain) -------------------
+
+export interface DomainControl {
+  /**
+   * When the domain is manual, re-seed it from `column`'s range and return the change to send
+   * with a value-column switch; null while the domain is auto.
+   */
+  reseed(column: string | null): LayerChange | null;
+}
+
+/** "auto domain" toggle plus manual min/max for the layer's `domain` (parameters domain.0/1). */
+export function addDomain(ui: LayerUi, f: FolderApi, domain: readonly [number, number] | null, column: string | null, columns: SummaryColumn[]): DomainControl {
+  const colOf = (name: string | null) => (name === null ? undefined : columns.find((c) => c.name === name));
+  const [d0, d1] = domain ?? initialDomain(colOf(column));
+  const m = { auto: domain === null, domainMin: d0, domainMax: d1 };
+  let current = column;
+  const sendDomain = () => ui.set(['domain'], [m.domainMin, m.domainMax]);
+  const reset = () => {
+    [m.domainMin, m.domainMax] = initialDomain(colOf(current));
+    ui.quiet(() => {
+      min.refresh();
+      max.refresh();
+    });
+  };
+  const show = () => {
+    min.hidden = m.auto;
+    max.hidden = m.auto;
+  };
+  f.addBinding(m, 'auto', { label: 'auto domain' }).on('change', (ev) => {
+    if (ev.value) {
+      ui.set(['domain'], null);
+    } else {
+      reset();
+      sendDomain();
+    }
+    show();
+  }).element.title = 'Auto: the value column’s min..max. Off: set the domain by hand (and modulate it).';
+  const min = ui.mark(f.addBinding(m, 'domainMin', { label: 'domain min', format: fmt }).on('change', sendDomain), 'domain min', 'domain.0');
+  const max = ui.mark(f.addBinding(m, 'domainMax', { label: 'domain max', format: fmt }).on('change', sendDomain), 'domain max', 'domain.1');
+  show();
+  return {
+    reseed(next) {
+      current = next;
+      if (m.auto) return null;
+      reset();
+      return { path: ['domain'], value: [m.domainMin, m.domainMax] };
+    },
+  };
+}
+
+/**
+ * Value column picker for `valueColumn` (or a placeholder while the dataset parses). `domain`
+ * is read when the column changes, so it may be created after this field.
+ */
+export function addValueColumn(ui: LayerUi, f: FolderApi, current: string | null, columns: SummaryColumn[], domain: () => DomainControl | null): void {
+  if (!ui.summary) {
+    f.addButton({ title: 'Waiting for data…', label: 'value', disabled: true });
+    return;
+  }
+  const m = { valueColumn: current ?? '' };
+  f.addBinding(m, 'valueColumn', { label: 'value', options: columnOptions(columns, current) }).on('change', (ev) => {
+    const column = ev.value || null;
+    const changes: LayerChange[] = [{ path: ['valueColumn'], value: column }];
+    const reseeded = domain()?.reseed(column);
+    if (reseeded) changes.push(reseeded);
+    ui.send(changes);
+  });
+}
+
+/** Scale, ramp and reverse for a layer's top-level colour fields. */
+export function addScaleRamp(
+  ui: LayerUi,
+  f: FolderApi,
+  layer: { scale: (typeof SCALE_TYPES)[number]; ramp: (typeof COLOUR_RAMPS)[number]; reverse: boolean; steps: number },
+) {
+  const scale = addChoice(ui, f, layer.scale, 'scale', ['scale'], SCALE_TYPES);
+  const sm = { steps: layer.steps };
+  const steps = f.addBinding(sm, 'steps', { min: 2, max: 64, step: 1 });
+  steps.hidden = layer.scale !== 'quantise';
+  steps.on('change', (ev) => ui.set(['steps'], Math.min(64, Math.max(2, Math.round(ev.value)))));
+  scale.on('change', (ev) => {
+    steps.hidden = ev.value !== 'quantise';
+  });
+  const ramp = addChoice(ui, f, layer.ramp, 'ramp', ['ramp'], COLOUR_RAMPS);
+  const reverse = addPlain(ui, f, layer.reverse, 'reverse', ['reverse']);
+  return { scale, ramp, reverse, steps };
 }
 
 // ---- mappings --------------------------------------------------------------------------

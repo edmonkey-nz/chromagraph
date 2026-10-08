@@ -100,8 +100,6 @@ export interface HierarchyInstance extends LayerInstance {
 export const MAX_LABELS = 500;
 /** Colour of nodes whose value is missing (shown as missing, never as a number). */
 const MISSING_COLOUR = '#5f6368';
-/** Quantise steps (the hierarchy schema has no steps field). */
-const QUANTISE_STEPS = 5;
 const SCALE_CODE: Record<ScaleType, number> = { linear: 0, log: 1, sqrt: 2, quantise: 3 };
 const COLOUR_BY_CODE = { value: 0, depth: 1, none: 2 } as const;
 
@@ -361,7 +359,7 @@ export function createHierarchy(
     uColourBy: { value: 0 },
     uColour: { value: new Color() },
     uMissingColour: { value: new Color(MISSING_COLOUR) },
-    uScale: { value: new Vector4(0, 1, 0, QUANTISE_STEPS) },
+    uScale: { value: new Vector4(0, 1, 0, layer.steps) },
     uDomains: { value: Array.from({ length: MAX_DEPTH + 1 }, () => new Vector2(0, 1)) },
     uReverse: { value: 0 },
     uRamp: { value: rampTexture(layer.ramp) },
@@ -597,7 +595,7 @@ export function createHierarchy(
 
   /** Scale type and the domain per depth (see hierarchyDomainInto). */
   function setScaleUniform(next: HierarchyLayer): void {
-    (colourUniforms.uScale!.value as Vector4).set(0, 1, SCALE_CODE[next.scale], QUANTISE_STEPS);
+    (colourUniforms.uScale!.value as Vector4).set(0, 1, SCALE_CODE[next.scale], next.steps);
     const domains = colourUniforms.uDomains!.value as Vector2[];
     for (let d = 0; d <= MAX_DEPTH; d++) {
       if (tree && stats) hierarchyDomainInto(domainScratch, tree, stats, next.scale, next.domain, d);

@@ -2,6 +2,8 @@ import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
+import { multiplesStructureKey } from '../../data/multiples-data.ts';
+import { surfaceStructureKey } from '../../data/surface-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
@@ -10,6 +12,8 @@ import { createHierarchy } from './layers/hierarchy.ts';
 import { createInstancer } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
 import { createLine } from './layers/line.ts';
+import { createMultiples } from './layers/multiples.ts';
+import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
 
@@ -63,26 +67,23 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     needsData: false,
     create: (layer, data, mode) => createTextLayer(layer, data ? { table: data.table, timeZone: data.timeZone } : null, mode),
   },
-  // Phase 7 renderers replace these; until then such a layer shows as flagged, not built.
-  multiples: notBuiltYet('small multiples'),
+  multiples: {
+    structureKey: (layer, timeZone) => multiplesStructureKey(layer, timeZone),
+    needsData: true,
+    create: (layer, data, mode) => createMultiples(layer, required(data), mode),
+  },
   hierarchy: {
     // Rows, layout and its sizes go to the layer's worker (regroup / re-layout), not a rebuild.
     structureKey: (layer, timeZone) => hierarchyStructureKey(layer, timeZone),
     needsData: true,
     create: (layer, data, mode) => createHierarchy(layer, required(data), mode),
   },
-  surface: notBuiltYet('3D surface'),
+  surface: {
+    structureKey: (layer, timeZone) => surfaceStructureKey(layer, timeZone),
+    needsData: true,
+    create: (layer, data, mode) => createSurface(layer, required(data), mode),
+  },
 };
-
-function notBuiltYet<L extends LayerConfig>(what: string): LayerKind<L> {
-  return {
-    structureKey: (layer) => JSON.stringify(layer),
-    needsData: false,
-    create: () => {
-      throw new Error(`${what} layers are not available in this build yet`);
-    },
-  };
-}
 
 function kindOf(layer: LayerConfig): LayerKind<LayerConfig> {
   return KINDS[layer.type] as unknown as LayerKind<LayerConfig>;

@@ -7,6 +7,11 @@
  * Only drawable rows become points: a row whose t or any mapped value is missing is left
  * out (never drawn as zero). Segments join consecutive points, and a segment that skips
  * rows therefore spans missing data; `segmentBroken` decides whether it is drawn.
+ *
+ * Cloner (ridgelines): clone k of the line keeps the original's points, t and gap rule, but
+ * takes its mapped values from data row `row + k * dataStep`. Where that row is outside the
+ * data, or one of its mapped values is missing, clone k breaks there (`clonePointDrawable`).
+ * With the fill on, each drawn segment also gets an area down to the clone's baseline.
  */
 import type { LineLayer, ScaleType } from '../shared/layer-schema.ts';
 import type { Column, Table } from './columns.ts';
@@ -14,6 +19,12 @@ import type { Cadence } from './gaps.ts';
 import { LayerDataError, MISSING, normalise, resolveDomain, type ChannelData } from './instance-data.ts';
 
 export const MAX_LINE_POINTS = 1_000_000;
+/**
+ * Ceiling on line instances per draw (segments x pieces x clones, a piece being a line
+ * segment or its fill), so a big clone count cannot hang the GPU: clones beyond it are
+ * dropped from the far end.
+ */
+export const MAX_LINE_DRAWN = 4_000_000;
 const DAY_MS = 86_400_000;
 
 /** Floats per point in `LineData.points`: t, source row, raw y, raw z, raw colour value. */
@@ -219,4 +230,89 @@ export function linePositions(data: LineData, layer: LineLayer): Float32Array {
 function mapValue(v: number, domain: [number, number], m: { scale: ScaleType; steps: number; clamp: boolean; range: [number, number] }): number {
   const n = normalise(v, domain, m.scale, m.steps, m.clamp);
   return m.range[0] + (m.range[1] - m.range[0]) * n;
+}
+
+/** Segments drawn for the visible rows [first, last]: [first segment, count], both ends in range. */
+export function segmentRange(data: LineData, first: number, last: number): [number, number] {
+  if (data.count < 2 || last < first) return [0, 0];
+  const start = firstPointAtOrAfter(data, first);
+  const endPoint = firstPointAtOrAfter(data, last + 1) - 1; // last point with row <= last
+  return [start, Math.max(0, endPoint - start)];
+}
+
+/** Clones actually drawn: `count`, capped so instances (perClone each) stay within MAX_LINE_DRAWN. */
+export function lineCloneCount(count: number, perClone: number): number {
+  if (perClone <= 0) return Math.max(1, count);
+  return Math.max(1, Math.min(count, Math.floor(MAX_LINE_DRAWN / perClone)));
+}
+
+/** Data row clone k reads for source row `row`, or -1 when it steps outside the data. */
+export function cloneDataRow(row: number, k: number, dataStep: number, rowCount: number): number {
+  const r = row + k * dataStep;
+  return r >= 0 && r < rowCount ? r : -1;
+}
+
+/** Whether clone k has values at point p: its data row exists and no mapped value there is missing. */
+export function clonePointDrawable(data: LineData, p: number, k: number, dataStep: number): boolean {
+  const r = cloneDataRow(data.points[p * POINT_STRIDE + P_ROW]!, k, dataStep, data.rowCount);
+  if (r < 0) return false;
+  return !(
+    (data.y !== null && data.y.values[r]! === MISSING) ||
+    (data.z !== null && data.z.values[r]! === MISSING) ||
+    (data.colour !== null && data.colour.values[r]! === MISSING)
+  );
+}
+
+/**
+ * Whether clone k draws segment i (and, with the fill on, its area): the original's rows
+ * range and gap rule, and both ends drawable for that clone. Mirrored in the vertex shader.
+ */
+export function cloneSegmentVisible(
+  data: LineData,
+  i: number,
+  k: number,
+  dataStep: number,
+  first: number,
+  last: number,
+  breakOnGaps: boolean,
+  gapFactor: number,
+): boolean {
+  if (!segmentVisible(data, i, first, last, breakOnGaps, gapFactor)) return false;
+  return clonePointDrawable(data, i, k, dataStep) && clonePointDrawable(data, i + 1, k, dataStep);
+}
+
+/**
+ * CPU twin of the vertex shader's placement for clone k (offset by k x cloner.position;
+ * orbit is left out): x, y, z per point, NaN where the clone has no value. Tests and
+ * diagnostics only.
+ */
+export function cloneLinePositions(data: LineData, layer: LineLayer, k: number): Float32Array {
+  const out = new Float32Array(data.count * 3);
+  const [first] = rowRange(layer.rows, data.rowCount);
+  const t0 = lineTStart(data, layer.followRange, first);
+  const yDomain = data.y ? resolveDomain(layer.y, data.y) : null;
+  const zDomain = data.z ? resolveDomain(layer.z, data.z) : null;
+  const off = layer.cloner.position;
+  for (let p = 0; p < data.count; p++) {
+    const o = p * POINT_STRIDE;
+    const r = cloneDataRow(data.points[o + P_ROW]!, k, layer.cloner.dataStep, data.rowCount);
+    if (!clonePointDrawable(data, p, k, layer.cloner.dataStep)) {
+      out.fill(NaN, p * 3, p * 3 + 3);
+      continue;
+    }
+    const t = data.points[o + P_T]! - t0;
+    let y = layer.origin[1] + t * layer.step[1] + k * off[1];
+    let z = layer.origin[2] + t * layer.step[2] + k * off[2];
+    if (yDomain) y += mapValue(data.y!.values[r]!, yDomain, layer.y);
+    if (zDomain) z += mapValue(data.z!.values[r]!, zDomain, layer.z);
+    out[p * 3] = layer.origin[0] + t * layer.step[0] + k * off[0];
+    out[p * 3 + 1] = y;
+    out[p * 3 + 2] = z;
+  }
+  return out;
+}
+
+/** y of clone k's fill baseline: the line's origin.y plus the clone's y offset. */
+export function fillBaseline(layer: LineLayer, k: number): number {
+  return layer.origin[1] + k * layer.cloner.position[1];
 }
