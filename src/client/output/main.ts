@@ -4,6 +4,7 @@ import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '.
 import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { DatasetStore } from './datasets.ts';
+import { PreviewEditor } from './editor.ts';
 import { LayerManager } from './layer-manager.ts';
 import { ModulationEngine } from './modulation.ts';
 import { LayerHost, type FrameContext } from './layers/layer.ts';
@@ -169,6 +170,17 @@ function createStage(): void {
 }
 
 createStage();
+
+// Direct-manipulation editor (gizmo, orbit, click to select): preview only, never the output.
+const editor = preview
+  ? new PreviewEditor({
+      canvas,
+      getStage: () => stage,
+      getDoc: () => state.doc,
+      getLayerObject: (id) => layers?.get(id)?.object ?? null,
+    })
+  : null;
+
 window.addEventListener('resize', () => stage?.resize());
 window.addEventListener('keydown', (ev) => {
   if (!preview && ev.key === 'f' && !document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
@@ -196,7 +208,9 @@ function tick(now: number): void {
     if (stage && layers && !stage.contextLost) {
       modulation.frame(performance.timeOrigin + now);
       layers.update(ctx);
+      editor?.frame();
       stage.render();
+      editor?.renderOverlay();
     }
   } catch (err) {
     report('error', `frame failed: ${String(err)}`);
