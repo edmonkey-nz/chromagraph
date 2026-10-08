@@ -238,8 +238,25 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
 - `LayerManager` (`client/output/layer-manager.ts`) compares each layer's `structureKey` (from
   `data/instance-data.ts`) plus the dataset version. A change there rebuilds the layer;
   any other change only updates uniforms through `InstancerInstance.apply`.
-- `buildInstanceData` (pure, tested) turns columns into float32 instance arrays. Missing
+- `buildInstanceData` (pure, tested) turns columns into float32 per-row arrays. Missing
   values become the `MISSING` sentinel, and the shader hides those instances.
+- **Data textures.** The instancer packs those arrays into three RGBA32F data textures,
+  4096 texels wide. The vertex shader looks rows up with
+  `texelFetch(row % 4096, row / 4096)` and maps `gl_InstanceID` to (row, clone).
+  - Only visible rows × clones are drawn. Changing the row range, a domain, range or
+    scale, or any cloner field is therefore a uniform update.
+  - Instances are capped at 4M per draw.
+- **Cloner** (`ClonerSchema`, MoGraph-style).
+  - Clone k is offset by k × the position/rotation/scale steps, orbits the layer pivot,
+    and fades by fade^k.
+  - Clone k takes its mapped values from row i + k·dataStep, but its position from
+    row i. That is what produces waterfalls and ridgelines.
+  - Clones are drawn far to near, so the originals sit on top.
+- **Layer transform.** Every layer has one (position/rotation/scale about a pivot),
+  applied as an object matrix in `client/output/layers/transform.ts` and set by
+  `LayerManager`. Editing it from the preview gizmo uses the postMessage protocol in
+  `shared/editor-protocol.ts`. The preview reports drags, and the control window sends
+  the patches.
 - `normalise()` in the same file is the tested twin of the GLSL scale maths in
   `client/output/layers/instancer.ts`. Change both together.
 - Calendar fields (year, day of year in the dataset's timezone) are computed in the parse
