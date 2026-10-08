@@ -7,6 +7,7 @@ import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '.
 import { SyncedState } from '../common/synced-state.ts';
 import { CalibrationPanel } from './calibration-panel.ts';
 import { DatasetsPanel } from './datasets-panel.ts';
+import { EditMode } from './edit-mode.ts';
 import { LayersPanel } from './layers-panel.ts';
 import { ModulationPanel } from './modulation-panel.ts';
 import { TimelinePanel } from './timeline-panel.ts';
@@ -33,6 +34,10 @@ const el = {
   previewToggle: $<HTMLInputElement>('preview-toggle'),
   previewSection: $('preview-section'),
   previewBox: $('preview-box'),
+  editToggle: $<HTMLInputElement>('edit-toggle'),
+  gizmoModes: $('gizmo-modes'),
+  snapSelect: $<HTMLSelectElement>('snap-select'),
+  editBadge: $('edit-badge'),
 };
 
 const outputs = new Map<string, OutputStatus>();
@@ -94,12 +99,34 @@ function syncGui(doc: SyncDoc): void {
   params.background = doc.project.output.background;
   params.testPattern = doc.session.testPattern;
   params.debugOverlay = doc.session.debugOverlay;
-  const c = doc.project.camera;
-  Object.assign(cam, { mode: c.mode, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
-  cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
+  setCameraParams(doc.project.camera);
   syncingGui = true;
   try {
     pane.refresh();
+  } finally {
+    syncingGui = false;
+  }
+}
+
+function setCameraParams(c: Camera): void {
+  Object.assign(cam, { mode: c.mode, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
+  cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
+}
+
+// The camera folder follows camera changes from the preview (orbit/zoom/pan in edit mode),
+// which echo back with our own origin, unless the user is typing in it or dragging in it.
+let cameraDragging = false;
+cameraFolder.element.addEventListener('pointerdown', () => (cameraDragging = true));
+window.addEventListener('pointerup', () => (cameraDragging = false));
+window.addEventListener('pointercancel', () => (cameraDragging = false));
+
+function refreshCameraGui(c: Camera): void {
+  const a = document.activeElement;
+  if (cameraDragging || (a instanceof HTMLInputElement && cameraFolder.element.contains(a))) return;
+  setCameraParams(c);
+  syncingGui = true;
+  try {
+    cameraFolder.refresh();
   } finally {
     syncingGui = false;
   }
@@ -123,6 +150,7 @@ const layersPanel = new LayersPanel(pane, {
     lastError = message;
     renderBanners();
   },
+  select: (id) => editMode.select(id),
 });
 datasetsPanel.onChange = () => layersPanel.refreshSummaries();
 
@@ -180,8 +208,26 @@ function setPreview(on: boolean): void {
   }
 }
 
-el.previewToggle.addEventListener('change', () => setPreview(el.previewToggle.checked));
+el.previewToggle.addEventListener('change', () => {
+  setPreview(el.previewToggle.checked);
+  editMode.previewChanged(el.previewToggle.checked);
+});
 setPreview(loadPreviewSetting());
+
+// ---- edit mode (gizmo editing in the preview) ---------------------------------------------
+
+const editMode = new EditMode(
+  { toggle: el.editToggle, modes: el.gizmoModes, snap: el.snapSelect, badge: el.editBadge },
+  {
+    sendPatch,
+    getDoc: () => state.doc,
+    frame: () => el.previewBox.querySelector('iframe'),
+    showPreview: () => {
+      if (!el.previewToggle.checked) setPreview(true);
+    },
+    showSelection: (id, reveal) => layersPanel.setSelected(id, reveal),
+  },
+);
 
 // ---- output calibration (phase 5) -------------------------------------------------------
 
@@ -198,14 +244,16 @@ const calibrationPanel = new CalibrationPanel(
 // ---- state -------------------------------------------------------------------------
 
 const state = new SyncedState(
-  (doc, _prev, info) => {
+  (doc, prev, info) => {
     // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the user.
     const external = info.full || info.origin !== clientId;
     if (external) syncGui(doc);
+    else if (prev && doc.project.camera !== prev.project.camera) refreshCameraGui(doc.project.camera);
     renderProjects();
     datasetsPanel.update(state.projectName, doc.project.datasets);
     timelinePanel.update(doc);
     layersPanel.update(doc, external);
+    editMode.update(doc);
     modulationPanel.update(doc, external);
     calibrationPanel.update(doc, external);
   },

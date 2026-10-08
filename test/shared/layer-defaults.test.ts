@@ -3,8 +3,34 @@ import { describe, expect, it } from 'vitest';
 import type { TimeColumn } from '../../src/data/columns.ts';
 import { detectCadence } from '../../src/data/gaps.ts';
 import { parseCsv } from '../../src/data/parse.ts';
-import { defaultLayerFor, fitLayer, summarise, tSpanOf, type DatasetSummary } from '../../src/shared/layer-defaults.ts';
-import { ARRANGEMENTS, blankInstancerLayer, InstancerLayerSchema, type InstancerLayer } from '../../src/shared/layer-schema.ts';
+import {
+  defaultHeatmapLayerFor,
+  defaultLayerFor,
+  defaultLayerOfType,
+  defaultLineLayerFor,
+  defaultTextLayerFor,
+  fitAnyLayer,
+  fitHeatmapLayer,
+  fitLayer,
+  fitLineLayer,
+  fitTextLayer,
+  summarise,
+  textTemplateFor,
+  tSpanOf,
+  type DatasetSummary,
+} from '../../src/shared/layer-defaults.ts';
+import {
+  ARRANGEMENTS,
+  blankHeatmapLayer,
+  blankInstancerLayer,
+  blankLineLayer,
+  blankTextLayer,
+  InstancerLayerSchema,
+  LAYER_TYPES,
+  LayerSchema,
+  type InstancerLayer,
+  type LayerConfig,
+} from '../../src/shared/layer-schema.ts';
 import type { Dataset } from '../../src/shared/project-schema.ts';
 
 const FULL = fs.readFileSync(new URL('../fixtures/3384__Rain__daily.csv', import.meta.url), 'utf8');
@@ -271,5 +297,184 @@ describe('degenerate inputs', () => {
     expect(l.arrangement).toBe('calendar');
     expect(l.channels.colour.scale).toBe('linear');
     expectValid(l);
+  });
+});
+
+function expectLayerValid(layer: LayerConfig): void {
+  const r = LayerSchema.safeParse(layer);
+  expect(r.success, r.success ? '' : JSON.stringify(r.error.issues)).toBe(true);
+  expect(allFinite(layer)).toBe(true);
+}
+
+const years = yearsIn(timeCol.max) - yearsIn(timeCol.min) + 1;
+const tSpanDays = (timeCol.max - timeCol.min) / DAY;
+
+describe('line defaults', () => {
+  const line = defaultLineLayerFor('ln-1', 'Line', dataset, rain);
+
+  it('runs in time mode on the time column with y from rainfall over ±300 px', () => {
+    expectLayerValid(line);
+    expect(line.type).toBe('line');
+    expect(line.datasetId).toBe('ds-rain');
+    expect(line.xMode).toBe('time');
+    expect(line.timeColumn).toBe('Observation time UTC');
+    expect(line.y.column).toBe('Rainfall [mm]');
+    expect(line.y.range).toEqual([-300, 300]);
+    expect(line.y.domain).toBeNull();
+    expect(line.width).toBe(2);
+  });
+
+  it('fits the span to the usable width with its origin mid-frame', () => {
+    expect(line.origin).toEqual([60, 540, 0]);
+    expect(line.step[0] * tSpanDays).toBeCloseTo(1800);
+    expect(line.step[1]).toBe(0);
+  });
+
+  it('uses index mode without a time column', () => {
+    const noTime: DatasetSummary = { ...rain, columns: rain.columns.filter((c) => c.type !== 'time'), cadences: {} };
+    const l = defaultLineLayerFor('ln', 'L', dataset, noTime);
+    expectLayerValid(l);
+    expect(l.xMode).toBe('index');
+    expect(l.timeColumn).toBeNull();
+    expect(l.step[0]).toBeCloseTo(1800 / 42747);
+  });
+
+  it('fit respects the visible rows and keeps the y range', () => {
+    const half = fitLineLayer({ ...line, rows: [0.5, 1], y: { ...line.y, range: [-100, 50] } }, rain);
+    expectLayerValid(half);
+    expect(half.step[0] * tSpanDays * 0.5).toBeCloseTo(1800);
+    expect(half.origin[0] + tSpanDays * 0.5 * half.step[0]).toBeCloseTo(60);
+    expect(half.y.range).toEqual([-100, 50]);
+    const follow = fitLineLayer({ ...line, rows: [0.5, 1], followRange: true }, rain);
+    expect(follow.origin[0]).toBe(60);
+  });
+});
+
+describe('heat map defaults', () => {
+  const heat = defaultHeatmapLayerFor('hm-1', 'Heat', dataset, rain);
+
+  it('is a calendar of rainfall for daily data', () => {
+    expectLayerValid(heat);
+    expect(heat.type).toBe('heatmap');
+    expect(heat.layout).toBe('calendar');
+    expect(heat.timeColumn).toBe('Observation time UTC');
+    expect(heat.valueColumn).toBe('Rainfall [mm]');
+    expect(heat.scale).toBe('sqrt');
+    expect(heat.domain).toBeNull();
+  });
+
+  it('fits 366 days across and one row per year down, from the top-left margin', () => {
+    expect(heat.cell[0]).toBeCloseTo(1800 / 366);
+    expect(heat.cell[1]).toBeCloseTo(960 / years);
+    expect(heat.origin).toEqual([60, 1020, 0]);
+    expect(heat.origin[1] - years * heat.cell[1]).toBeCloseTo(60);
+  });
+
+  it('calendar fit counts only the visible years and lifts the origin to the first one', () => {
+    const recent = fitHeatmapLayer({ ...heat, rows: [0.9, 1] }, rain, TZ);
+    expectLayerValid(recent);
+    expect(recent.cell[1]).toBeGreaterThan(heat.cell[1] * 5);
+    const firstVisible = yearsIn(timeCol.min + (timeCol.max - timeCol.min) * 0.9) - yearsIn(timeCol.min);
+    expect(recent.origin[1] - firstVisible * recent.cell[1]).toBeCloseTo(1020);
+  });
+
+  it('is a grid in row order without a daily column', () => {
+    const hourly: DatasetSummary = { ...rain, cadences: { 'Observation time UTC': { step: 3_600_000 } } };
+    const g = defaultHeatmapLayerFor('hm-2', 'Grid', dataset, hourly);
+    expectLayerValid(g);
+    expect(g.layout).toBe('grid');
+    expect(g.valueColumn).toBe('Rainfall [mm]');
+    const rows = Math.ceil(42748 / g.gridColumns);
+    expect(g.gridColumns * g.cell[0]).toBeCloseTo(1800);
+    expect(rows * g.cell[1]).toBeCloseTo(960);
+    expect(g.cell[0] / g.cell[1]).toBeGreaterThan(0.8);
+    expect(g.cell[0] / g.cell[1]).toBeLessThan(1.25);
+    expect(g.origin).toEqual([60, 1020, 0]);
+  });
+
+  it('uses a linear scale for signed values', () => {
+    const signed = syntheticSummary({
+      rowCount: 10,
+      columns: [{ name: 'v', type: 'number', min: -5, max: 5, empty: false }],
+    });
+    const g = defaultHeatmapLayerFor('hm', 'H', dataset, signed);
+    expect(g.layout).toBe('grid');
+    expect(g.scale).toBe('linear');
+    expectLayerValid(g);
+  });
+});
+
+describe('text defaults', () => {
+  it('shows the date and rainfall at the current row, top left at 48 px', () => {
+    const t = defaultTextLayerFor('tx-1', 'Caption', dataset, rain);
+    expectLayerValid(t);
+    expect(t.text).toBe('{Observation time UTC|date}  {Rainfall [mm]|fixed:1} mm');
+    expect(t.fontSize).toBe(48);
+    expect(t.position).toEqual([60, 1020, 0]);
+    expect([t.anchorX, t.anchorY, t.align]).toEqual(['left', 'top', 'left']);
+    expect(t.row).toBe(0);
+    expect(t.datasetId).toBe('ds-rain');
+  });
+
+  it('is static text without a dataset', () => {
+    const t = defaultTextLayerFor('tx-2', 'Title', null, null);
+    expectLayerValid(t);
+    expect(t.datasetId).toBeNull();
+    expect(t.text).not.toContain('{');
+  });
+
+  it('builds templates from whatever columns exist', () => {
+    expect(textTemplateFor(syntheticSummary({ columns: [{ name: 'v [°C]', type: 'number', min: 1, max: 2, empty: false }] }))).toBe(
+      '{v [°C]|fixed:1} °C',
+    );
+    expect(textTemplateFor(syntheticSummary({ columns: [{ name: 'when', type: 'time', min: 0, max: DAY, empty: false }] }))).toBe('{when|date}');
+    expect(textTemplateFor(syntheticSummary({ columns: [{ name: 'a{b}', type: 'number', min: 1, max: 2, empty: false }] }))).toBeNull();
+    expect(textTemplateFor(syntheticSummary())).toBeNull();
+  });
+
+  it('fit puts the anchor at the matching margin point and wraps at the usable width', () => {
+    const t = fitTextLayer({ ...blankTextLayer('t', 'T', null), position: [-500, 4000, 7], maxWidth: 0, anchorX: 'center', anchorY: 'bottom' });
+    expectLayerValid(t);
+    expect(t.position).toEqual([960, 60, 0]);
+    expect(t.maxWidth).toBe(1800);
+    const r = fitTextLayer({ ...t, anchorX: 'right', anchorY: 'middle' });
+    expect(r.position).toEqual([1860, 540, 0]);
+  });
+});
+
+describe('any layer type', () => {
+  for (const type of LAYER_TYPES) {
+    it(`${type}: defaults with and without data, and every fit, validate`, () => {
+      const withData = defaultLayerOfType(type, 'ly', 'L', dataset, rain);
+      expect(withData.type).toBe(type);
+      expectLayerValid(withData);
+      expectLayerValid(defaultLayerOfType(type, 'ly', 'L', null, null));
+      for (const summary of [rain, syntheticSummary(), syntheticSummary({ rowCount: 1 })]) {
+        for (const rows of [[0, 1], [0.5, 0.5], [1, 0]] as [number, number][]) {
+          const l = { ...withData, rows } as LayerConfig;
+          expectLayerValid(fitAnyLayer(l, summary, TZ));
+        }
+      }
+    });
+  }
+
+  it('fitAnyLayer leaves data layers alone without a summary and never mutates', () => {
+    for (const l of [blankInstancerLayer('a', 'A', null), blankLineLayer('b', 'B', null), blankHeatmapLayer('c', 'C', null)]) {
+      const before = JSON.stringify(l);
+      const out = fitAnyLayer(l, null, TZ);
+      expect(JSON.stringify(out)).toBe(before);
+      expect(out).not.toBe(l);
+    }
+    const line = defaultLineLayerFor('ln', 'L', dataset, rain);
+    const before = JSON.stringify(line);
+    fitAnyLayer({ ...line, rows: [0.2, 0.4] }, rain, TZ);
+    expect(JSON.stringify(line)).toBe(before);
+  });
+
+  it('dispatches to the per-type fits', () => {
+    const heat = { ...defaultHeatmapLayerFor('h', 'H', dataset, rain), cell: [1, 1] as [number, number] };
+    expect(fitAnyLayer(heat, rain, TZ)).toEqual(fitHeatmapLayer(heat, rain, TZ));
+    const inst = defaultLayerFor('i', 'I', dataset, rain);
+    expect(fitAnyLayer({ ...inst, arrangement: 'grid' }, rain, TZ)).toEqual(fitLayer({ ...inst, arrangement: 'grid' }, rain, TZ));
   });
 });

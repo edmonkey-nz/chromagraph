@@ -10,6 +10,7 @@ import {
   orphanParamIds,
   paramTitle,
   PLAYHEAD_MODES,
+  playheadKind,
   projectPhase,
   randomSeed,
   removeKeyframe,
@@ -251,8 +252,13 @@ export class ModulationPanel {
       this.deps.showError('Pick a layer for the data playhead.');
       return;
     }
-    this.expanded.set(`mod/layer.${layer}.rows.1`, true);
-    if (mode === 'window') this.expanded.set(`mod/layer.${layer}.rows.0`, true);
+    const target = doc.project.layers.find((l) => l.id === layer);
+    if (target && playheadKind(target) === 'row') {
+      this.expanded.set(`mod/layer.${layer}.row`, true);
+    } else {
+      this.expanded.set(`mod/layer.${layer}.rows.1`, true);
+      if (mode === 'window') this.expanded.set(`mod/layer.${layer}.rows.0`, true);
+    }
     this.sendChecked(ops, 'Data playhead');
   }
 
@@ -272,6 +278,10 @@ export class ModulationPanel {
     f.addButton({ title: 'Add' }).on('click', () => this.addModulator());
   }
 
+  /**
+   * Layers with a row range (instancer, line, heat map) get reveal/window sweeps of `rows`;
+   * text layers, which show one row, get "Follow playhead" (a 0 -> 1 ramp on `row`).
+   */
   private buildPlayhead(doc: SyncDoc): void {
     const f = this.folder(this.root, 'Data playhead', 'playhead', false);
     const layers = doc.project.layers;
@@ -281,14 +291,28 @@ export class ModulationPanel {
       return;
     }
     if (!layers.some((l) => l.id === m.layer)) m.layer = layers[0]!.id;
-    f.addBinding(m, 'layer', { options: layers.map((l) => ({ text: l.name || l.id, value: l.id })) });
+    const kindOf = (id: string) => {
+      const l = layers.find((x) => x.id === id);
+      return l ? playheadKind(l) : 'rows';
+    };
+    f.addBinding(m, 'layer', {
+      options: layers.map((l) => ({ text: `${l.name || l.id}${playheadKind(l) === 'row' ? ' (text)' : ''}`, value: l.id })),
+    }).on('change', () => show());
     const mode = f.addBinding(m, 'mode', {
       options: PLAYHEAD_MODES.map((v) => ({ text: v === 'reveal' ? 'reveal (rows grow)' : 'window (rows slide)', value: v })),
     });
     const width = f.addBinding(m, 'width', { label: 'window width', min: MIN_WINDOW, max: 1, step: 0.01 });
-    width.hidden = m.mode !== 'window';
-    mode.on('change', (ev) => (width.hidden = ev.value !== 'window'));
-    f.addButton({ title: 'Create' }).on('click', () => this.createPlayhead());
+    mode.on('change', () => show());
+    const create = f.addButton({ title: 'Create' });
+    create.on('click', () => this.createPlayhead());
+    const show = () => {
+      const follow = kindOf(m.layer) === 'row';
+      mode.hidden = follow;
+      width.hidden = follow || m.mode !== 'window';
+      create.title = follow ? 'Follow playhead' : 'Create';
+      create.element.title = follow ? 'Ramp the text layer’s row 0 → 1 over the timeline, so it shows the row under the playhead' : '';
+    };
+    show();
   }
 
   private titleOf(def: ParamDef, m: Modulator): string {
