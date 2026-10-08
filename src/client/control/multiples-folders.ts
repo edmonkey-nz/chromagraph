@@ -16,10 +16,11 @@ import {
   addScaleRamp,
   addValueColumn,
   addVec3,
+  buildEffects,
   buildTransform,
-  numericColumns,
   type DomainControl,
   type LayerUi,
+  numericColumns,
 } from './layer-ui.ts';
 
 /** Small multiples folders: General, Layout, Chart, Labels, Look, Transform. */
@@ -105,6 +106,7 @@ export function buildMultiples(ui: LayerUi, layer: SmallMultiplesLayer, titleOf:
   const k = ui.folder(root, 'Look', 'Look', false);
   addOpacityBlend(ui, k, layer);
 
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }
 

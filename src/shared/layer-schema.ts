@@ -145,6 +145,35 @@ export function identityCloner(): Cloner {
   };
 }
 
+/**
+ * The layer's own output effects, applied to its image before the keystone warp:
+ *   glow    bloom around the layer's bright marks (threshold = luminance where glow is full,
+ *           0..1, with a 0.05 soft knee below it, so 1 still lets pure white glow)
+ *   trails  motion trails: each frame keeps `persistence` of the previous one (0 = off,
+ *           0.95 = long smears). Frame-rate independent: persistence is per 1/60 s.
+ * The output groups layers with identical settings (see shared/effects-plan.ts).
+ */
+export const LayerEffectsSchema = z.object({
+  glow: z.object({
+    enabled: z.boolean(),
+    strength: z.number().min(0).max(3),
+    radius: z.number().min(0).max(1),
+    threshold: z.number().min(0).max(1),
+  }),
+  trails: z.object({
+    enabled: z.boolean(),
+    persistence: z.number().min(0).max(0.99),
+  }),
+});
+export type LayerEffects = z.infer<typeof LayerEffectsSchema>;
+
+export function defaultLayerEffects(): LayerEffects {
+  return {
+    glow: { enabled: false, strength: 0.8, radius: 0.4, threshold: 0.2 },
+    trails: { enabled: false, persistence: 0.85 },
+  };
+}
+
 /** Fields every layer type has. */
 export const LayerBaseSchema = z.object({
   id: z.string().min(1),
@@ -154,6 +183,7 @@ export const LayerBaseSchema = z.object({
   opacity: z.number().min(0).max(1),
   blend: z.enum(BLEND_MODES),
   transform: TransformSchema,
+  effects: LayerEffectsSchema,
 });
 export type LayerBase = z.infer<typeof LayerBaseSchema>;
 
@@ -523,13 +553,14 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     opacity: 1,
     blend: 'normal',
     transform: identityTransform(),
+    effects: defaultLayerEffects(),
     cloner: identityCloner(),
     channels: defaultChannels(),
   };
 }
 
 function base(id: string, name: string, datasetId: string | null): LayerBase {
-  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform() };
+  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects() };
 }
 
 export function blankLineLayer(id: string, name: string, datasetId: string | null): LineLayer {

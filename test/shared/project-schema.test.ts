@@ -21,6 +21,25 @@ describe('migrate', () => {
     }
   });
 
+  it('v7 moves the output glow and trails onto the layers that showed them, scenes included', () => {
+    const v6 = JSON.parse(readFileSync(new URL('../fixtures/projects/v6.json', import.meta.url), 'utf8'));
+    const r = migrate(v6);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    if (!r.ok) return;
+    const [a, b] = r.project.layers;
+    // v6: glow on for the output, layer a flagged, layer b not; trails off for the output.
+    expect(a!.effects).toEqual({ glow: { enabled: true, strength: 1.5, radius: 0.6, threshold: 0.1 }, trails: { enabled: false, persistence: 0.9 } });
+    expect(b!.effects.glow.enabled).toBe(false);
+    expect(b!.effects.glow.strength).toBe(1.5);
+    expect(r.project.output).toEqual({ background: v6.output.background });
+    // The glow-strength modulator moved to the layer that glows; the trails one went nowhere.
+    expect(Object.keys(r.project.parameters).sort()).toEqual([`layer.${a!.id}.effects.glow.strength`]);
+    const scene = r.project.scenes[0]!;
+    expect(scene.output).toEqual({ background: v6.scenes[0].output.background });
+    expect(scene.layers[0]!.effects.glow.enabled).toBe(false); // that scene had glow off
+    expect(scene.layers[0]!.effects.trails).toEqual({ enabled: true, persistence: 0.5 });
+  });
+
   it('rejects missing, newer and invalid versions', () => {
     expect(migrate({ name: 'x' }).ok).toBe(false);
     expect(migrate({ ...defaultProject('x'), version: CURRENT_VERSION + 1 }).ok).toBe(false);

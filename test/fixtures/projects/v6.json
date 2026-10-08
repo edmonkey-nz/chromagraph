@@ -1,0 +1,412 @@
+{
+  "version": 6,
+  "name": "test",
+  "datasets": [
+    {
+      "id": "ds-cmyoe5",
+      "file": "3384__Rain__daily.csv",
+      "label": "3384__Rain__daily",
+      "timeZone": "Pacific/Auckland"
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-349cyjpw",
+      "name": "Layer 1",
+      "enabled": true,
+      "datasetId": "ds-cmyoe5",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "type": "multiples",
+      "splitBy": "year",
+      "splitColumn": "Observation time UTC",
+      "chunkRows": 365,
+      "valueColumn": "Rainfall [mm]",
+      "rows": [
+        0,
+        1
+      ],
+      "chart": "dots",
+      "columns": 12,
+      "origin": [
+        60,
+        1020,
+        0
+      ],
+      "panelSize": [
+        144.72,
+        90.816
+      ],
+      "gap": [
+        5.76,
+        5.76
+      ],
+      "domainMode": "shared",
+      "scale": "sqrt",
+      "domain": null,
+      "steps": 5,
+      "colour": "#e8e8e8",
+      "colourByValue": true,
+      "ramp": "viridis",
+      "reverse": false,
+      "markSize": 6.75,
+      "labelSize": 14,
+      "labelColour": "#9aa0a6",
+      "frame": false,
+      "effects": {
+        "glow": true,
+        "trails": true
+      }
+    },
+    {
+      "id": "ly-10enq0il",
+      "name": "Layer 2",
+      "enabled": true,
+      "datasetId": "ds-cmyoe5",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          436.6,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "type": "hierarchy",
+      "levels": [
+        {
+          "kind": "time",
+          "column": "Observation time UTC",
+          "unit": "year"
+        },
+        {
+          "kind": "time",
+          "column": "Observation time UTC",
+          "unit": "month"
+        }
+      ],
+      "valueColumn": "Rainfall [mm]",
+      "aggregate": "sum",
+      "rows": [
+        0,
+        1
+      ],
+      "layout": "radial-dendrogram",
+      "origin": [
+        480,
+        1020,
+        0
+      ],
+      "size": [
+        960,
+        960
+      ],
+      "innerRadius": 40,
+      "nodeSize": [
+        2,
+        46
+      ],
+      "colourBy": "value",
+      "colour": "#e8e8e8",
+      "scale": "linear",
+      "domain": null,
+      "steps": 5,
+      "ramp": "viridis",
+      "reverse": false,
+      "linkWidth": 2,
+      "linkColour": "#6b7280",
+      "linkOpacity": 0.6,
+      "padding": 1,
+      "labelDepth": 1,
+      "labelSize": 24,
+      "labelColour": "#d8dade",
+      "effects": {
+        "glow": false,
+        "trails": true
+      }
+    }
+  ],
+  "parameters": {
+    "output.effects.bloom.strength": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "sine",
+        "period": 8,
+        "phase": 0,
+        "amount": 0.5
+      }
+    },
+    "output.effects.trails.persistence": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "sine",
+        "period": 8,
+        "phase": 0,
+        "amount": 0.05
+      }
+    }
+  },
+  "timeline": {
+    "duration": 600,
+    "loop": true
+  },
+  "camera": {
+    "mode": "2d",
+    "fov": 45,
+    "yaw": 0,
+    "pitch": 0,
+    "distance": 1,
+    "target": [
+      0,
+      0,
+      0
+    ]
+  },
+  "output": {
+    "background": "#050505",
+    "effects": {
+      "bloom": {
+        "enabled": true,
+        "strength": 1.5,
+        "radius": 0.6,
+        "threshold": 0.1
+      },
+      "trails": {
+        "enabled": false,
+        "persistence": 0.9
+      }
+    }
+  },
+  "scenes": [
+    {
+      "id": "scene-a",
+      "name": "Scene A",
+      "layers": [
+        {
+          "id": "ly-349cyjpw",
+          "name": "Layer 1",
+          "enabled": true,
+          "datasetId": "ds-cmyoe5",
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ],
+            "pivot": [
+              960,
+              540,
+              0
+            ]
+          },
+          "type": "multiples",
+          "splitBy": "year",
+          "splitColumn": "Observation time UTC",
+          "chunkRows": 365,
+          "valueColumn": "Rainfall [mm]",
+          "rows": [
+            0,
+            1
+          ],
+          "chart": "dots",
+          "columns": 12,
+          "origin": [
+            60,
+            1020,
+            0
+          ],
+          "panelSize": [
+            144.72,
+            90.816
+          ],
+          "gap": [
+            5.76,
+            5.76
+          ],
+          "domainMode": "shared",
+          "scale": "sqrt",
+          "domain": null,
+          "steps": 5,
+          "colour": "#e8e8e8",
+          "colourByValue": true,
+          "ramp": "viridis",
+          "reverse": false,
+          "markSize": 6.75,
+          "labelSize": 14,
+          "labelColour": "#9aa0a6",
+          "frame": false,
+          "effects": {
+            "glow": true,
+            "trails": true
+          }
+        },
+        {
+          "id": "ly-10enq0il",
+          "name": "Layer 2",
+          "enabled": true,
+          "datasetId": "ds-cmyoe5",
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "position": [
+              436.6,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ],
+            "pivot": [
+              960,
+              540,
+              0
+            ]
+          },
+          "type": "hierarchy",
+          "levels": [
+            {
+              "kind": "time",
+              "column": "Observation time UTC",
+              "unit": "year"
+            },
+            {
+              "kind": "time",
+              "column": "Observation time UTC",
+              "unit": "month"
+            }
+          ],
+          "valueColumn": "Rainfall [mm]",
+          "aggregate": "sum",
+          "rows": [
+            0,
+            1
+          ],
+          "layout": "radial-dendrogram",
+          "origin": [
+            480,
+            1020,
+            0
+          ],
+          "size": [
+            960,
+            960
+          ],
+          "innerRadius": 40,
+          "nodeSize": [
+            2,
+            46
+          ],
+          "colourBy": "value",
+          "colour": "#e8e8e8",
+          "scale": "linear",
+          "domain": null,
+          "steps": 5,
+          "ramp": "viridis",
+          "reverse": false,
+          "linkWidth": 2,
+          "linkColour": "#6b7280",
+          "linkOpacity": 0.6,
+          "padding": 1,
+          "labelDepth": 1,
+          "labelSize": 24,
+          "labelColour": "#d8dade",
+          "effects": {
+            "glow": false,
+            "trails": true
+          }
+        }
+      ],
+      "camera": {
+        "mode": "2d",
+        "fov": 45,
+        "yaw": 0,
+        "pitch": 0,
+        "distance": 1,
+        "target": [
+          0,
+          0,
+          0
+        ]
+      },
+      "output": {
+        "background": "#000000",
+        "effects": {
+          "bloom": {
+            "enabled": false,
+            "strength": 0.8,
+            "radius": 0.4,
+            "threshold": 0.2
+          },
+          "trails": {
+            "enabled": true,
+            "persistence": 0.5
+          }
+        }
+      },
+      "parameters": {},
+      "transition": null
+    }
+  ],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}

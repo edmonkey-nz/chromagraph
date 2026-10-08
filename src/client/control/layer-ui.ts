@@ -209,6 +209,41 @@ export function addOpacityBlend(ui: LayerUi, f: FolderApi, layer: LayerConfig): 
   f.addBinding(m, 'blend', { options: options(BLEND_MODES) }).on('change', (ev) => ui.set(['blend'], ev.value));
 }
 
+type EffectSliders = [field: string, label: string, min: number, max: number, hint: string][];
+
+/**
+ * "Glow" and "Trails" folders (every layer, open when the effect is on). Moving a slider
+ * while its effect is off switches the effect on: greyed-out or dead sliders read as broken.
+ */
+export function buildEffects(ui: LayerUi, f: FolderApi, layer: LayerConfig): void {
+  const fx = structuredClone(layer.effects);
+  const section = (key: 'glow' | 'trails', title: string, sliders: EffectSliders) => {
+    const model = fx[key] as unknown as Record<string, number | boolean>;
+    const folder = ui.folder(f, title, key, fx[key].enabled);
+    const on = folder.addBinding(model, 'enabled', { label: 'on' }).on('change', (ev) => ui.set(['effects', key, 'enabled'], ev.value));
+    for (const [field, label, min, max, hint] of sliders) {
+      const api = folder.addBinding(model, field, { label, min, max, step: 0.01 }).on('change', (ev) => {
+        if (ui.isQuiet()) return;
+        const changes: LayerChange[] = [{ path: ['effects', key, field], value: ev.value }];
+        if (!model.enabled) {
+          model.enabled = true;
+          changes.push({ path: ['effects', key, 'enabled'], value: true });
+          ui.quiet(() => on.refresh());
+        }
+        ui.send(changes);
+      });
+      api.element.title = hint;
+      ui.mark(api, label, `effects.${key}.${field}`);
+    }
+  };
+  section('glow', 'Glow', [
+    ['strength', 'strength', 0, 3, 'How bright the glow is'],
+    ['radius', 'radius', 0, 1, 'How far the glow spreads'],
+    ['threshold', 'threshold', 0, 1, 'How bright a mark must be to glow: 0 = everything glows, 1 = only pure white'],
+  ]);
+  section('trails', 'Trails', [['persistence', 'length', 0, 0.99, 'How much of each frame stays on the next (per 1/60 s): 0 = no trail, 0.95 = long smears']]);
+}
+
 export function addFitButton(ui: LayerUi, f: FolderApi): void {
   f.addButton({ title: ui.canFit ? 'Fit to output' : 'Fit to output (waiting for data)', disabled: !ui.canFit }).on('click', () => ui.fit());
 }

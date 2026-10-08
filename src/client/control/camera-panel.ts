@@ -1,10 +1,24 @@
-import type { FolderApi } from 'tweakpane';
+import type { BladeApi, FolderApi } from 'tweakpane';
+import {
+  CAMERA_MOTION_TITLES,
+  CAMERA_MOTIONS,
+  cameraMotionOps,
+  detectCameraMotion,
+  SPEED_MAX,
+  SPEED_MIN,
+  SPEED_STEP,
+  type CameraMotion,
+} from '../../shared/camera-motion.ts';
+import { wallMs } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
-import type { Camera, SyncDoc } from '../../shared/project-schema.ts';
+import { defaultCamera, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
 
 /**
  * "Camera" card. Follows camera changes from the preview (orbit, zoom and pan in edit mode),
  * which echo back with our own origin, unless the user is typing or dragging in it.
+ *
+ * Motion: camera move presets with a speed (shared/camera-motion.ts). They are camera
+ * modulators, so they also show (and can be fine-tuned) in the Modulation card.
  */
 
 const MODULATED_SUFFIX = ' ~';
@@ -17,6 +31,10 @@ export class CameraPanel {
   private seen: Camera | null = null;
   private seenParams: SyncDoc['project']['parameters'] | null = null;
   private labelled: { api: { label: string | null | undefined }; label: string; ids: string[] }[] = [];
+  private motion = { preset: 'none' as CameraMotion | 'custom', speed: 1 };
+  private motionFolder: FolderApi;
+  private speedApi: BladeApi;
+  private doc: SyncDoc | null = null;
 
   constructor(
     private root: FolderApi,
@@ -42,17 +60,67 @@ export class CameraPanel {
     const target = root.addBinding(cam, 'target').on('change', (ev) => set('target', [ev.value.x, ev.value.y, ev.value.z]));
     this.labelled.push({ api: target, label: 'target', ids: [0, 1, 2].map((i) => `camera.target.${i}`) });
 
+    root.addButton({ title: 'Reset view' }).on('click', () => {
+      const d = defaultCamera();
+      this.sendPatch((['fov', 'yaw', 'pitch', 'distance', 'target'] as const).map((f) => ({ op: 'set', path: ['project', 'camera', f], value: d[f] })));
+    });
+
+    this.motionFolder = root.addFolder({ title: 'Motion', expanded: true });
+    const presetOptions = [
+      ...CAMERA_MOTIONS.map((m) => ({ text: CAMERA_MOTION_TITLES[m], value: m as CameraMotion | 'custom' })),
+      { text: 'custom (edited in Modulation)', value: 'custom' as const },
+    ];
+    this.motionFolder
+      .addBinding(this.motion, 'preset', { label: 'preset', options: presetOptions })
+      .on('change', (ev) => {
+        if (ev.value !== 'custom') this.sendMotion(ev.value, this.motion.speed);
+        this.renderMotion();
+      });
+    this.speedApi = this.motionFolder
+      .addBinding(this.motion, 'speed', { label: 'speed', min: SPEED_MIN, max: SPEED_MAX, step: SPEED_STEP, format: (v: number) => `${v.toFixed(2)}×` })
+      .on('change', (ev) => {
+        const preset = this.motion.preset;
+        if (preset !== 'custom' && preset !== 'none') this.sendMotion(preset, ev.value);
+      });
+    this.renderMotion();
+
     root.element.addEventListener('pointerdown', () => (this.dragging = true));
     window.addEventListener('pointerup', () => (this.dragging = false));
     window.addEventListener('pointercancel', () => (this.dragging = false));
   }
 
+  private sendMotion(preset: CameraMotion, speed: number): void {
+    if (this.quietDepth > 0 || !this.doc) return;
+    const ops = cameraMotionOps(this.doc.project, preset, speed, wallMs());
+    if (ops.length > 0) this.sendPatch(ops);
+  }
+
+  /** Speed only applies to a preset; it is greyed out for none / custom. */
+  private renderMotion(): void {
+    this.speedApi.disabled = this.motion.preset === 'none' || this.motion.preset === 'custom';
+  }
+
   update(doc: SyncDoc, external: boolean): void {
+    this.doc = doc;
     const c = doc.project.camera;
     if (doc.project.parameters !== this.seenParams) {
       this.seenParams = doc.project.parameters;
       const p = doc.project.parameters;
       for (const l of this.labelled) l.api.label = l.ids.some((id) => p[id]) ? l.label + MODULATED_SUFFIX : l.label;
+      const found = detectCameraMotion(p);
+      // Our own echo while the speed slider is held would pull it back to an older value.
+      const holding = !external && this.dragging;
+      if (!holding && (found.motion !== this.motion.preset || (found.speed !== null && Math.abs(found.speed - this.motion.speed) > 1e-6))) {
+        this.motion.preset = found.motion;
+        if (found.speed !== null) this.motion.speed = found.speed;
+        this.quietDepth++;
+        try {
+          this.motionFolder.refresh();
+        } finally {
+          this.quietDepth--;
+        }
+        this.renderMotion();
+      }
     }
     if (c === this.seen) return;
     this.seen = c;

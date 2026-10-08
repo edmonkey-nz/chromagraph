@@ -7,13 +7,14 @@ import {
   addRows,
   addTimeColumn,
   addVec3,
+  buildEffects,
   buildTransform,
   columnOptions,
   fmt,
   initialDomain,
+  type LayerUi,
   numericColumns,
   options,
-  type LayerUi,
 } from './layer-ui.ts';
 
 const LAYOUT_TITLES = { calendar: 'calendar (year × day)', grid: 'grid (row order)' } as const;
@@ -125,5 +126,6 @@ export function buildHeatmap(ui: LayerUi, layer: HeatmapLayer, titleOf: (l: Laye
   const k = ui.folder(root, 'Look', 'Look', false);
   addOpacityBlend(ui, k, layer);
 
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }

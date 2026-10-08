@@ -12,7 +12,7 @@ import {
   type MorphEasing,
   type RGB,
 } from '../../shared/morph-plan.ts';
-import { defaultCamera, defaultEffects, type Camera, type Effects, type Morph, type Project, type SyncDoc } from '../../shared/project-schema.ts';
+import { defaultCamera, type Camera, type Morph, type SyncDoc } from '../../shared/project-schema.ts';
 import type { ApplicableLayer, CameraMode, LayerManager } from './layer-manager.ts';
 import type { FrameContext } from './layers/layer.ts';
 import { INSTANCER_LAYOUT_KEYS, type InstancerInstance } from './layers/instancer.ts';
@@ -105,9 +105,6 @@ export class MorphEngine {
   private outputActive = false;
   private readonly fromBackground: RGB = { r: 0, g: 0, b: 0 };
   private readonly toBackground: RGB = { r: 0, g: 0, b: 0 };
-  private readonly fromEffects: Effects = defaultEffects();
-  private readonly outEffects: Effects = defaultEffects();
-  private modOutput: Project['output'] | null = null;
 
   /** Bound once so per-frame instance calls do not allocate closures. */
   private mix = 0;
@@ -201,12 +198,6 @@ export class MorphEngine {
     return true;
   }
 
-  outputModulated(effective: Project['output']): boolean {
-    if (!this.outputActive) return false;
-    this.modOutput = effective;
-    return true;
-  }
-
   /** Advance every morph to wall time `nowMs`. Runs after modulation, before rendering. */
   frame(nowMs: number, ctx: FrameContext): void {
     if (!this.active) return;
@@ -228,16 +219,13 @@ export class MorphEngine {
         }
       }
       if (this.outputActive) {
-        const output = this.modOutput ?? doc.project.output;
         if (u >= 1) {
           stage.setBackground(doc.project.output.background);
-          stage.setEffects(output.effects);
           this.outputActive = false;
         } else {
           const f = this.fromBackground;
           const t = parseHex(doc.project.output.background, this.toBackground);
           stage.setBackgroundRGB(lerp(f.r, t.r / 255, u), lerp(f.g, t.g / 255, u), lerp(f.b, t.b / 255, u));
-          stage.setEffects(lerpEffects(this.fromEffects, output.effects, u, this.outEffects));
         }
       }
     } catch (err) {
@@ -245,7 +233,6 @@ export class MorphEngine {
       this.abandon();
     }
     this.modCamera = null;
-    this.modOutput = null;
   }
 
   /** Drop everything without applying (WebGL context restore: the caller rebuilds and reapplies). */
@@ -271,11 +258,9 @@ export class MorphEngine {
     // Camera and output from what is displayed now (already blended if a morph was running).
     copyCamera(stage.displayedCamera, this.fromCamera);
     stage.readBackground(this.fromBackground);
-    copyEffects(stage.displayedEffects, this.fromEffects);
     this.cameraActive = true;
     this.outputActive = true;
     this.modCamera = null;
-    this.modOutput = null;
 
     // Release the previous morph's overrides; the new one decides afresh.
     for (const e of this.entries) manager.setForcedVisible(e.id, false);
@@ -391,6 +376,8 @@ export class MorphEngine {
       }
       const cfg = applyLerpPlan(e.plan, target, u);
       cfg.opacity = lerp(e.fromOpacity, target.enabled ? target.opacity : 0, u);
+      // Glow and trails switched on or off by the scene fade rather than pop.
+      if (e.from) lerpEffects(e.from.effects, target.effects, u, cfg.effects);
       manager.applyEffective(e.id, cfg);
       if (e.layout) {
         this.mix = u;
@@ -463,7 +450,6 @@ export class MorphEngine {
     if (stage && this.doc) {
       stage.setCamera(this.doc.project.camera);
       stage.setBackground(this.doc.project.output.background);
-      stage.setEffects(this.doc.project.output.effects);
     }
     this.cameraActive = false;
     this.outputActive = false;
@@ -488,13 +474,4 @@ function copyCamera(src: Camera, out: Camera): void {
   out.target[0] = src.target[0];
   out.target[1] = src.target[1];
   out.target[2] = src.target[2];
-}
-
-function copyEffects(src: Effects, out: Effects): void {
-  out.bloom.enabled = src.bloom.enabled;
-  out.bloom.strength = src.bloom.strength;
-  out.bloom.radius = src.bloom.radius;
-  out.bloom.threshold = src.bloom.threshold;
-  out.trails.enabled = src.trails.enabled;
-  out.trails.persistence = src.trails.persistence;
 }

@@ -5,6 +5,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import { registerDataRoutes } from './data-routes.ts';
 import { Hub } from './hub.ts';
+import { OutputLauncher, registerLaunchRoutes } from './launcher.ts';
 import { Log } from './log.ts';
 import { ProjectStore } from './projects.ts';
 
@@ -28,6 +29,10 @@ await app.register(fastifyWebsocket, { options: { maxPayload: 8 * 1024 * 1024 } 
 app.get('/ws', { websocket: true }, (socket) => hub.attach(socket));
 
 await registerDataRoutes(app, store, hub, log);
+
+// Header buttons in the control window start the output Chrome pointed at this server.
+const launchHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST;
+registerLaunchRoutes(app, new OutputLauncher(log, `http://${launchHost}:${PORT}/output/`), log);
 
 app.get('/api/projects', async () => ({ names: await store.list(), current: hub.currentProject.name }));
 

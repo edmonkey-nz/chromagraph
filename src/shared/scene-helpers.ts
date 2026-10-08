@@ -3,7 +3,7 @@ import type { Morph, Project, Scene, Transition } from './project-schema.ts';
 
 /**
  * Pure helpers for scenes (see `project.scenes` in project-schema.ts). A scene is a named
- * copy of the project's look: layers, camera, output (background and effects) and
+ * copy of the project's look: layers (with their glow and trails), camera, background and
  * modulators. Going to a scene is ONE patch that copies those four back into the project
  * and starts a morph (`session.morph`); the output does the morphing.
  */
@@ -20,7 +20,7 @@ export function captureScene(project: Project, id: string, name: string, transit
     name,
     layers: clone(project.layers),
     camera: clone(project.camera),
-    output: { background: project.output.background, effects: clone(project.output.effects) },
+    output: { background: project.output.background },
     parameters: clone(project.parameters),
     transition: transition ? { ...transition } : null,
   };

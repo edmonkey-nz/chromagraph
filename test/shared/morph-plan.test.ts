@@ -13,9 +13,9 @@ import {
   morphProgress,
   parseHex,
   type MorphCamera,
-  type MorphEffects,
 } from '../../src/shared/morph-plan.ts';
-import { defaultCamera, defaultEffects } from '../../src/shared/project-schema.ts';
+import { defaultLayerEffects, type LayerEffects } from '../../src/shared/layer-schema.ts';
+import { defaultCamera } from '../../src/shared/project-schema.ts';
 
 describe('easing and progress', () => {
   it('clamps progress to 0..1 on the wall clock', () => {
@@ -187,23 +187,23 @@ describe('camera and effects', () => {
     expect(lerpCamera(tilted, flat, 1, out)).toEqual(flat);
   });
 
-  it('effects lerp numbers and fade an effect in or out instead of popping', () => {
-    const off: MorphEffects = defaultEffects();
-    const on: MorphEffects = structuredClone(off);
-    on.bloom.enabled = true;
-    on.bloom.strength = 2;
+  it('layer effects lerp numbers and fade an effect in or out instead of popping', () => {
+    const off: LayerEffects = defaultLayerEffects();
+    const on: LayerEffects = structuredClone(off);
+    on.glow.enabled = true;
+    on.glow.strength = 2;
     on.trails.enabled = true;
     on.trails.persistence = 0.9;
-    const out: MorphEffects = defaultEffects();
+    const out: LayerEffects = defaultLayerEffects();
     expect(lerpEffects(off, on, 0, out)).toEqual(off);
     expect(lerpEffects(off, on, 1, out)).toEqual(on);
     const mid = lerpEffects(off, on, 0.5, out);
-    expect(mid.bloom.enabled).toBe(true);
-    expect(mid.bloom.strength).toBeCloseTo(1);
+    expect(mid.glow.enabled).toBe(true);
+    expect(mid.glow.strength).toBeCloseTo(1);
     expect(mid.trails.persistence).toBeCloseTo(0.45);
     const fading = lerpEffects(on, off, 0.75, out);
-    expect(fading.bloom.enabled).toBe(true);
-    expect(fading.bloom.strength).toBeCloseTo(0.5);
+    expect(fading.glow.enabled).toBe(true);
+    expect(fading.glow.strength).toBeCloseTo(0.5);
     expect(lerpEffects(on, off, 1, out)).toEqual(off);
   });
 });

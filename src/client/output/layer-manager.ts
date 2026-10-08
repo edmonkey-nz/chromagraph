@@ -16,6 +16,7 @@ import { createMultiples } from './layers/multiples.ts';
 import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
+import { EFFECTS_TAG } from './stage.ts';
 
 /** Layers draw above anything with a lower order; the test pattern stays on top of all. */
 const LAYER_ORDER_BASE = 100;
@@ -151,7 +152,10 @@ export class LayerManager {
       this.orders.set(layer.id, LAYER_ORDER_BASE + index);
       this.enabled.set(layer.id, layer.enabled);
       this.host.place(layer.id, LAYER_ORDER_BASE + index, layer.enabled || this.forcedVisible.has(layer.id));
-      this.host.call(layer.id, (inst) => applyLayerTransform(inst.object, layer.transform));
+      this.host.call(layer.id, (inst) => {
+        applyLayerTransform(inst.object, layer.transform);
+        inst.object.userData[EFFECTS_TAG] = layer.effects;
+      });
     });
 
     for (const id of [...this.keys.keys()]) if (!seen.has(id)) this.drop(id);
@@ -241,6 +245,7 @@ export class LayerManager {
   private readonly applyConfig = (inst: ApplicableLayer<LayerConfig>, config: LayerConfig): void => {
     inst.apply(config, this._cameraMode);
     applyLayerTransform(inst.object, config.transform);
+    inst.object.userData[EFFECTS_TAG] = config.effects;
   };
 
   /** Re-apply every layer's base config (e.g. after its modulators were removed). */
@@ -250,6 +255,7 @@ export class LayerManager {
       this.host.call<ApplicableLayer<LayerConfig>>(id, (inst) => {
         inst.apply(layer, this._cameraMode);
         applyLayerTransform(inst.object, layer.transform);
+        inst.object.userData[EFFECTS_TAG] = layer.effects;
       });
     }
   }

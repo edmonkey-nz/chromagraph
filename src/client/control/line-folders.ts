@@ -11,12 +11,13 @@ import {
   addRows,
   addTimeColumn,
   addVec3,
+  buildEffects,
   buildMapping,
   buildTransform,
   colourColumns,
+  type LayerUi,
   numericColumns,
   options,
-  type LayerUi,
 } from './layer-ui.ts';
 
 /** Line folders: General, Layout, Look, Mapping, Cloner, Fill, Transform. */
@@ -64,6 +65,7 @@ export function buildLine(ui: LayerUi, layer: LineLayer, titleOf: (l: LayerConfi
   buildMappings(ui, root, layer);
   buildCloner(ui, root, layer);
   buildFill(ui, root, layer);
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }
 

@@ -38,7 +38,7 @@ function project(): Project {
   p.layers = [blankInstancerLayer('ly-a', 'Points', 'ds'), blankLineLayer('ly-b', 'Line', 'ds')];
   p.parameters = { 'camera.yaw': { modulator: { kind: 'ramp', enabled: true, from: 0, to: 90, easing: 'linear' } } };
   p.output.background = '#101010';
-  p.output.effects.bloom.enabled = true;
+  p.layers[0]!.effects.glow.enabled = true;
   return ProjectSchema.parse(p);
 }
 
@@ -63,8 +63,9 @@ describe('captureScene', () => {
     expect(s.layers).not.toBe(p.layers);
     expect(s.layers[0]).not.toBe(p.layers[0]);
     expect(s.camera).not.toBe(p.camera);
-    expect(s.output).toEqual({ background: '#101010', effects: p.output.effects });
-    expect(s.output.effects).not.toBe(p.output.effects);
+    expect(s.output).toEqual({ background: '#101010' });
+    expect(s.layers[0]!.effects).toEqual(p.layers[0]!.effects);
+    expect(s.layers[0]!.effects).not.toBe(p.layers[0]!.effects);
     expect(s.parameters).toEqual(p.parameters);
     expect(s.transition).toBeNull();
     expect(sceneMatches(p, s)).toBe(true);

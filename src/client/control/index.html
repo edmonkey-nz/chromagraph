@@ -148,6 +148,13 @@
       select {
         padding-right: 6px;
       }
+      /* Chrome paints the open dropdown list over white, so Tweakpane's translucent button
+         colour came out pale blue with unreadable light text. Options get an opaque colour. */
+      select option,
+      select optgroup {
+        background-color: var(--raised);
+        color: var(--text);
+      }
       input[type='checkbox'] {
         accent-color: var(--accent-strong);
         width: 15px;
@@ -928,6 +935,17 @@
       #panel-log {
         padding: 0;
       }
+      .diagnostics {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .diagnostics label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
       #log {
         height: 100%;
         overflow: auto;
@@ -1253,6 +1271,13 @@
         <span id="save-state" class="save-state" role="status" aria-live="polite"></span>
       </div>
       <span class="spacer"></span>
+      <div class="project-bar" role="group" aria-label="Output window">
+        <span class="muted small">Output</span>
+        <button type="button" id="output-projector" class="btn" title="Open the output full screen on the projector, on the NVIDIA GPU (closes and reopens it if it is already open)">On projector</button>
+        <button type="button" id="output-window" class="btn ghost" title="Open the output in a normal window you can move (F11 for full screen)">In a window</button>
+        <button type="button" id="output-close" class="btn ghost" title="Close an output window opened with these buttons">Close</button>
+      </div>
+      <span class="divider" aria-hidden="true"></span>
       <span id="conn" class="pill">server</span>
       <span id="out-pill" class="pill">output</span>
     </header>
@@ -1287,6 +1312,7 @@
           <button type="button" role="tab" id="tab-datasets" aria-controls="panel-datasets">Datasets <span id="badge-datasets" class="badge"></span></button>
           <button type="button" role="tab" id="tab-outputs" aria-controls="panel-outputs">Output windows <span id="badge-outputs" class="badge"></span></button>
           <button type="button" role="tab" id="tab-calibration" aria-controls="panel-calibration">Calibration</button>
+          <button type="button" role="tab" id="tab-diagnostics" aria-controls="panel-diagnostics">Diagnostics</button>
           <button type="button" role="tab" id="tab-problems" aria-controls="panel-problems">Problems <span id="badge-problems" class="badge err"></span></button>
           <button type="button" role="tab" id="tab-log" aria-controls="panel-log">Log <span id="badge-log" class="badge warn"></span></button>
         </div>
@@ -1304,6 +1330,12 @@
           </div>
           <div role="tabpanel" id="panel-calibration" aria-labelledby="tab-calibration" hidden>
             <div id="calibration"></div>
+          </div>
+          <div role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics" tabindex="0" hidden>
+            <div class="diagnostics">
+              <label><input type="checkbox" id="diag-test-pattern" /> Test pattern <span class="muted">on the output, for focus and keystone (Calibration shows it too)</span></label>
+              <label><input type="checkbox" id="diag-debug-overlay" /> Debug overlay <span class="muted">frame rate, connection, timeline and GPU name in a corner of the output</span></label>
+            </div>
           </div>
           <div role="tabpanel" id="panel-problems" aria-labelledby="tab-problems" tabindex="0" hidden>
             <div id="problems" class="muted">None.</div>

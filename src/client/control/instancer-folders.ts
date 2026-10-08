@@ -16,16 +16,17 @@ import {
   addRows,
   addTimeColumn,
   addVec3,
+  buildEffects,
   buildMapping,
   buildTransform,
   colourColumns,
   fmt,
+  type LayerUi,
   numericColumns,
   options,
   vec3Obj,
   vec3Tuple,
   xyz,
-  type LayerUi,
 } from './layer-ui.ts';
 
 /** Instancer folders: General, Layout, Look, Channels, Cloner, Transform. */
@@ -47,6 +48,7 @@ export function buildInstancer(ui: LayerUi, layer: InstancerLayer, titleOf: (l: 
   buildLook(ui, root, layer);
   buildChannels(ui, root, layer);
   buildCloner(ui, root, layer);
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }
 

@@ -53,9 +53,8 @@ const modulation = new ModulationEngine({
   applyCamera: (effective) => {
     if (!morph.cameraModulated(effective)) stage?.setCamera(effective);
   },
-  applyOutput: (effective) => {
-    if (!morph.outputModulated(effective)) stage?.setEffects(effective.effects);
-  },
+  // Nothing under project.output is modulatable (glow and trails are per layer now).
+  applyOutput: () => {},
 });
 let socket: ReconnectingSocket | null = null;
 let connection: ConnectionState = 'closed';
@@ -128,7 +127,6 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     stage.setBackground(doc.project.output.background);
   }
   if (!prev || doc.project.camera !== prev.project.camera) stage.setCamera(doc.project.camera);
-  if (!prev || doc.project.output.effects !== prev.project.output.effects) stage.setEffects(doc.project.output.effects);
   // The preview shows the unwarped image; only the real output is keystoned.
   if (!preview && (!prev || doc.profile !== prev.profile) && !stage.setWarp(doc.profile.corners)) {
     report('warn', `output profile "${doc.profile.name}": corners do not form a usable shape; keeping the previous warp`);
@@ -140,7 +138,6 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     // (modulators still present overwrite them again on the next frame).
     layerManager?.reapplyBase();
     stage.setCamera(doc.project.camera);
-    stage.setEffects(doc.project.output.effects);
   }
   morph.afterSync(doc);
   if (doc.session.testPattern) {

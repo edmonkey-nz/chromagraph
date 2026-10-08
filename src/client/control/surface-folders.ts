@@ -13,10 +13,11 @@ import {
   addTimeColumn,
   addValueColumn,
   addVec3,
+  buildEffects,
   buildTransform,
-  numericColumns,
   type DomainControl,
   type LayerUi,
+  numericColumns,
 } from './layer-ui.ts';
 
 const LAYOUT_TITLES = { calendar: 'calendar (year × day)', grid: 'grid (row order)' } as const;
@@ -65,5 +66,6 @@ export function buildSurface(ui: LayerUi, layer: SurfaceLayer, titleOf: (l: Laye
   wireColour.hidden = !layer.wireframe;
   addOpacityBlend(ui, k, layer);
 
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }

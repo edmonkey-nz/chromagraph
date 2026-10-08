@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 5;
+export const CURRENT_VERSION = 7;
 
 
 export const DatasetSchema = z.object({
@@ -40,31 +40,6 @@ export const CameraSchema = z.object({
 });
 export type Camera = z.infer<typeof CameraSchema>;
 
-/**
- * Whole-output effects, applied to the rendered 1080p image before the keystone warp.
- *   bloom   glow around bright marks (threshold = luminance where glow starts, 0..1)
- *   trails  motion trails: each frame keeps `persistence` of the previous one (0 = off,
- *           0.95 = long smears). Frame-rate independent: persistence is per 1/60 s.
- */
-export const EffectsSchema = z.object({
-  bloom: z.object({
-    enabled: z.boolean(),
-    strength: z.number().min(0).max(3),
-    radius: z.number().min(0).max(1),
-    threshold: z.number().min(0).max(1),
-  }),
-  trails: z.object({
-    enabled: z.boolean(),
-    persistence: z.number().min(0).max(0.99),
-  }),
-});
-
-export function defaultEffects(): z.infer<typeof EffectsSchema> {
-  return {
-    bloom: { enabled: false, strength: 0.8, radius: 0.4, threshold: 0.2 },
-    trails: { enabled: false, persistence: 0.85 },
-  };
-}
 
 export const EASINGS_MORPH = ['linear', 'smooth', 'ease-in', 'ease-out'] as const;
 
@@ -83,7 +58,7 @@ export const SceneSchema = z.object({
   name: z.string(),
   layers: z.array(LayerSchema),
   camera: CameraSchema,
-  output: z.object({ background: hexColour, effects: EffectsSchema }),
+  output: z.object({ background: hexColour }),
   parameters: z.record(z.string(), ParameterSchema),
   /** Optional per-scene transition (overrides project.transition when going to this scene). */
   transition: TransitionSchema.nullable(),
@@ -104,7 +79,6 @@ export const ProjectSchema = z.object({
   camera: CameraSchema,
   output: z.object({
     background: hexColour,
-    effects: EffectsSchema.default(defaultEffects),
   }),
   /**
    * Scenes: named looks (layers, camera, output and modulators) captured from the project.
@@ -117,7 +91,6 @@ export const ProjectSchema = z.object({
 });
 
 export type Dataset = z.infer<typeof DatasetSchema>;
-export type Effects = z.infer<typeof EffectsSchema>;
 export type Scene = z.infer<typeof SceneSchema>;
 export type Transition = z.infer<typeof TransitionSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
@@ -131,7 +104,7 @@ export function defaultProject(name: string): Project {
     parameters: {},
     timeline: { duration: 600, loop: true },
     camera: defaultCamera(),
-    output: { background: '#000000', effects: defaultEffects() },
+    output: { background: '#000000' },
     scenes: [],
     transition: defaultTransition(),
   };
@@ -142,6 +115,50 @@ export function defaultCamera(): Camera {
 }
 
 type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
+type Doc = Record<string, unknown>;
+
+/** v5/v6 whole-output effects, as migrations 4 and 6 see them. */
+const V5_EFFECTS = {
+  bloom: { enabled: false, strength: 0.8, radius: 0.4, threshold: 0.2 },
+  trails: { enabled: false, persistence: 0.85 },
+};
+
+/** v5/v6 output-effect parameter ids and where each moves on a layer in v7. */
+const V7_PARAM_MOVES: [string, string, 'glow' | 'trails'][] = [
+  ['output.effects.bloom.strength', 'effects.glow.strength', 'glow'],
+  ['output.effects.bloom.radius', 'effects.glow.radius', 'glow'],
+  ['output.effects.bloom.threshold', 'effects.glow.threshold', 'glow'],
+  ['output.effects.trails.persistence', 'effects.trails.persistence', 'trails'],
+];
+
+/**
+ * v6 -> v7 for one look (the project, or a scene): the whole-output glow and trails become
+ * each layer's own settings, on where both the output effect and the layer's v6 flag were on,
+ * so it looks the same. Modulators on the output settings move to those layers.
+ */
+function perLayerEffects(look: Doc): Doc {
+  const output = (look.output ?? {}) as Doc;
+  const fx = (output.effects ?? V5_EFFECTS) as typeof V5_EFFECTS;
+  const layers = Array.isArray(look.layers) ? (look.layers as Doc[]) : [];
+  const parameters = { ...((look.parameters ?? {}) as Doc) };
+  const on = { glow: [] as string[], trails: [] as string[] };
+  const next = layers.map((l) => {
+    const flags = (l.effects ?? {}) as { glow?: unknown; trails?: unknown };
+    const glow = fx.bloom.enabled && flags.glow !== false;
+    const trails = fx.trails.enabled && flags.trails !== false;
+    if (glow) on.glow.push(String(l.id));
+    if (trails) on.trails.push(String(l.id));
+    return { ...l, effects: { glow: { ...fx.bloom, enabled: glow }, trails: { ...fx.trails, enabled: trails } } };
+  });
+  for (const [oldId, field, effect] of V7_PARAM_MOVES) {
+    const param = parameters[oldId];
+    if (param === undefined) continue;
+    delete parameters[oldId];
+    for (const id of on[effect]) parameters[`layer.${id}.${field}`] = structuredClone(param);
+  }
+  const { effects: _dropped, ...rest } = output;
+  return { ...look, output: rest, layers: next, parameters };
+}
 
 /** migrations[n] upgrades a version-n document to version n + 1. */
 export const migrations: Record<number, Migration> = {
@@ -188,10 +205,29 @@ export const migrations: Record<number, Migration> = {
     const output = (doc.output ?? {}) as Record<string, unknown>;
     return {
       ...doc,
-      output: { ...output, effects: output.effects ?? defaultEffects() },
+      output: { ...output, effects: output.effects ?? structuredClone(V5_EFFECTS) },
       scenes: doc.scenes ?? [],
       transition: doc.transition ?? defaultTransition(),
     };
+  },
+  // v6: every layer (also inside scenes) chooses whether glow and trails draw it; all on,
+  // which is how v5 drew every layer.
+  5: (doc) => {
+    const withEffects = (layers: unknown): unknown =>
+      Array.isArray(layers)
+        ? layers.map((l: Record<string, unknown>) => ({ ...l, effects: l.effects ?? { glow: true, trails: true } }))
+        : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Record<string, unknown>[]) : [];
+    return {
+      ...doc,
+      layers: withEffects(doc.layers),
+      scenes: scenes.map((sc) => ({ ...sc, layers: withEffects(sc.layers) })),
+    };
+  },
+  // v7: glow and trails settings moved from the output onto each layer (perLayerEffects).
+  6: (doc) => {
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...perLayerEffects(doc), scenes: scenes.map(perLayerEffects) };
   },
 };
 

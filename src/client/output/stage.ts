@@ -13,8 +13,10 @@ import {
   type Camera as ThreeCamera,
   type Object3D,
 } from 'three';
+import { emptyFxLayer, type FxLayer } from '../../shared/effects-plan.ts';
 import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
-import { defaultCamera, defaultEffects, type Camera, type Effects } from '../../shared/project-schema.ts';
+import type { LayerEffects } from '../../shared/layer-schema.ts';
+import { defaultCamera, type Camera } from '../../shared/project-schema.ts';
 import { PostEffects } from './effects.ts';
 
 /** Full-screen quad; the fragment shader does the keystone mapping per pixel. */
@@ -50,6 +52,14 @@ const WARP_FRAGMENT = /* glsl */ `
   }
 `;
 
+/** Set by LayerManager on each layer's root object: the layer's glow and trails settings. */
+export const EFFECTS_TAG = 'effects';
+
+/** A top-level scene object's effects; untagged objects (the test pattern) have none. */
+function effectsOf(object: Object3D): LayerEffects | undefined {
+  return object.userData[EFFECTS_TAG] as LayerEffects | undefined;
+}
+
 export const OUTPUT_WIDTH = 1920;
 export const OUTPUT_HEIGHT = 1080;
 
@@ -70,10 +80,9 @@ export class Stage {
   contextLost = false;
   /**
    * What is on screen now (after modulation and morphs), kept so a scene morph can start
-   * from it. Updated in place by setCamera / setEffects; never replaced.
+   * from it. Updated in place by setCamera; never replaced.
    */
   readonly displayedCamera: Camera = defaultCamera();
-  readonly displayedEffects: Effects = defaultEffects();
 
   private target: WebGLRenderTarget;
   private warpScene = new Scene();
@@ -84,6 +93,10 @@ export class Stage {
   private lastShaderError: string | null = null;
   private background = new Color(0x000000);
   private post: PostEffects;
+  /** Per frame: visible layers and their effective glow / trails settings (a reused pool). */
+  private readonly fx: FxLayer[] = [];
+  private fxCount = 0;
+  private readonly hidden: Object3D[] = [];
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -125,6 +138,8 @@ export class Stage {
       this.background,
       (message) => this.events.report?.(message),
       (scene) => this.verifyObject(scene),
+      (target, objects, count) => this.drawOnly(target, objects, count),
+      this.target.samples,
     );
     const quad = new Mesh(this.warpGeometry, this.warpMaterial);
     quad.frustumCulled = false;
@@ -145,22 +160,6 @@ export class Stage {
     if (!inv) return false;
     this.warpInverse.set(...inv);
     return true;
-  }
-
-  /**
-   * Output effects (bloom glow, motion trails) on the 1080p image before the warp.
-   * Called on state changes and per frame when modulated or morphing: it only copies
-   * numbers (render targets are made lazily by the first frame that needs them).
-   */
-  setEffects(effects: Effects): void {
-    const d = this.displayedEffects;
-    d.bloom.enabled = effects.bloom.enabled;
-    d.bloom.strength = effects.bloom.strength;
-    d.bloom.radius = effects.bloom.radius;
-    d.bloom.threshold = effects.bloom.threshold;
-    d.trails.enabled = effects.trails.enabled;
-    d.trails.persistence = effects.trails.persistence;
-    this.post.set(d);
   }
 
   setBackground(hex: string): void {
@@ -252,8 +251,9 @@ export class Stage {
     this.renderer.setRenderTarget(this.target);
     this.renderer.render(this.scene, this.camera);
     const warp = this.warpMaterial.uniforms;
-    if (this.post.active) {
-      this.post.process(this.target.texture, dt, performance.now());
+    this.collectEffects();
+    if (this.post.active(this.fx, this.fxCount)) {
+      this.post.process(this.target.texture, dt, performance.now(), this.fx, this.fxCount);
       warp.uImage!.value = this.post.image ?? this.target.texture;
       warp.uBloom!.value = this.post.bloomTexture;
       warp.uBloomOn!.value = this.post.bloomTexture ? 1 : 0;
@@ -264,6 +264,51 @@ export class Stage {
     }
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.warpScene, this.warpCamera);
+  }
+
+  /** Each visible layer's effective glow and trails (the layers are the scene's children). */
+  private collectEffects(): void {
+    const children = this.scene.children;
+    let n = 0;
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]!;
+      if (!child.visible) continue;
+      const e = effectsOf(child);
+      const fx = (this.fx[n] ??= emptyFxLayer());
+      n++;
+      fx.object = child;
+      fx.glow = !!e && e.glow.enabled && e.glow.strength > 0;
+      fx.strength = e?.glow.strength ?? 0;
+      fx.radius = e?.glow.radius ?? 0;
+      fx.threshold = e?.glow.threshold ?? 0;
+      fx.trails = !!e && e.trails.enabled && e.trails.persistence > 0;
+      fx.persistence = e?.trails.persistence ?? 0;
+    }
+    for (let i = n; i < this.fxCount; i++) this.fx[i]!.object = null; // keep nothing alive
+    this.fxCount = n;
+  }
+
+  /** Draw only `objects[0..count)` into `target` (per-layer effects), then restore visibility. */
+  private drawOnly(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number): void {
+    const hidden = this.hidden;
+    hidden.length = 0;
+    try {
+      const children = this.scene.children;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]!;
+        if (!child.visible) continue;
+        let keep = false;
+        for (let k = 0; k < count && !keep; k++) keep = objects[k] === child;
+        if (keep) continue;
+        child.visible = false;
+        hidden.push(child);
+      }
+      this.renderer.setRenderTarget(target);
+      this.renderer.render(this.scene, this.camera);
+    } finally {
+      for (let i = 0; i < hidden.length; i++) hidden[i]!.visible = true;
+      hidden.length = 0;
+    }
   }
 
   private makeTarget(): WebGLRenderTarget {

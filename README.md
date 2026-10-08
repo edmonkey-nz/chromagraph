@@ -11,9 +11,18 @@ cd ~/Documents/Projects/dev/data-wrangler
 npm run dev
 ```
 
-- Control window: http://127.0.0.1:8080/control
-- Output window: http://127.0.0.1:8080/output. Put it on the projector and press `f` for
-  full screen.
+- Control window: open http://127.0.0.1:8080/control in your normal Chrome.
+- Output window: use the **Output** buttons at the top right of the control window.
+  - **On projector** opens the output full screen on the second screen, on the NVIDIA GPU.
+    If the output is already open, it closes it and opens it again, which also moves it to
+    the projector.
+  - **In a window** opens it in a normal window you can move (F11 for full screen).
+  - **Close** closes it.
+
+  The output gets its own Chrome profile (`~/.config/data-wrangler-output`), so it never
+  mixes with your normal Chrome. It keeps running if the server restarts. If it ever lands
+  on the wrong screen, click it and press **Super+Shift+→** (or ←). By hand, the output is
+  at http://127.0.0.1:8080/output (press `f` for full screen).
 
 The server reopens the last project you had open. The output also boots straight into it
 with no control window present.
@@ -27,8 +36,9 @@ Use the production build. In dev mode, editing a source file reloads the output.
 
 ```bash
 npm run build && npm start
-google-chrome --kiosk http://127.0.0.1:8080/output/
 ```
+
+Then open the control window and press **Output → On projector**.
 
 In production the output caches itself and its data. If the server stops, the output keeps
 rendering, and it can even reload while the server is down.
@@ -44,8 +54,20 @@ the NVIDIA GPU.
   were only installed up to kernel 7.0.0-30, but the machine was booted on 7.0.0-34. Fix it
   by installing the NVIDIA module package for the running kernel (or booting -30), then
   confirm with `nvidia-smi`.
-- If Chrome still picks the iGPU, launch it with
-  `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia google-chrome …`.
+- Even with the driver working, Chrome on Wayland picks the iGPU, because the desktop runs
+  on the AMD chip. The **On projector** and **In a window** buttons handle this. By hand, run
+  Chrome under X11 (XWayland) with PRIME offload:
+
+  ```sh
+  __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+  google-chrome --ozone-platform=x11 --kiosk http://127.0.0.1:8080/output/
+  ```
+
+  Quit every Chrome window first, or the flags are ignored and the URL opens in the
+  running Chrome. What didn't work (tested 2026-10-09): staying on Wayland with
+  `--render-node-override` pointing at the NVIDIA card crashes Chrome, because the desktop
+  can't take its frames ("failed to import supplied dmabufs"). `--use-angle=vulkan` runs on
+  the NVIDIA card, but WebGL fails to start.
 
 ## Saving your work
 
@@ -75,7 +97,12 @@ the NVIDIA GPU.
 - **Animation:** LFO, noise, ramp or keyframe modulators on almost any number, on a looping
   timeline of up to 24 h. The data playhead reveals the record over time.
 - **Scenes:** capture looks, then morph between them (0.1–10 s).
-- **Effects:** bloom glow and motion trails.
+- **Effects:** glow and motion trails, set per layer in each layer card's **Glow** and
+  **Trails** folders. Layers with the same settings cost nothing extra; each layer with
+  its own trails costs about one more draw of that layer.
+- **Camera moves:** in the Camera card under Motion, pick a preset (orbit, swing, zoom, pan,
+  tilt, drift, fly-around) and set its speed. Presets are camera modulators, so you can
+  fine-tune them in the Modulation card.
 - **Editing:** a 3D camera; the move/rotate/scale gizmo and orbit in the preview (tick
   **Edit**); four-corner keystone with a test pattern.
 

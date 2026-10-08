@@ -73,11 +73,13 @@ describe('parameter registry', () => {
       'layer.hi-1.linkWidth',
       'layer.su-1.height.1',
       'layer.su-1.domain.0',
-      'output.effects.bloom.strength',
-      'output.effects.trails.persistence',
+      'layer.ly-1.effects.glow.strength',
+      'layer.hi-1.effects.glow.threshold',
+      'layer.ln-1.effects.trails.persistence',
     ]) {
       expect(ids, id).toContain(id);
     }
+    expect(ids.some((id) => id.startsWith('output.'))).toBe(false);
     for (const l of project().layers) expect(LayerSchema.safeParse(l).success, l.type).toBe(true);
   });
 

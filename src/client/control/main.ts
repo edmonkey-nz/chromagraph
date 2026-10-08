@@ -28,7 +28,7 @@ import { Card, h, loadSetting, saveSetting } from './ui.ts';
  *                windows, Calibration, Problems, Log
  *   workspace    cards in columns:
  *                  show    Scenes, Timeline, Modulation  (what changes over time)
- *                  look    Output & effects, Camera       (the whole frame)
+ *                  look    Output, Camera                 (the whole frame)
  *                  layers  one card per layer, two columns when wide
  *
  * Each card has its own Tweakpane pane. GUI values are only ever sent as patches; the
@@ -89,6 +89,7 @@ const state = new SyncedState(
     datasetsPanel.update(state.projectName, doc.project.datasets);
     el.badges.datasets.textContent = doc.project.datasets.length > 0 ? String(doc.project.datasets.length) : '';
     outputPanel.update(doc, external);
+    renderDiagnostics(doc);
     cameraPanel.update(doc, external);
     timelinePanel.update(doc);
     scenesPanel.update(doc);
@@ -151,7 +152,7 @@ const modulationCard = card(el.zoneShow, 'modulation', 'Modulation');
 const modulationPanel = new ModulationPanel(paneIn(modulationCard), { sendPatch, getDoc, showError });
 
 // Look column: the whole frame.
-const outputCard = card(el.zoneLook, 'output', 'Output & effects');
+const outputCard = card(el.zoneLook, 'output', 'Output');
 const outputPanel = new OutputPanel(paneIn(outputCard), { sendPatch, getDoc });
 const cameraCard = card(el.zoneLook, 'camera', 'Camera');
 const cameraPanel = new CameraPanel(paneIn(cameraCard), sendPatch);
@@ -227,6 +228,50 @@ const editMode = new EditMode(
 
 const calibrationPanel = new CalibrationPanel($('calibration'), sendPatch, (msg) => socket.send(msg), showError);
 
+// ---- output window buttons (header) ------------------------------------------------------
+// The server starts and closes the output's Chrome (`server/launcher.ts`), on the NVIDIA GPU.
+
+const outputButtons = {
+  projector: $<HTMLButtonElement>('output-projector'),
+  window: $<HTMLButtonElement>('output-window'),
+  close: $<HTMLButtonElement>('output-close'),
+};
+
+async function outputRequest(path: string, body: unknown, failure: string): Promise<void> {
+  const all = Object.values(outputButtons);
+  for (const b of all) b.disabled = true;
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const reply = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+      showError(`${failure}: ${reply?.error ?? reply?.message ?? res.statusText}`);
+    }
+  } catch {
+    showError(`${failure}: the server isn't reachable`);
+  } finally {
+    for (const b of all) b.disabled = false;
+  }
+}
+
+outputButtons.projector.addEventListener('click', () => void outputRequest('/api/output/launch', { mode: 'projector' }, 'Output not opened'));
+outputButtons.window.addEventListener('click', () => void outputRequest('/api/output/launch', { mode: 'window' }, 'Output not opened'));
+outputButtons.close.addEventListener('click', () => void outputRequest('/api/output/close', {}, 'Output not closed'));
+
+// ---- diagnostics tab ---------------------------------------------------------------------
+// Session switches (never saved with the project). The calibration panel also drives the test pattern.
+
+const diag = {
+  testPattern: $<HTMLInputElement>('diag-test-pattern'),
+  debugOverlay: $<HTMLInputElement>('diag-debug-overlay'),
+};
+diag.testPattern.addEventListener('change', () => sendPatch([{ op: 'set', path: ['session', 'testPattern'], value: diag.testPattern.checked }]));
+diag.debugOverlay.addEventListener('change', () => sendPatch([{ op: 'set', path: ['session', 'debugOverlay'], value: diag.debugOverlay.checked }]));
+
+function renderDiagnostics(doc: SyncDoc): void {
+  diag.testPattern.checked = doc.session.testPattern;
+  diag.debugOverlay.checked = doc.session.debugOverlay;
+}
+
 // ---- data tabs ---------------------------------------------------------------------------
 
 /** The log follows new lines unless the user has scrolled up in it. */
@@ -292,7 +337,7 @@ function renderBanners(): void {
     if (!s.vendorOk) {
       banners.push({
         cls: 'warn',
-        text: `Output ${id} is rendering on "${s.renderer}", not the NVIDIA GPU. Check chrome://gpu and the PRIME offload notes.`,
+        text: `Output ${id} is rendering on "${s.renderer}", not the NVIDIA GPU. Close it and use Output → On projector, which starts Chrome on the NVIDIA GPU.`,
         dismiss: false,
       });
     }

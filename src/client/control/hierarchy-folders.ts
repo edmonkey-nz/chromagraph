@@ -21,10 +21,11 @@ import {
   addScaleRamp,
   addValueColumn,
   addVec3,
+  buildEffects,
   buildTransform,
-  numericColumns,
   type DomainControl,
   type LayerUi,
+  numericColumns,
 } from './layer-ui.ts';
 
 /** Hierarchy folders: General, Levels, Layout, Nodes, Links, Labels, Look, Transform. */
@@ -128,6 +129,7 @@ export function buildHierarchy(ui: LayerUi, layer: HierarchyLayer, titleOf: (l: 
   const look = ui.folder(root, 'Look', 'Look', false);
   addOpacityBlend(ui, look, layer);
 
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 
   // Fields that only apply to some layouts, shown in place when the layout changes.

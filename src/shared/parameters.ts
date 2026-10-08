@@ -49,9 +49,13 @@ const CAMERA_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   target: AXES.map((a) => ({ label: `target ${a}`, min: -2000, max: 2000 })),
 };
 
-/** Fields every layer type has (opacity and the whole-layer transform). */
+/** Fields every layer type has (opacity and its glow / trails settings; the transform is separate). */
 const BASE_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   opacity: { label: 'opacity', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'effects.glow.strength': { label: 'glow strength', min: 0, max: 3, hardMin: 0, hardMax: 3 },
+  'effects.glow.radius': { label: 'glow radius', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'effects.glow.threshold': { label: 'glow threshold', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'effects.trails.persistence': { label: 'trail length', min: 0, max: 0.99, hardMin: 0, hardMax: 0.99 },
 };
 
 const TRANSFORM_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
@@ -276,19 +280,10 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
   return out;
 }
 
-/** Output effects: ids `output.effects.bloom.strength`, `output.effects.trails.persistence`, ... */
-const EFFECT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
-  'effects.bloom.strength': { label: 'glow strength', min: 0, max: 3, hardMin: 0, hardMax: 3 },
-  'effects.bloom.radius': { label: 'glow radius', min: 0, max: 1, hardMin: 0, hardMax: 1 },
-  'effects.bloom.threshold': { label: 'glow threshold', min: 0, max: 1, hardMin: 0, hardMax: 1 },
-  'effects.trails.persistence': { label: 'trail length', min: 0, max: 0.99, hardMin: 0, hardMax: 0.99 },
-};
-
-/** Every modulatable parameter in the project: camera, output effects, then layers in stack order. */
+/** Every modulatable parameter in the project: camera, then layers in stack order. */
 export function parameterDefs(project: Project): ParamDef[] {
   const out: ParamDef[] = [];
   addFields(out, 'camera', 'Camera', CAMERA_FIELDS);
-  addFields(out, 'output', 'Effects', EFFECT_FIELDS);
   for (const layer of project.layers) out.push(...layerDefs(layer));
   return out;
 }

@@ -1,6 +1,6 @@
 import type { FolderApi } from 'tweakpane';
 import type { LayerConfig, TextLayer } from '../../shared/layer-schema.ts';
-import { addFitButton, addIdentity, addOpacityBlend, addVec3, buildTransform, options, type LayerUi } from './layer-ui.ts';
+import { addFitButton, addIdentity, addOpacityBlend, addVec3, buildEffects, buildTransform, type LayerUi, options } from './layer-ui.ts';
 
 /** Text folders: General (template and row), Look, Transform. */
 
@@ -75,6 +75,7 @@ export function buildText(ui: LayerUi, layer: TextLayer, titleOf: (l: LayerConfi
     'URL of a .ttf, .otf or .woff font served by the app; empty for the default font';
   addFitButton(ui, k);
 
+  buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }
 

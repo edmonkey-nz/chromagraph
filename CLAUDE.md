@@ -148,15 +148,17 @@ mappable to MIDI/OSC.
 
 ## Machine notes
 
-- **As of 2026-10-08:** the NVIDIA kernel modules (nvidia-595-open) were installed only up
-  to kernel 7.0.0-30 while the machine booted 7.0.0-34, so Chrome rendered on the AMD
-  iGPU ("AMD Radeon Graphics (renoir)"). Nothing has been measured on the GTX 1650 yet.
+- **As of 2026-10-09:** the NVIDIA driver (595.99.02) loads on kernel 7.0.0-38. Chrome on
+  Wayland still defaults to the AMD iGPU, because it adds `--render-node-override` for the
+  compositor's GPU. Forcing the NVIDIA node on Wayland crashes Chrome (the compositor rejects the
+  NVIDIA frames), and ANGLE-Vulkan gives no WebGL. What works is `--ozone-platform=x11` with
+  `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia` (see the README). Nothing has been measured on the GTX 1650 yet.
 - `README.md` has the start-up steps for the user; `FUTURE.md` is the user's wish list,
   with status notes.
 
 - The laptop likely has hybrid graphics. Chrome must run on the NVIDIA GPU, not the
-  integrated one. Check `chrome://gpu`; launch with PRIME offload if needed
-  (`__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`). Log the renderer
+  integrated one. Check `chrome://gpu`. On Wayland the PRIME variables need
+  `--ozone-platform=x11`; see the README's GPU section. Log the renderer
   string at start-up and warn in the control GUI if it is not NVIDIA.
 - Installation mode: Chrome `--kiosk` on the projector display, screen blanking and
   notifications disabled, laptop on mains power.
@@ -342,10 +344,11 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 - `client/control/index.html` and `main.ts` lay the window out as: a header (project
   switcher, Save, Save As, Snapshots, the save indicator), then a top band with the
   preview top left and data tabs to its right (`tabs.ts`: Datasets, Output windows,
-  Calibration, Problems, Log).
+  Calibration, Diagnostics, Problems, Log). Diagnostics holds the test-pattern and
+  debug-overlay switches (session state).
 - Below that are cards in columns. Each card has its own Tweakpane pane, themed through
   `--tp-*` CSS variables. Shared card helpers are in `ui.ts`.
-- The cards are Show (Scenes, Timeline, Modulation), Look (Output & effects, Camera) and
+- The cards are Show (Scenes, Timeline, Modulation), Look (Output background, Camera) and
   Layers (double width, one card per layer).
 - **Save state.** The save indicator (`shared/save-status.ts`) counts patches in flight
   until their echo arrives and the next `saved` message.
@@ -373,13 +376,45 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   - Splitting a scene change into two patches shows as a cut.
 
 **Output effects** (`client/output/effects.ts`).
-- The chain is scene → MSAA target → bloom (a half-resolution glow added later) →
-  trails (ping-pong history: the channel furthest from the background wins, faded by
-  persistence^(dt·60)) → warp.
-- Render targets are created on first enable and released 10 s after disabling. Both
-  effects off costs nothing.
+- Glow and trails are per layer: `layer.effects = { glow: {enabled, strength, radius,
+  threshold}, trails: {enabled, persistence} }` (schema v7). `project.output` holds only
+  the background. `LayerManager` copies the effects to the layer object's `userData.effects`.
+  Every frame, `Stage` collects each visible layer's effective settings into a reused pool.
+- `shared/effects-plan.ts` (pure, tested) picks the passes:
+  - If every visible layer has the same settings, the whole-image chain runs: scene → MSAA
+    target → bloom (a half-resolution glow added later) → trails (ping-pong history: the
+    channel furthest from the background wins, faded by persistence^(dt·60)) → warp.
+  - Otherwise `Stage.drawOnly` redraws chosen layers alone. Each trail layer (at most 8)
+    gets its own history, keyed by its scene object, with its glow fed into the history,
+    and is merged into the frame. Glow-only layers are grouped by identical settings,
+    bloomed, and summed into one half-resolution texture.
+- Render targets are created on first need and released 10 s after their last use. With
+  no effect on anywhere, nothing runs.
+- Scene morphs fade a layer's glow and trails in and out (`lerpEffects` in
+  `shared/morph-plan.ts`).
 - `Stage.verify` forces the shader error check at build time. In three 0.186,
   `compile()` alone doesn't run it.
+- Control: each layer card has "Glow" and "Trails" folders (`buildEffects` in `layer-ui.ts`).
+  Moving one of their sliders while the effect is off switches it on.
+
+**Camera motion presets** (`shared/camera-motion.ts`, UI in `camera-panel.ts`).
+- Presets (orbit, swing, zoom, pan, tilt, drift, fly-around) are plain LFO and noise
+  modulators on `camera.*`, so the output needs nothing new and scenes capture them. A preset
+  replaces every camera modulator, and choosing one switches the camera to 3D.
+- Speed divides LFO periods and multiplies noise speeds. On a speed change, the new LFO
+  gets the phase that continues the old cycle, so the camera doesn't jump.
+- The preset and speed aren't stored: `detectCameraMotion` reads them back from the
+  modulators, ignoring phase. A hand-edited modulator reads as "custom".
+
+**Launching the output** (`server/launcher.ts`, pure parts in `server/launch-args.ts`).
+- The header's Output buttons POST to `/api/output/launch` (`projector` | `window`) and
+  `/api/output/close`. The server spawns Chrome detached (so it survives server restarts)
+  with its own profile (`~/.config/data-wrangler-output`), `--ozone-platform=x11` and PRIME
+  offload when `/proc/driver/nvidia` exists.
+- The projector is the first non-primary monitor in `xrandr --listmonitors`. A launch first
+  closes the running output Chrome, because a second launch would only open a tab in it.
+- Close finds the main process by scanning `/proc/*/cmdline`. Chrome rewrites its process
+  title with spaces, not NULs.
 
 **Control window start-up order.** `client/control/main.ts` creates `SyncedState` before
 the panels, because some panels read `state.doc` while they are being built. In the

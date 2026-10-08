@@ -16,6 +16,8 @@
  * Endpoints are exact: at u = 0 the scratch equals `from`, at u = 1 it equals the target.
  */
 
+import type { LayerEffects } from './layer-schema.ts';
+
 export type MorphEasing = 'linear' | 'smooth' | 'ease-in' | 'ease-out';
 
 /** Morph progress 0..1 at wall time `nowMs` (clamped), before easing. */
@@ -318,33 +320,28 @@ export function lerpCamera(from: MorphCamera, to: MorphCamera, u: number, out: M
   return out;
 }
 
-export interface MorphEffects {
-  bloom: { enabled: boolean; strength: number; radius: number; threshold: number };
-  trails: { enabled: boolean; persistence: number };
-}
-
 /**
- * Effects blend into `out`. Numbers lerp. An effect switched on or off by the morph fades
- * instead of popping: it stays enabled for the whole morph while its amount (bloom strength,
- * trail persistence) ramps from or to zero. Exact at u = 0 and u = 1.
+ * A layer's glow and trails blend into `out`. Numbers lerp. An effect switched on or off by
+ * the morph fades instead of popping: it stays enabled for the whole morph while its amount
+ * (glow strength, trail persistence) ramps from or to zero. Exact at u = 0 and u = 1.
  */
-export function lerpEffects(from: MorphEffects, to: MorphEffects, u: number, out: MorphEffects): MorphEffects {
+export function lerpEffects(from: LayerEffects, to: LayerEffects, u: number, out: LayerEffects): LayerEffects {
   if (u <= 0 || u >= 1) {
     const src = u <= 0 ? from : to;
-    out.bloom.enabled = src.bloom.enabled;
-    out.bloom.strength = src.bloom.strength;
-    out.bloom.radius = src.bloom.radius;
-    out.bloom.threshold = src.bloom.threshold;
+    out.glow.enabled = src.glow.enabled;
+    out.glow.strength = src.glow.strength;
+    out.glow.radius = src.glow.radius;
+    out.glow.threshold = src.glow.threshold;
     out.trails.enabled = src.trails.enabled;
     out.trails.persistence = src.trails.persistence;
     return out;
   }
-  const fb = from.bloom;
-  const tb = to.bloom;
-  out.bloom.enabled = fb.enabled || tb.enabled;
-  out.bloom.strength = lerp(fb.enabled ? fb.strength : 0, tb.enabled ? tb.strength : 0, u);
-  out.bloom.radius = lerp(fb.enabled ? fb.radius : tb.radius, tb.enabled ? tb.radius : fb.radius, u);
-  out.bloom.threshold = lerp(fb.enabled ? fb.threshold : tb.threshold, tb.enabled ? tb.threshold : fb.threshold, u);
+  const fg = from.glow;
+  const tg = to.glow;
+  out.glow.enabled = fg.enabled || tg.enabled;
+  out.glow.strength = lerp(fg.enabled ? fg.strength : 0, tg.enabled ? tg.strength : 0, u);
+  out.glow.radius = lerp(fg.enabled ? fg.radius : tg.radius, tg.enabled ? tg.radius : fg.radius, u);
+  out.glow.threshold = lerp(fg.enabled ? fg.threshold : tg.threshold, tg.enabled ? tg.threshold : fg.threshold, u);
   const ft = from.trails;
   const tt = to.trails;
   out.trails.enabled = ft.enabled || tt.enabled;
