@@ -5,26 +5,31 @@
  * `defaultLayerFor` picks an instancer view for a dataset (calendar for daily time series,
  * bars for other time series or plain row order), and `fitLayer` sizes the arrangement so the
  * visible rows fill the 1920x1080 output frame inside a 60 px margin. The line, heat map and
- * text layers have their own `default*LayerFor` / `fit*Layer` pairs; `defaultLayerOfType`
- * and `fitAnyLayer` dispatch on the type.
+ * text layers, and the phase 7 small multiples, hierarchy and surface layers, have their own
+ * `default*LayerFor` / `fit*Layer` pairs; `defaultLayerOfType` and `fitAnyLayer` dispatch on
+ * the type.
  */
 
 import type { ColumnType, Table } from '../data/columns.ts';
 import {
   blankHeatmapLayer,
+  blankHierarchyLayer,
   blankInstancerLayer,
   blankLineLayer,
+  blankMultiplesLayer,
+  blankSurfaceLayer,
   blankTextLayer,
   unmapped,
   type HeatmapLayer,
+  type HierarchyLayer,
+  type HierarchyLevel,
   type InstancerLayer,
   type LayerConfig,
   type LayerType,
   type LineLayer,
+  type SmallMultiplesLayer,
+  type SurfaceLayer,
   type TextLayer,
-  blankMultiplesLayer,
-  blankHierarchyLayer,
-  blankSurfaceLayer,
 } from './layer-schema.ts';
 import type { Dataset } from './project-schema.ts';
 
@@ -50,6 +55,8 @@ export interface SummaryColumn {
   min: number;
   max: number;
   empty: boolean;
+  /** Distinct values of a category column (undefined for other types or when unknown). */
+  categories?: number;
 }
 
 /** What layer defaults and the control GUI need to know about a parsed dataset. */
@@ -65,7 +72,11 @@ export function summarise(table: Table, cadences: Record<string, { step: number 
   for (const [name, c] of Object.entries(cadences)) steps[name] = { step: c.step };
   return {
     rowCount: table.rowCount,
-    columns: table.columns.map((c) => ({ name: c.name, type: c.type, min: c.min, max: c.max, empty: c.empty })),
+    columns: table.columns.map((c) => {
+      const col: SummaryColumn = { name: c.name, type: c.type, min: c.min, max: c.max, empty: c.empty };
+      if (c.type === 'category') col.categories = c.dictionary.length;
+      return col;
+    }),
     cadences: steps,
   };
 }
@@ -87,6 +98,11 @@ function clamp(v: number, lo: number, hi: number): number {
 /** Non-empty time columns with a usable min/max. */
 export function timeColumns(summary: DatasetSummary): SummaryColumn[] {
   return summary.columns.filter((c) => c.type === 'time' && !c.empty && Number.isFinite(c.min) && Number.isFinite(c.max));
+}
+
+/** Non-empty category columns. */
+export function categoryColumns(summary: DatasetSummary): SummaryColumn[] {
+  return summary.columns.filter((c) => c.type === 'category' && !c.empty);
 }
 
 /** First numeric column that actually varies, or undefined. */
@@ -113,16 +129,23 @@ function layerTimeColumn(layer: { timeColumn: string | null }, summary: DatasetS
   return timeColumns(summary).find((c) => c.name === layer.timeColumn);
 }
 
-/** Calendar year of an epoch-ms instant in a timezone; UTC when the zone is unusable. */
-function yearIn(ms: number, timeZone: string): number {
+/** Calendar year and month (1..12) of an epoch-ms instant in a timezone; UTC when the zone is unusable. */
+function calendarIn(ms: number, timeZone: string): { year: number; month: number } {
   try {
-    const parts = new Intl.DateTimeFormat('en-NZ', { timeZone, year: 'numeric' }).formatToParts(ms);
-    const y = Number(parts.find((p) => p.type === 'year')?.value);
-    if (Number.isFinite(y)) return y;
+    const parts = new Intl.DateTimeFormat('en-NZ', { timeZone, year: 'numeric', month: 'numeric' }).formatToParts(ms);
+    const year = Number(parts.find((p) => p.type === 'year')?.value);
+    const month = Number(parts.find((p) => p.type === 'month')?.value);
+    if (Number.isFinite(year) && Number.isFinite(month)) return { year, month };
   } catch {
     // fall through to UTC
   }
-  return new Date(ms).getUTCFullYear();
+  const d = new Date(ms);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
+}
+
+/** Calendar year of an epoch-ms instant in a timezone; UTC when the zone is unusable. */
+function yearIn(ms: number, timeZone: string): number {
+  return calendarIn(ms, timeZone).year;
 }
 
 /**
@@ -373,6 +396,14 @@ export function defaultLineLayerFor(id: string, name: string, dataset: Dataset, 
  * the origin moves up to bring the first visible row to the top margin.
  */
 export function fitHeatmapLayer(layer: HeatmapLayer, summary: DatasetSummary, timeZone: string): HeatmapLayer {
+  return fitCells(layer, summary, timeZone);
+}
+
+/** The fields a cell layout (heat map or 3D surface) is placed by. */
+type CellLayer = Pick<HeatmapLayer, 'layout' | 'timeColumn' | 'rows' | 'gridColumns' | 'origin' | 'cell'>;
+
+/** Copy of a heat map or surface with its cells fitted to the frame (see fitHeatmapLayer). */
+function fitCells<L extends CellLayer>(layer: L, summary: DatasetSummary, timeZone: string): L {
   const out = structuredClone(layer);
   const [s, e] = visibleFractions(layer);
   if (layer.layout === 'calendar') {
@@ -474,6 +505,211 @@ export function defaultTextLayerFor(id: string, name: string, dataset: Dataset |
   return layer;
 }
 
+// ---- small multiples ------------------------------------------------------------------
+
+/** Panel width / height the multiples fit aims for (wide panels suit time series). */
+const PANEL_ASPECT = 1.6;
+/** Largest gap between panels px; smaller panels get proportionally smaller gaps. */
+const MAX_PANEL_GAP = 8;
+/** Panel heights px from which titles are drawn at 24 px (the projection minimum) or 14 px. */
+const PANEL_LABEL_BIG = 160;
+const PANEL_LABEL_SMALL = 60;
+/** Panels a `rows` split aims for by default. */
+const ROW_SPLIT_PANELS = 60;
+
+/** Default title size for panels `h` px tall: 24 when they are big, 14 when they still fit it, else off. */
+export function panelLabelSize(h: number): number {
+  if (h >= PANEL_LABEL_BIG) return 24;
+  if (h >= PANEL_LABEL_SMALL) return 14;
+  return 0;
+}
+
+/**
+ * How many panels a small multiples layer shows for its visible rows: the calendar years,
+ * months or decades spanned (an upper bound, in case years with no data get no panel), the
+ * distinct values of the category column, or visible rows / chunk size. Never below 1.
+ */
+export function panelCount(layer: SmallMultiplesLayer, summary: DatasetSummary, timeZone: string): number {
+  const [s, e] = visibleFractions(layer);
+  switch (layer.splitBy) {
+    case 'year':
+    case 'month':
+    case 'decade': {
+      const col = timeColumns(summary).find((c) => c.name === layer.splitColumn);
+      if (!col) return 1;
+      const range = col.max - col.min;
+      const a = calendarIn(col.min + range * s, timeZone);
+      const b = calendarIn(col.min + range * e, timeZone);
+      const n =
+        layer.splitBy === 'year'
+          ? b.year - a.year + 1
+          : layer.splitBy === 'month'
+            ? (b.year - a.year) * 12 + b.month - a.month + 1
+            : Math.floor(b.year / 10) - Math.floor(a.year / 10) + 1;
+      return Math.max(1, finite(n, 1));
+    }
+    case 'category': {
+      const col = categoryColumns(summary).find((c) => c.name === layer.splitColumn);
+      return Math.max(1, finite(col?.categories ?? 1, 1));
+    }
+    case 'rows': {
+      const rows = Math.max(0, finite(summary.rowCount, 0)) * (e - s);
+      return Math.max(1, finite(Math.ceil(rows / Math.max(1, layer.chunkRows)), 1));
+    }
+  }
+}
+
+/**
+ * Panels per line, panel size and gap so `n` panels fill the usable frame: the column count
+ * whose panels come closest to PANEL_ASPECT, with gaps of about 6% of a panel (at most 8 px).
+ */
+export function panelGrid(n: number): { columns: number; panel: [number, number]; gap: [number, number] } {
+  const count = Math.max(1, Math.floor(finite(n, 1)));
+  let best = 1;
+  let bestScore = Infinity;
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols);
+    const score = Math.abs(Math.log(USABLE_W / cols / (USABLE_H / rows) / PANEL_ASPECT));
+    if (score < bestScore) {
+      bestScore = score;
+      best = cols;
+    }
+  }
+  const rows = Math.ceil(count / best);
+  const gap = Math.min(MAX_PANEL_GAP, Math.min(USABLE_W / best, USABLE_H / rows) * 0.06);
+  const w = atLeast(1, (USABLE_W - (best - 1) * gap) / best);
+  const h = atLeast(1, (USABLE_H - (rows - 1) * gap) / rows);
+  return { columns: best, panel: [w, h], gap: [gap, gap] };
+}
+
+/**
+ * Copy of a small multiples layer with its panel grid (panels per line, panel size, gap)
+ * chosen so the visible panels fill the usable frame, the first one at the top-left margin.
+ */
+export function fitMultiplesLayer(layer: SmallMultiplesLayer, summary: DatasetSummary, timeZone: string): SmallMultiplesLayer {
+  const out = structuredClone(layer);
+  const { columns, panel, gap } = panelGrid(panelCount(layer, summary, timeZone));
+  out.columns = columns;
+  out.panelSize = panel;
+  out.gap = gap;
+  out.origin = [MARGIN, FRAME_H - MARGIN, 0];
+  return out;
+}
+
+/**
+ * A new small multiples layer: one panel per year of the first time column (per category of
+ * the first category column without one, otherwise chunks of rows), bars of the first
+ * varying numeric column coloured by value (sqrt scale for non-negative data), fitted to the
+ * frame, with panel titles when the panels are big enough to carry them.
+ */
+export function defaultMultiplesLayerFor(id: string, name: string, dataset: Dataset, summary: DatasetSummary): SmallMultiplesLayer {
+  const layer = blankMultiplesLayer(id, name, dataset.id);
+  const time = timeColumns(summary)[0];
+  const category = categoryColumns(summary)[0];
+  if (time) {
+    layer.splitBy = 'year';
+    layer.splitColumn = time.name;
+  } else if (category) {
+    layer.splitBy = 'category';
+    layer.splitColumn = category.name;
+  } else {
+    layer.splitBy = 'rows';
+    layer.splitColumn = null;
+    layer.chunkRows = Math.max(1, Math.ceil(Math.max(0, finite(summary.rowCount, 0)) / ROW_SPLIT_PANELS));
+  }
+  const value = firstVaryingNumber(summary);
+  layer.valueColumn = value?.name ?? null;
+  layer.scale = value && value.min < 0 ? 'linear' : 'sqrt';
+  layer.chart = 'bars';
+  layer.colourByValue = value !== undefined;
+  layer.ramp = 'viridis';
+  const fitted = fitMultiplesLayer(layer, summary, dataset.timeZone);
+  fitted.labelSize = panelLabelSize(fitted.panelSize[1]);
+  return fitted;
+}
+
+// ---- hierarchy ------------------------------------------------------------------------
+
+/** True for hierarchy layouts drawn in a circle (radial dendrogram, sunburst, pack), which fit a square. */
+export function isRoundLayout(layout: HierarchyLayer['layout']): boolean {
+  return layout === 'radial-dendrogram' || layout === 'sunburst' || layout === 'pack';
+}
+
+/**
+ * Copy of a hierarchy with its box fitted to the frame: a centred square of the usable
+ * height for round layouts, the whole usable frame for the others.
+ */
+export function fitHierarchyLayer(layer: HierarchyLayer): HierarchyLayer {
+  const out = structuredClone(layer);
+  if (isRoundLayout(layer.layout)) {
+    out.origin = [(FRAME_W - USABLE_H) / 2, FRAME_H - MARGIN, 0];
+    out.size = [USABLE_H, USABLE_H];
+  } else {
+    out.origin = [MARGIN, FRAME_H - MARGIN, 0];
+    out.size = [USABLE_W, USABLE_H];
+  }
+  return out;
+}
+
+/** Default levels: decade then year of the first time column, or the first category column; null with neither. */
+export function defaultHierarchyLevels(summary: DatasetSummary): HierarchyLevel[] | null {
+  const time = timeColumns(summary)[0];
+  if (time) {
+    return [
+      { kind: 'time', column: time.name, unit: 'decade' },
+      { kind: 'time', column: time.name, unit: 'year' },
+    ];
+  }
+  const category = categoryColumns(summary)[0];
+  return category ? [{ kind: 'category', column: category.name }] : null;
+}
+
+/**
+ * A new hierarchy: decade -> year of the first time column (or the first category column),
+ * summing the first varying numeric column, drawn as a radial dendrogram in a centred square
+ * with nodes coloured by value (sqrt scale for non-negative data).
+ */
+export function defaultHierarchyLayerFor(id: string, name: string, dataset: Dataset, summary: DatasetSummary): HierarchyLayer {
+  const layer = blankHierarchyLayer(id, name, dataset.id);
+  const levels = defaultHierarchyLevels(summary);
+  if (levels) layer.levels = levels;
+  const value = firstVaryingNumber(summary);
+  layer.valueColumn = value?.name ?? null;
+  layer.aggregate = 'sum';
+  layer.scale = value && value.min < 0 ? 'linear' : 'sqrt';
+  layer.colourBy = value ? 'value' : 'depth';
+  layer.layout = 'radial-dendrogram';
+  return fitHierarchyLayer(layer);
+}
+
+// ---- 3D surface -----------------------------------------------------------------------
+
+/** Default height range of a surface, px along +z. */
+export const SURFACE_HEIGHT: [number, number] = [0, 200];
+
+/** Copy of a surface with its cells fitted to the frame, exactly as the heat map's (fitHeatmapLayer). */
+export function fitSurfaceLayer(layer: SurfaceLayer, summary: DatasetSummary, timeZone: string): SurfaceLayer {
+  return fitCells(layer, summary, timeZone);
+}
+
+/**
+ * A new surface: a year x day-of-year calendar when there is a daily time column, otherwise
+ * a grid in row order; height 0..200 px from the first varying numeric column (sqrt scale for
+ * non-negative data), fitted to the frame like the heat map.
+ */
+export function defaultSurfaceLayerFor(id: string, name: string, dataset: Dataset, summary: DatasetSummary): SurfaceLayer {
+  const layer = blankSurfaceLayer(id, name, dataset.id);
+  const times = timeColumns(summary);
+  const daily = times.find((c) => isDailyStep(cadenceStep(summary, c.name)));
+  layer.layout = daily ? 'calendar' : 'grid';
+  layer.timeColumn = (daily ?? times[0])?.name ?? null;
+  const value = firstVaryingNumber(summary);
+  layer.valueColumn = value?.name ?? null;
+  layer.scale = value && value.min < 0 ? 'linear' : 'sqrt';
+  layer.height = [SURFACE_HEIGHT[0], SURFACE_HEIGHT[1]];
+  return fitSurfaceLayer(layer, summary, dataset.timeZone);
+}
+
 // ---- any type -------------------------------------------------------------------------
 
 /**
@@ -497,10 +733,9 @@ export function defaultLayerOfType(
     if (type === 'surface') return blankSurfaceLayer(id, name, datasetId);
     return blankInstancerLayer(id, name, datasetId);
   }
-  // Phase 7 types: data-aware defaults arrive with their control UI.
-  if (type === 'multiples') return blankMultiplesLayer(id, name, dataset.id);
-  if (type === 'hierarchy') return blankHierarchyLayer(id, name, dataset.id);
-  if (type === 'surface') return blankSurfaceLayer(id, name, dataset.id);
+  if (type === 'multiples') return defaultMultiplesLayerFor(id, name, dataset, summary);
+  if (type === 'hierarchy') return defaultHierarchyLayerFor(id, name, dataset, summary);
+  if (type === 'surface') return defaultSurfaceLayerFor(id, name, dataset, summary);
   if (type === 'line') return defaultLineLayerFor(id, name, dataset, summary);
   if (type === 'heatmap') return defaultHeatmapLayerFor(id, name, dataset, summary);
   return defaultLayerFor(id, name, dataset, summary);
@@ -520,8 +755,11 @@ export function fitAnyLayer(layer: LayerConfig, summary: DatasetSummary | null, 
       return fitLineLayer(layer, summary);
     case 'heatmap':
       return fitHeatmapLayer(layer, summary, timeZone);
-    default:
-      // Phase 7 types get their fits with their control UI.
-      return structuredClone(layer);
+    case 'multiples':
+      return fitMultiplesLayer(layer, summary, timeZone);
+    case 'hierarchy':
+      return fitHierarchyLayer(layer);
+    case 'surface':
+      return fitSurfaceLayer(layer, summary, timeZone);
   }
 }
