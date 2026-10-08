@@ -218,7 +218,7 @@ export class EditMode {
     }
     snap.value = this.snap;
     const layer = this.deps.getDoc()?.project.layers.find((l) => l.id === this.layerId);
-    const target = layer ? `“${layer.name || layer.id}”` : 'no layer selected (click a layer’s folder)';
+    const target = layer ? `“${layer.name || layer.id}”` : 'no layer selected (click a layer’s card)';
     badge.textContent = `Editing · ${GIZMO_TITLES[this.mode].title} · snap ${snapLabel(this.mode, this.snap)} · ${target}`;
   }
 }

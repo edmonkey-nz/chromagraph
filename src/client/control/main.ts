@@ -1,30 +1,50 @@
 import { Pane } from 'tweakpane';
 import { wallMs } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
-import { PROJECT_NAME_RE, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
+import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { LogEntry, OutputStatus, ProjectProblem } from '../../shared/protocol.ts';
+import { touchesProject } from '../../shared/save-status.ts';
+import { replacesProjectBranch } from '../../shared/scene-helpers.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
 import { SyncedState } from '../common/synced-state.ts';
 import { CalibrationPanel } from './calibration-panel.ts';
+import { CameraPanel } from './camera-panel.ts';
 import { DatasetsPanel } from './datasets-panel.ts';
 import { EditMode } from './edit-mode.ts';
 import { LayersPanel } from './layers-panel.ts';
 import { ModulationPanel } from './modulation-panel.ts';
+import { OutputPanel } from './output-panel.ts';
+import { ProjectBar } from './project-bar.ts';
+import { ScenesPanel } from './scenes-panel.ts';
+import { Tabs } from './tabs.ts';
 import { TimelinePanel } from './timeline-panel.ts';
+import { Card, h, loadSetting, saveSetting } from './ui.ts';
+
+/**
+ * Control window composition.
+ *
+ *   header       project switcher, Save / Save as / Snapshots, save state, connection pills
+ *   top band     live preview (top left, with edit-mode tools) | tabs: Datasets, Output
+ *                windows, Calibration, Problems, Log
+ *   workspace    cards in columns:
+ *                  show    Scenes, Timeline, Modulation  (what changes over time)
+ *                  look    Output & effects, Camera       (the whole frame)
+ *                  layers  one card per layer, two columns when wide
+ *
+ * Each card has its own Tweakpane pane. GUI values are only ever sent as patches; the
+ * renderer never reads them.
+ */
 
 const MAX_LOG_LINES = 500;
+const LIVE_TICK_MS = 100;
 
 const clientId = makeClientId('control');
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const el = {
-  projectSelect: $<HTMLSelectElement>('project-select'),
-  projectNew: $<HTMLInputElement>('project-new'),
-  projectCreate: $<HTMLButtonElement>('project-create'),
   conn: $('conn'),
   outPill: $('out-pill'),
   banners: $('banners'),
-  pane: $('pane'),
   outputsBody: $('outputs-body'),
   problems: $('problems'),
   log: $('log'),
@@ -32,41 +52,46 @@ const el = {
   importButton: $<HTMLButtonElement>('import-button'),
   importFile: $<HTMLInputElement>('import-file'),
   previewToggle: $<HTMLInputElement>('preview-toggle'),
-  previewSection: $('preview-section'),
   previewBox: $('preview-box'),
+  previewOff: $('preview-off'),
   editToggle: $<HTMLInputElement>('edit-toggle'),
   gizmoModes: $('gizmo-modes'),
   snapSelect: $<HTMLSelectElement>('snap-select'),
   editBadge: $('edit-badge'),
+  zoneShow: $('zone-show'),
+  zoneLook: $('zone-look'),
+  zoneLayers: $('zone-layers'),
+  badges: { datasets: $('badge-datasets'), outputs: $('badge-outputs'), problems: $('badge-problems'), log: $('badge-log') },
 };
 
 const outputs = new Map<string, OutputStatus>();
 let problems: ProjectProblem[] = [];
 let lastError: string | null = null;
 
-// ---- Tweakpane ---------------------------------------------------------------------
-// GUI values live in `params` and are only ever sent to the server as patches. The
-// renderer never reads them.
+function showError(message: string): void {
+  lastError = message;
+  renderBanners();
+}
 
-const params = {
-  background: '#000000',
-  testPattern: false,
-  debugOverlay: false,
-  camera: { mode: '2d' as Camera['mode'], fov: 45, yaw: 0, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 } },
-};
 // ---- state -------------------------------------------------------------------------
 // Created before the panels: several read `state.doc` while they are being built. The change
 // callback only runs once messages arrive, after everything below is initialised.
 
 const state = new SyncedState(
   (doc, prev, info) => {
-    // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the user.
-    const external = info.full || info.origin !== clientId;
-    if (external) syncGui(doc);
-    else if (prev && doc.project.camera !== prev.project.camera) refreshCameraGui(doc.project.camera);
-    renderProjects();
+    // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the
+    // user. Going to a scene replaces whole branches, though, so its echo counts as external.
+    const external = info.full || info.origin !== clientId || replacesProjectBranch(info.ops ?? []);
+    projectBar.setCurrent(state.projectName);
+    if (info.full) projectBar.tracker.resynced();
+    else if (prev && doc.project !== prev.project && touchesProject(info.ops ?? [])) projectBar.tracker.changed(info.origin === clientId, Date.now());
+    projectBar.renderState(Date.now());
     datasetsPanel.update(state.projectName, doc.project.datasets);
+    el.badges.datasets.textContent = doc.project.datasets.length > 0 ? String(doc.project.datasets.length) : '';
+    outputPanel.update(doc, external);
+    cameraPanel.update(doc, external);
     timelinePanel.update(doc);
+    scenesPanel.update(doc);
     layersPanel.update(doc, external);
     editMode.update(doc);
     modulationPanel.update(doc, external);
@@ -76,142 +101,93 @@ const state = new SyncedState(
   (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
 );
 
-const pane = new Pane({ container: el.pane, title: 'Controls' });
-
-const outputFolder = pane.addFolder({ title: 'Output' });
-outputFolder
-  .addBinding(params, 'background', { label: 'background' })
-  .on('change', (ev) => sendPatch([{ op: 'set', path: ['project', 'output', 'background'], value: ev.value }]));
-
-const diagFolder = pane.addFolder({ title: 'Diagnostics' });
-diagFolder
-  .addBinding(params, 'testPattern', { label: 'test pattern' })
-  .on('change', (ev) => sendPatch([{ op: 'set', path: ['session', 'testPattern'], value: ev.value }]));
-diagFolder
-  .addBinding(params, 'debugOverlay', { label: 'debug overlay' })
-  .on('change', (ev) => sendPatch([{ op: 'set', path: ['session', 'debugOverlay'], value: ev.value }]));
-
-const cameraFolder = pane.addFolder({ title: 'Camera', expanded: false });
-const cam = params.camera;
-const setCamera = (field: keyof Camera, value: unknown) => sendPatch([{ op: 'set', path: ['project', 'camera', field], value }]);
-cameraFolder
-  .addBinding(cam, 'mode', { options: [{ text: '2D', value: '2d' }, { text: '3D', value: '3d' }] })
-  .on('change', (ev) => setCamera('mode', ev.value));
-cameraFolder.addBinding(cam, 'fov', { label: 'fov', min: 5, max: 120, step: 1 }).on('change', (ev) => setCamera('fov', ev.value));
-cameraFolder.addBinding(cam, 'yaw', { min: -180, max: 180, step: 0.5 }).on('change', (ev) => setCamera('yaw', ev.value));
-cameraFolder.addBinding(cam, 'pitch', { min: -89, max: 89, step: 0.5 }).on('change', (ev) => setCamera('pitch', ev.value));
-cameraFolder.addBinding(cam, 'distance', { min: 0.2, max: 5, step: 0.01 }).on('change', (ev) => setCamera('distance', ev.value));
-cameraFolder
-  .addBinding(cam, 'target', { label: 'target' })
-  .on('change', (ev) => setCamera('target', [ev.value.x, ev.value.y, ev.value.z]));
-
-// Pane order: Output, Diagnostics, Camera, Timeline, Layers, Modulation (folders are added
-// in that order below).
-const timelinePanel = new TimelinePanel(pane, { sendPatch, getDoc: () => state.doc });
-
-/** Set while copying server state into the GUI, so the resulting change events don't echo back. */
-let syncingGui = false;
-
 function sendPatch(ops: PatchOp[]): void {
-  if (syncingGui) return;
-  if (!socket.send({ t: 'patch', ops })) addLog({ time: Date.now(), level: 'warn', source: 'control', message: 'not connected; change not sent' });
-}
-
-function syncGui(doc: SyncDoc): void {
-  params.background = doc.project.output.background;
-  params.testPattern = doc.session.testPattern;
-  params.debugOverlay = doc.session.debugOverlay;
-  setCameraParams(doc.project.camera);
-  syncingGui = true;
-  try {
-    pane.refresh();
-  } finally {
-    syncingGui = false;
+  if (!socket.send({ t: 'patch', ops })) {
+    addLog({ time: Date.now(), level: 'warn', source: 'control', message: 'not connected; change not sent' });
+    return;
+  }
+  if (touchesProject(ops)) {
+    projectBar.tracker.sent(Date.now());
+    projectBar.renderState(Date.now());
   }
 }
 
-function setCameraParams(c: Camera): void {
-  Object.assign(cam, { mode: c.mode, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
-  cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
+const getDoc = (): SyncDoc | null => state.doc;
+
+// ---- header: project, save, snapshots ------------------------------------------------------
+
+const projectBar = new ProjectBar(
+  {
+    select: $<HTMLSelectElement>('project-select'),
+    newButton: $<HTMLButtonElement>('project-new'),
+    saveButton: $<HTMLButtonElement>('save-button'),
+    saveAsButton: $<HTMLButtonElement>('save-as-button'),
+    snapshotsButton: $<HTMLButtonElement>('snapshots-button'),
+    snapshotsCount: $('snapshots-count'),
+    snapshotsPopover: $('snapshots-pop'),
+    saveState: $('save-state'),
+  },
+  { send: (msg) => socket.send(msg), showError },
+);
+
+// ---- cards ---------------------------------------------------------------------------------
+
+function card(zone: HTMLElement, key: string, title: string, collapsed = false): Card {
+  const c = new Card({ title, storeKey: key, collapsed });
+  zone.append(c.root);
+  return c;
 }
 
-// The camera folder follows camera changes from the preview (orbit/zoom/pan in edit mode),
-// which echo back with our own origin, unless the user is typing in it or dragging in it.
-let cameraDragging = false;
-cameraFolder.element.addEventListener('pointerdown', () => (cameraDragging = true));
-window.addEventListener('pointerup', () => (cameraDragging = false));
-window.addEventListener('pointercancel', () => (cameraDragging = false));
-
-function refreshCameraGui(c: Camera): void {
-  const a = document.activeElement;
-  if (cameraDragging || (a instanceof HTMLInputElement && cameraFolder.element.contains(a))) return;
-  setCameraParams(c);
-  syncingGui = true;
-  try {
-    cameraFolder.refresh();
-  } finally {
-    syncingGui = false;
-  }
+function paneIn(c: Card): Pane {
+  return new Pane({ container: c.body });
 }
+
+// Show column: what changes over time.
+const scenesCard = card(el.zoneShow, 'scenes', 'Scenes');
+const scenesPanel = new ScenesPanel(scenesCard.body, { sendPatch, getDoc, showError });
+const timelineCard = card(el.zoneShow, 'timeline', 'Timeline');
+const timelinePanel = new TimelinePanel(paneIn(timelineCard), { sendPatch, getDoc });
+const modulationCard = card(el.zoneShow, 'modulation', 'Modulation');
+const modulationPanel = new ModulationPanel(paneIn(modulationCard), { sendPatch, getDoc, showError });
+
+// Look column: the whole frame.
+const outputCard = card(el.zoneLook, 'output', 'Output & effects');
+const outputPanel = new OutputPanel(paneIn(outputCard), { sendPatch, getDoc });
+const cameraCard = card(el.zoneLook, 'camera', 'Camera');
+const cameraPanel = new CameraPanel(paneIn(cameraCard), sendPatch);
 
 // ---- datasets ----------------------------------------------------------------------
 
-const datasetsPanel = new DatasetsPanel(el.datasets, el.importFile, sendPatch, (message) => {
-  lastError = message;
-  renderBanners();
-});
+const datasetsPanel = new DatasetsPanel(el.datasets, el.importFile, sendPatch, showError);
 el.importButton.addEventListener('click', () => el.importFile.click());
 
 // ---- layers ------------------------------------------------------------------------
 
-const layersPanel = new LayersPanel(pane, {
+const layersPanel = new LayersPanel(el.zoneLayers, {
   sendPatch,
-  getDoc: () => state.doc,
+  getDoc,
   summary: (id) => datasetsPanel.summary(id),
-  showError: (message) => {
-    lastError = message;
-    renderBanners();
-  },
+  showError,
   select: (id) => editMode.select(id),
 });
 datasetsPanel.onChange = () => layersPanel.refreshSummaries();
 
-// ---- modulation --------------------------------------------------------------------
-
-const modulationPanel = new ModulationPanel(pane, {
-  sendPatch,
-  getDoc: () => state.doc,
-  showError: (message) => {
-    lastError = message;
-    renderBanners();
-  },
-});
-
-/** The live phase slider and modulator value monitors move locally, about 10 times a second. */
-const LIVE_TICK_MS = 100;
+/** The live phase slider, modulator monitors and morph bars move locally, about 10 times a second. */
 setInterval(() => {
   const now = wallMs();
   timelinePanel.tick(now);
   modulationPanel.tick(now);
+  scenesPanel.tick(now);
+  projectBar.renderState(Date.now());
 }, LIVE_TICK_MS);
 
 // ---- live preview ------------------------------------------------------------------
-// A small output window embedded in the side column. Hiding it removes the iframe, so it
-// stops rendering and frees its GPU context.
-
-const PREVIEW_KEY = 'data-wrangler.control.preview';
-
-function loadPreviewSetting(): boolean {
-  try {
-    return localStorage.getItem(PREVIEW_KEY) !== 'off';
-  } catch {
-    return true;
-  }
-}
+// A small output window, top left. Hiding it removes the iframe, so it stops rendering and
+// frees its GPU context.
 
 function setPreview(on: boolean): void {
   el.previewToggle.checked = on;
-  el.previewSection.hidden = !on;
+  el.previewOff.hidden = on;
   const existing = el.previewBox.querySelector('iframe');
   if (on && !existing) {
     const frame = document.createElement('iframe');
@@ -223,18 +199,14 @@ function setPreview(on: boolean): void {
     existing.src = 'about:blank';
     existing.remove();
   }
-  try {
-    localStorage.setItem(PREVIEW_KEY, on ? 'on' : 'off');
-  } catch {
-    // Storage unavailable (private window, blocked site data): the setting just isn't kept.
-  }
+  saveSetting('preview', on ? 'on' : 'off');
 }
 
 el.previewToggle.addEventListener('change', () => {
   setPreview(el.previewToggle.checked);
   editMode.previewChanged(el.previewToggle.checked);
 });
-setPreview(loadPreviewSetting());
+setPreview(loadSetting('preview') !== 'off');
 
 // ---- edit mode (gizmo editing in the preview) ---------------------------------------------
 
@@ -242,7 +214,7 @@ const editMode = new EditMode(
   { toggle: el.editToggle, modes: el.gizmoModes, snap: el.snapSelect, badge: el.editBadge },
   {
     sendPatch,
-    getDoc: () => state.doc,
+    getDoc,
     frame: () => el.previewBox.querySelector('iframe'),
     showPreview: () => {
       if (!el.previewToggle.checked) setPreview(true);
@@ -253,49 +225,23 @@ const editMode = new EditMode(
 
 // ---- output calibration (phase 5) -------------------------------------------------------
 
-const calibrationPanel = new CalibrationPanel(
-  document.getElementById('calibration') as HTMLElement,
-  sendPatch,
-  (msg) => socket.send(msg),
-  (message) => {
-    lastError = message;
-    renderBanners();
-  },
-);
+const calibrationPanel = new CalibrationPanel($('calibration'), sendPatch, (msg) => socket.send(msg), showError);
 
-let projectNames: string[] = [];
+// ---- data tabs ---------------------------------------------------------------------------
 
-function renderProjects(): void {
-  const current = state.projectName;
-  const names = projectNames.includes(current) || !current ? projectNames : [...projectNames, current];
-  el.projectSelect.replaceChildren(
-    ...names.map((n) => {
-      const o = document.createElement('option');
-      o.value = n;
-      o.textContent = n;
-      o.selected = n === current;
-      return o;
-    }),
-  );
-}
-
-el.projectSelect.addEventListener('change', () => {
-  socket.send({ t: 'openProject', name: el.projectSelect.value });
+/** The log follows new lines unless the user has scrolled up in it. */
+let logFollow = true;
+let unseenLogIssues = 0;
+el.log.addEventListener('scroll', () => {
+  if (el.log.clientHeight > 0) logFollow = el.log.scrollTop + el.log.clientHeight >= el.log.scrollHeight - 4;
 });
 
-function createProject(): void {
-  const name = el.projectNew.value.trim();
-  if (!PROJECT_NAME_RE.test(name)) {
-    lastError = 'Project names use letters, digits, spaces, "-" and "_" (up to 64 characters).';
-    renderBanners();
-    return;
+const tabs = new Tabs($('tab-datasets').parentElement as HTMLElement, 'tab', (panel) => {
+  if (panel === 'panel-log') {
+    unseenLogIssues = 0;
+    el.badges.log.textContent = '';
+    if (logFollow) el.log.scrollTop = el.log.scrollHeight;
   }
-  socket.send({ t: 'createProject', name });
-  el.projectNew.value = '';
-}
-el.projectCreate.addEventListener('click', createProject);
-el.projectNew.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter') createProject();
 });
 
 // ---- status, banners, log -----------------------------------------------------------
@@ -306,28 +252,26 @@ function setPill(node: HTMLElement, cls: 'ok' | 'warn' | 'err' | '', text: strin
 }
 
 function renderConnection(s: ConnectionState): void {
-  if (s === 'open') setPill(el.conn, 'ok', 'server connected');
-  else if (s === 'connecting') setPill(el.conn, 'warn', 'server connecting…');
-  else setPill(el.conn, 'err', 'server disconnected');
+  if (s === 'open') setPill(el.conn, 'ok', 'Server');
+  else if (s === 'connecting') setPill(el.conn, 'warn', 'Server connecting…');
+  else setPill(el.conn, 'err', 'Server disconnected');
 }
 
 function renderOutputs(): void {
   const list = [...outputs.entries()];
+  el.badges.outputs.textContent = list.length > 0 ? String(list.length) : '';
   if (list.length === 0) {
-    setPill(el.outPill, 'err', 'no output');
+    setPill(el.outPill, 'err', 'No output');
     el.outputsBody.className = 'muted';
-    el.outputsBody.textContent = 'No output window connected.';
+    el.outputsBody.textContent = 'No output window connected. Open /output on the projector machine.';
   } else {
     const bad = list.some(([, s]) => s.contextLost || s.layerErrors.length > 0);
     const slow = list.some(([, s]) => s.fps < 55);
-    setPill(el.outPill, bad ? 'err' : slow ? 'warn' : 'ok', `${list.length} output${list.length > 1 ? 's' : ''}`);
+    const fps = Math.min(...list.map(([, s]) => s.fps));
+    setPill(el.outPill, bad ? 'err' : slow ? 'warn' : 'ok', `${list.length} output${list.length > 1 ? 's' : ''} · ${fps.toFixed(0)} fps`);
     const table = document.createElement('table');
     const head = table.insertRow();
-    for (const h of ['id', 'fps', 'cpu ms', 'rev', 'renderer', 'errors']) {
-      const th = document.createElement('th');
-      th.textContent = h;
-      head.append(th);
-    }
+    for (const t of ['id', 'fps', 'cpu ms', 'rev', 'renderer', 'errors']) head.append(h('th', { textContent: t }));
     for (const [id, s] of list) {
       const row = table.insertRow();
       const errors = [...s.layerErrors, ...s.datasetErrors].map((e) => `${e.id}: ${e.message}`);
@@ -343,28 +287,27 @@ function renderOutputs(): void {
 }
 
 function renderBanners(): void {
-  const banners: { cls: 'warn' | 'err'; text: string }[] = [];
+  const banners: { cls: 'warn' | 'err'; text: string; dismiss: boolean }[] = [];
   for (const [id, s] of outputs) {
     if (!s.vendorOk) {
       banners.push({
         cls: 'warn',
         text: `Output ${id} is rendering on "${s.renderer}", not the NVIDIA GPU. Check chrome://gpu and the PRIME offload notes.`,
+        dismiss: false,
       });
     }
   }
-  if (lastError) banners.push({ cls: 'err', text: lastError });
+  if (lastError) banners.push({ cls: 'err', text: lastError, dismiss: true });
   el.banners.replaceChildren(
     ...banners.map((b) => {
-      const d = document.createElement('div');
-      d.className = `banner ${b.cls}`;
-      d.textContent = b.text;
-      if (b.text === lastError) {
-        d.title = 'Click to dismiss';
-        d.style.cursor = 'pointer';
-        d.addEventListener('click', () => {
+      const d = h('div', { className: `banner ${b.cls}` }, b.text);
+      if (b.dismiss) {
+        const close = h('button', { type: 'button', className: 'btn small ghost', textContent: 'Dismiss' });
+        close.addEventListener('click', () => {
           lastError = null;
           renderBanners();
         });
+        d.append(close);
       }
       return d;
     }),
@@ -372,32 +315,26 @@ function renderBanners(): void {
 }
 
 function renderProblems(): void {
+  el.badges.problems.textContent = problems.length > 0 ? String(problems.length) : '';
   if (problems.length === 0) {
     el.problems.className = 'muted';
     el.problems.textContent = 'None.';
     return;
   }
   el.problems.className = '';
-  el.problems.replaceChildren(
-    ...problems.map((p) => {
-      const d = document.createElement('div');
-      d.textContent = `${p.project}: ${p.message}`;
-      return d;
-    }),
-  );
+  el.problems.replaceChildren(...problems.map((p) => h('div', { textContent: `${p.project}: ${p.message}` })));
 }
 
 function addLog(entry: LogEntry): void {
-  const atBottom = el.log.scrollTop + el.log.clientHeight >= el.log.scrollHeight - 4;
-  const line = document.createElement('div');
-  line.className = entry.level;
-  const time = document.createElement('span');
-  time.className = 'time';
-  time.textContent = `${new Date(entry.time).toLocaleTimeString('en-NZ', { hour12: false })} `;
-  line.append(time, `[${entry.source}] ${entry.message}`);
+  const line = h('div', { className: entry.level }, h('span', { className: 'time', textContent: `${new Date(entry.time).toLocaleTimeString('en-NZ', { hour12: false })} ` }));
+  line.append(`[${entry.source}] ${entry.message}`);
   el.log.append(line);
   while (el.log.childElementCount > MAX_LOG_LINES) el.log.firstElementChild?.remove();
-  if (atBottom) el.log.scrollTop = el.log.scrollHeight;
+  if (logFollow) el.log.scrollTop = el.log.scrollHeight;
+  if (entry.level !== 'info' && tabs.active !== 'panel-log') {
+    unseenLogIssues++;
+    el.badges.log.textContent = String(unseenLogIssues);
+  }
 }
 
 // ---- connection -----------------------------------------------------------------------
@@ -408,13 +345,18 @@ const socket = new ReconnectingSocket(wsUrl(), {
     if (state.handle(msg)) return;
     switch (msg.t) {
       case 'projects':
-        projectNames = msg.names;
+        projectBar.setProjects(msg.names);
         problems = msg.problems;
-        renderProjects();
         renderProblems();
         return;
       case 'profiles':
         calibrationPanel.setProfiles(msg.names, msg.current);
+        return;
+      case 'saved':
+        projectBar.saved(msg.project, msg.at);
+        return;
+      case 'snapshots':
+        projectBar.setSnapshots(msg.project, msg.list);
         return;
       case 'outputStatus':
         if (msg.status) outputs.set(msg.clientId, msg.status);
@@ -425,8 +367,7 @@ const socket = new ReconnectingSocket(wsUrl(), {
         for (const e of msg.entries) addLog(e);
         return;
       case 'error':
-        lastError = msg.message;
-        renderBanners();
+        showError(msg.message);
         return;
     }
   },
@@ -435,6 +376,8 @@ const socket = new ReconnectingSocket(wsUrl(), {
     if (s === 'open') {
       // The log ring is replayed on hello; clear to avoid duplicates.
       el.log.replaceChildren();
+      unseenLogIssues = 0;
+      el.badges.log.textContent = '';
       outputs.clear();
       renderOutputs();
     }

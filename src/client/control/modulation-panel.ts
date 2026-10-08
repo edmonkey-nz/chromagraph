@@ -32,7 +32,7 @@ import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { ProjectSchema, type SyncDoc } from '../../shared/project-schema.ts';
 
 /**
- * "Modulation" folder of the control pane: add a modulator to any registered parameter,
+ * "Modulation" card: add a modulator to any registered parameter,
  * edit or remove it, sweep a layer's rows with the data playhead helper, and clean up
  * modulators whose parameter has gone. Like the layers panel, the GUI holds no
  * authoritative state: every edit is a patch, and the folder is rebuilt from the synced
@@ -98,8 +98,9 @@ export class ModulationPanel {
   private playheadModel = { layer: '', mode: 'reveal' as PlayheadMode, width: 0.1 };
   private quietDepth = 0;
 
-  constructor(parent: FolderApi, private deps: ModulationPanelDeps) {
-    this.root = parent.addFolder({ title: 'Modulation', expanded: false });
+  /** `root` is the card's own pane: the panel rebuilds all of its children. */
+  constructor(root: FolderApi, private deps: ModulationPanelDeps) {
+    this.root = root;
   }
 
   // ---- reconciling with the synced document ------------------------------------------------
