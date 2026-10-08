@@ -66,6 +66,24 @@ export class LayerHost {
     return this.slots.find((s) => s.id === id)?.instance ?? null;
   }
 
+  /** True when the layer's slot exists and has been flagged as failed. */
+  failed(id: string): boolean {
+    return this.slots.find((s) => s.id === id)?.error != null;
+  }
+
+  /**
+   * Remove a slot without disposing its instance, which stays in the scene: the caller now
+   * owns it and must remove and dispose it (scene morphs fade old instances out this way).
+   */
+  detach(id: string): LayerInstance | null {
+    const i = this.slots.findIndex((s) => s.id === id);
+    if (i < 0) return null;
+    const slot = this.slots[i]!;
+    this.slots.splice(i, 1);
+    this.refreshErrors();
+    return slot.instance;
+  }
+
   /** Run `fn` on a layer's instance inside the fence; failed or missing layers are skipped. */
   call<T extends LayerInstance>(id: string, fn: (instance: T) => void): void {
     const slot = this.slots.find((s) => s.id === id);
