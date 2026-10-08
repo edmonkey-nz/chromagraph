@@ -83,6 +83,11 @@ declare module 'troika-three-text' {
  * the last good layout keeps drawing and the failure is logged; the same parameters are
  * not retried until they change. Either way the output never goes dark.
  *
+ * Colour and node size use the layer's scale. An auto domain is per depth for sums and
+ * row counts, and the leaves' range otherwise (see hierarchyDomainInto). Nodes whose value
+ * is missing are drawn in a neutral grey at the smallest node size, never as a number.
+ * Labels are capped at MAX_LABELS, shallowest first, and the cap is logged.
+ *
  * Geometry is in output px: x right from origin.x, y down from origin.y (the box's
  * top-left), at origin.z.
  */
