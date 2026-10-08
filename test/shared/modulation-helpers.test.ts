@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankInstancerLayer, type InstancerLayer } from '../../src/shared/layer-schema.ts';
+import { blankHeatmapLayer, blankInstancerLayer, blankLineLayer, blankTextLayer, type InstancerLayer } from '../../src/shared/layer-schema.ts';
 import {
   addKeyframe,
   clampDuration,
@@ -12,6 +12,7 @@ import {
   modulatedValue,
   orphanParamIds,
   paramTitle,
+  playheadKind,
   reanchor,
   removeKeyframe,
 } from '../../src/shared/modulation-helpers.ts';
@@ -197,6 +198,31 @@ describe('data playhead', () => {
 
   it('returns null for a missing layer', () => {
     expect(dataPlayheadOps(project(), 'nope', 'reveal')).toBeNull();
+  });
+
+  it('sweeps rows on line and heat map layers too', () => {
+    const p = project();
+    p.layers.push(blankLineLayer('ly-l', 'Line', 'ds'), blankHeatmapLayer('ly-h', 'Heat', 'ds'));
+    expect(playheadKind(p.layers[2]!)).toBe('rows');
+    expect(playheadKind(p.layers[3]!)).toBe('rows');
+    const next = applyOps({ project: p }, [...dataPlayheadOps(p, 'ly-l', 'reveal')!, ...dataPlayheadOps(p, 'ly-h', 'window', 0.2)!]).project;
+    expect(next.parameters['layer.ly-l.rows.1']).toEqual(ramp(0, 1));
+    expect(next.parameters['layer.ly-h.rows.0']).toEqual(ramp(-0.2, 0.8));
+    expect(ProjectSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('follows the playhead on a text layer with a ramp on its row, whatever the mode', () => {
+    const p = project();
+    p.layers.push(blankTextLayer('ly-t', 'Caption', 'ds'));
+    expect(playheadKind(p.layers[2]!)).toBe('row');
+    for (const mode of ['reveal', 'window'] as const) {
+      const ops = dataPlayheadOps(p, 'ly-t', mode)!;
+      expect(ops).toEqual([{ op: 'set', path: ['project', 'parameters', 'layer.ly-t.row'], value: ramp(0, 1) }]);
+      const next = applyOps({ project: p }, ops).project;
+      expect(ProjectSchema.safeParse(next).success).toBe(true);
+      expect(parameterDefs(next).some((d) => d.id === 'layer.ly-t.row')).toBe(true);
+      expect(orphanParamIds(next)).toEqual([]);
+    }
   });
 });
 

@@ -195,6 +195,65 @@
         border: 0;
         pointer-events: none;
       }
+      /* Edit mode: the header controls, a large preview with an outline, the selected layer. */
+      .edit-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      body:not(.editing) .edit-controls .seg,
+      body:not(.editing) .edit-controls label:last-child {
+        opacity: 0.5;
+      }
+      .seg {
+        display: inline-flex;
+      }
+      .seg button {
+        border-radius: 0;
+        margin-left: -1px;
+      }
+      .seg button:first-child {
+        border-radius: 4px 0 0 4px;
+        margin-left: 0;
+      }
+      .seg button:last-child {
+        border-radius: 0 4px 4px 0;
+      }
+      .seg button.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #0c0d0f;
+      }
+      #edit-badge {
+        display: none;
+        margin-bottom: 6px;
+        color: var(--accent);
+        font-weight: 600;
+      }
+      body.editing #edit-badge {
+        display: block;
+      }
+      body.editing #preview-box {
+        max-width: calc(78vh * 16 / 9);
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 0 6px rgba(110, 168, 254, 0.18);
+      }
+      body.editing #preview-box iframe {
+        pointer-events: auto;
+      }
+      body.editing #side > section:not(#preview-section) {
+        opacity: 0.7;
+      }
+      .dw-layer-selected {
+        box-shadow: inset 3px 0 0 var(--accent);
+        background: rgba(110, 168, 254, 0.08);
+        border-radius: 4px;
+      }
+      .dw-layer-selected > .tp-fldv_b {
+        color: var(--accent);
+        font-weight: 600;
+      }
       #datasets-section {
         max-height: 34vh;
         overflow: auto;
@@ -312,6 +371,15 @@
       <label title="Show a live preview of the output (hiding it frees the GPU it uses)"
         ><input type="checkbox" id="preview-toggle" checked /> preview</label
       >
+      <span class="edit-controls">
+        <label title="Edit layer transforms and the 3D camera directly in the preview"
+          ><input type="checkbox" id="edit-toggle" /> edit</label
+        >
+        <span id="gizmo-modes" class="seg" role="group" aria-label="Gizmo mode"></span>
+        <label title="Snap: 10/50 px when moving, 5/15° when rotating, 0.05/0.25 when scaling"
+          >snap <select id="snap-select"></select
+        ></label>
+      </span>
       <span id="conn" class="pill">server</span>
       <span id="out-pill" class="pill">output</span>
     </header>
@@ -320,6 +388,7 @@
       <div id="pane"></div>
       <div id="side">
         <section id="preview-section">
+          <div id="edit-badge"></div>
           <div id="preview-box"></div>
         </section>
         <section id="outputs">

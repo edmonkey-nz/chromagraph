@@ -10,6 +10,7 @@ import {
 } from './modulators.ts';
 import { clampParam, layerParamPrefix, paramPatchPath, parameterDefs, readParam, type ParamDef } from './parameters.ts';
 import type { PatchOp } from './patch.ts';
+import type { LayerConfig } from './layer-schema.ts';
 import type { Project } from './project-schema.ts';
 
 /**
@@ -186,15 +187,25 @@ function ramp(from: number, to: number): Parameter {
 }
 
 /**
- * Ops for a "data playhead" on a layer's row range, driven by the timeline phase:
+ * How the data playhead drives a layer: `rows` (a row range to reveal or window through) for
+ * instancer, line and heat map layers; `row` (one current row to follow) for text layers.
+ */
+export function playheadKind(layer: LayerConfig): 'rows' | 'row' {
+  return layer.type === 'text' ? 'row' : 'rows';
+}
+
+/**
+ * Ops for a "data playhead", driven by the timeline phase. On a layer with a row range:
  *   reveal  rows end ramps 0 -> 1; rows start goes back to a plain base of 0
  *   window  rows end ramps 0 -> 1 and rows start ramps -w -> 1 - w, so a window of width w
  *           sweeps through the rows (the output clamps the negative start to 0)
- * Replaces any modulators already on the two row parameters. Null if the layer is missing.
+ * replacing any modulators already on the two row parameters. On a text layer ("follow
+ * playhead") its `row` ramps 0 -> 1 and `mode` is ignored. Null if the layer is missing.
  */
 export function dataPlayheadOps(project: Project, layerId: string, mode: PlayheadMode, width = 0.1): PatchOp[] | null {
   const layer = project.layers.find((l) => l.id === layerId);
   if (!layer) return null;
+  if (playheadKind(layer) === 'row') return [{ op: 'set', path: paramPath(`${layerParamPrefix(layerId)}row`), value: ramp(0, 1) }];
   const startId = `${layerParamPrefix(layerId)}rows.0`;
   const endId = `${layerParamPrefix(layerId)}rows.1`;
   const ops: PatchOp[] = [{ op: 'set', path: paramPath(endId), value: ramp(0, 1) }];
