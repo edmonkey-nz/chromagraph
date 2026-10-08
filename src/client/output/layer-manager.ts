@@ -1,10 +1,12 @@
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
+import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
 import { createHeatmap } from './layers/heatmap.ts';
+import { createHierarchy } from './layers/hierarchy.ts';
 import { createInstancer } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
 import { createLine } from './layers/line.ts';
@@ -63,7 +65,12 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
   },
   // Phase 7 renderers replace these; until then such a layer shows as flagged, not built.
   multiples: notBuiltYet('small multiples'),
-  hierarchy: notBuiltYet('hierarchy'),
+  hierarchy: {
+    // Rows, layout and its sizes go to the layer's worker (regroup / re-layout), not a rebuild.
+    structureKey: (layer, timeZone) => hierarchyStructureKey(layer, timeZone),
+    needsData: true,
+    create: (layer, data, mode) => createHierarchy(layer, required(data), mode),
+  },
   surface: notBuiltYet('3D surface'),
 };
 
