@@ -216,7 +216,7 @@ export class LayerManager {
 
   /** Run `fn` on a built layer's instance inside the host's fence. */
   call(id: string, fn: (instance: ApplicableLayer<LayerConfig>) => void): void {
-    if (this.keys.has(id)) this.host.call(id, fn);
+    if (this.keys.has(id)) this.host.call<ApplicableLayer<LayerConfig>>(id, fn);
   }
 
   private keyOf(layer: LayerConfig, timeZones: Map<string, string>): string | null {
@@ -235,11 +235,13 @@ export class LayerManager {
     // modulation engine recompiles.
     if (!this.keys.has(id) || applied?.type !== effective.type) return;
     this.displayed.set(id, effective);
-    this.host.call<ApplicableLayer<LayerConfig>>(id, (inst) => {
-      inst.apply(effective, this._cameraMode);
-      applyLayerTransform(inst.object, effective.transform);
-    });
+    this.host.call(id, this.applyConfig, effective);
   }
+
+  private readonly applyConfig = (inst: ApplicableLayer<LayerConfig>, config: LayerConfig): void => {
+    inst.apply(config, this._cameraMode);
+    applyLayerTransform(inst.object, config.transform);
+  };
 
   /** Re-apply every layer's base config (e.g. after its modulators were removed). */
   reapplyBase(): void {

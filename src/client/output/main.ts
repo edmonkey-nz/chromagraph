@@ -93,7 +93,10 @@ const datasets = new DatasetStore(
   (level, message) => report(level, message),
   (_id, url) => {
     precache([url]);
-    if (state.doc) syncLayers(state.doc);
+    if (state.doc) {
+      syncLayers(state.doc);
+      morph.afterSync(state.doc); // a reload may rebuild a morphing layer
+    }
   },
 );
 

@@ -63,12 +63,12 @@ export class LayerHost {
   }
 
   get(id: string): LayerInstance | null {
-    return this.slots.find((s) => s.id === id)?.instance ?? null;
+    return this.slot(id)?.instance ?? null;
   }
 
   /** True when the layer's slot exists and has been flagged as failed. */
   failed(id: string): boolean {
-    return this.slots.find((s) => s.id === id)?.error != null;
+    return this.slot(id)?.error != null;
   }
 
   /**
@@ -84,12 +84,15 @@ export class LayerHost {
     return slot.instance;
   }
 
-  /** Run `fn` on a layer's instance inside the fence; failed or missing layers are skipped. */
-  call<T extends LayerInstance>(id: string, fn: (instance: T) => void): void {
-    const slot = this.slots.find((s) => s.id === id);
+  /**
+   * Run `fn` on a layer's instance inside the fence; failed or missing layers are skipped.
+   * `arg` is passed through so per-frame callers can use a pre-bound `fn` (no closures).
+   */
+  call<T extends LayerInstance, A = undefined>(id: string, fn: (instance: T, arg: A) => void, arg?: A): void {
+    const slot = this.slot(id);
     if (!slot?.instance || slot.error) return;
     try {
-      fn(slot.instance as T);
+      fn(slot.instance as T, arg as A);
     } catch (err) {
       this.fail(slot, `update failed: ${describe(err)}`);
     }
@@ -101,6 +104,12 @@ export class LayerHost {
     if (!slot?.instance) return;
     slot.instance.object.renderOrder = order;
     slot.instance.object.visible = visible && !slot.error;
+  }
+
+  /** Slot lookup without a closure (runs per frame for modulated and morphing layers). */
+  private slot(id: string): Slot | undefined {
+    for (let i = 0; i < this.slots.length; i++) if (this.slots[i]!.id === id) return this.slots[i];
+    return undefined;
   }
 
   ids(): string[] {
