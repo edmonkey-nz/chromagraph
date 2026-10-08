@@ -148,6 +148,12 @@ mappable to MIDI/OSC.
 
 ## Machine notes
 
+- **As of 2026-10-08:** the NVIDIA kernel modules (nvidia-595-open) were installed only up
+  to kernel 7.0.0-30 while the machine booted 7.0.0-34, so Chrome rendered on the AMD
+  iGPU ("AMD Radeon Graphics (renoir)"). Nothing has been measured on the GTX 1650 yet.
+- `README.md` has the start-up steps for the user; `FUTURE.md` is the user's wish list,
+  with status notes.
+
 - The laptop likely has hybrid graphics. Chrome must run on the NVIDIA GPU, not the
   integrated one. Check `chrome://gpu`; launch with PRIME offload if needed
   (`__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`). Log the renderer
