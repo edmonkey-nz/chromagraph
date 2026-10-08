@@ -1,6 +1,7 @@
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
+import { multiplesStructureKey } from '../../data/multiples-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
@@ -8,6 +9,7 @@ import { createHeatmap } from './layers/heatmap.ts';
 import { createInstancer } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
 import { createLine } from './layers/line.ts';
+import { createMultiples } from './layers/multiples.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
 
@@ -62,7 +64,11 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     create: (layer, data, mode) => createTextLayer(layer, data ? { table: data.table, timeZone: data.timeZone } : null, mode),
   },
   // Phase 7 renderers replace these; until then such a layer shows as flagged, not built.
-  multiples: notBuiltYet('small multiples'),
+  multiples: {
+    structureKey: (layer, timeZone) => multiplesStructureKey(layer, timeZone),
+    needsData: true,
+    create: (layer, data, mode) => createMultiples(layer, required(data), mode),
+  },
   hierarchy: notBuiltYet('hierarchy'),
   surface: notBuiltYet('3D surface'),
 };
