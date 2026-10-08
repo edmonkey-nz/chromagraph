@@ -774,6 +774,9 @@
         color: var(--text);
         background: rgba(255, 255, 255, 0.03);
       }
+      .tablist [role='tab']:focus-visible {
+        outline-offset: -2px;
+      }
       .tablist [role='tab'][aria-selected='true'] {
         color: var(--text);
         border-bottom-color: var(--accent);
@@ -799,7 +802,7 @@
       }
       #datasets {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr));
         gap: 10px;
         align-items: start;
       }
