@@ -19,6 +19,9 @@ export const LAYER_TYPE_TITLES: Record<LayerType, string> = {
   line: 'line',
   heatmap: 'heat map',
   text: 'text',
+  multiples: 'small multiples',
+  hierarchy: 'hierarchy',
+  surface: '3D surface',
 };
 
 /** Instances the output can draw at 60 fps across all layers on the target laptop. */
@@ -119,6 +122,9 @@ export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | nul
     }
     return changes;
   }
+
+  // Phase 7 types: column clean-up is added with their control UI.
+  if (layer.type !== 'instancer' && layer.type !== 'line') return changes;
 
   // Instancer and line share the x mode / time column pair.
   let timeColumn = layer.timeColumn;

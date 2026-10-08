@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 3;
+export const CURRENT_VERSION = 4;
 
 
 export const DatasetSchema = z.object({
@@ -106,6 +106,18 @@ export const migrations: Record<number, Migration> = {
         transform: l.transform ?? identityTransform(),
         ...(l.type === 'instancer' && !l.cloner ? { cloner: identityCloner() } : {}),
       })),
+    };
+  },
+  // v4: line layers gained a cloner and an area fill.
+  3: (doc) => {
+    const layers = Array.isArray(doc.layers) ? (doc.layers as Record<string, unknown>[]) : [];
+    return {
+      ...doc,
+      layers: layers.map((l) =>
+        l.type === 'line'
+          ? { ...l, cloner: l.cloner ?? identityCloner(), fill: l.fill ?? { mode: 'none', colour: '#000000', opacity: 1 } }
+          : l,
+      ),
     };
   },
 };

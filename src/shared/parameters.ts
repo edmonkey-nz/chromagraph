@@ -116,6 +116,51 @@ const HEATMAP_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   gridColumns: { label: 'grid columns', min: 1, max: 2000, hardMin: 1, integer: true },
 };
 
+const MULTIPLES_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  rows: ROWS,
+  origin: ORIGIN,
+  columns: { label: 'panels per line', min: 1, max: 60, hardMin: 1, integer: true },
+  panelSize: [
+    { label: 'panel width', min: 10, max: 1920, hardMin: 1 },
+    { label: 'panel height', min: 10, max: 1080, hardMin: 1 },
+  ],
+  gap: [
+    { label: 'gap x', min: 0, max: 200 },
+    { label: 'gap y', min: 0, max: 200 },
+  ],
+  markSize: { label: 'mark size', min: 0.05, max: 20, hardMin: 0.05, hardMax: 50 },
+  labelSize: { label: 'label size', min: 0, max: 120, hardMin: 0, hardMax: 200 },
+};
+
+const HIERARCHY_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  rows: ROWS,
+  origin: ORIGIN,
+  size: [
+    { label: 'width', min: 50, max: 3840, hardMin: 1 },
+    { label: 'height', min: 50, max: 2160, hardMin: 1 },
+  ],
+  innerRadius: { label: 'inner radius', min: 0, max: 800, hardMin: 0 },
+  nodeSize: [
+    { label: 'node size min', min: 0, max: 60, hardMin: 0 },
+    { label: 'node size max', min: 0, max: 120, hardMin: 0 },
+  ],
+  linkWidth: { label: 'link width', min: 0, max: 20, hardMin: 0, hardMax: 20 },
+  linkOpacity: { label: 'link opacity', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  padding: { label: 'padding', min: 0, max: 40, hardMin: 0, hardMax: 40 },
+  labelSize: { label: 'label size', min: 8, max: 200, hardMin: 8, hardMax: 200 },
+};
+
+const SURFACE_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  rows: ROWS,
+  origin: ORIGIN,
+  cell: CELL,
+  gridColumns: { label: 'grid columns', min: 1, max: 2000, hardMin: 1, integer: true },
+  height: [
+    { label: 'height min', min: -1000, max: 1000 },
+    { label: 'height max', min: -1000, max: 1000 },
+  ],
+};
+
 const TEXT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   row: { label: 'row', min: 0, max: 1, hardMin: 0, hardMax: 1 },
   position: AXES.map((a) => ({ label: `position ${a}`, min: -1000, max: 3000 })),
@@ -203,6 +248,20 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
       mappingDefs(out, `${prefix}.y`, group, 'y', layer.y, CHANNEL_RANGE.y);
       mappingDefs(out, `${prefix}.z`, group, 'z', layer.z, CHANNEL_RANGE.z);
       mappingDefs(out, `${prefix}.colourMap`, group, 'colour', layer.colourMap);
+      addFields(out, `${prefix}.cloner`, group, CLONER_FIELDS);
+      addFields(out, `${prefix}.fill`, group, { opacity: { label: 'fill opacity', min: 0, max: 1, hardMin: 0, hardMax: 1 } });
+      break;
+    case 'multiples':
+      addFields(out, prefix, group, MULTIPLES_FIELDS);
+      if (layer.valueColumn && layer.domain) mappingDefs(out, prefix, group, 'value', { column: layer.valueColumn, domain: layer.domain });
+      break;
+    case 'hierarchy':
+      addFields(out, prefix, group, HIERARCHY_FIELDS);
+      if (layer.valueColumn && layer.domain) mappingDefs(out, prefix, group, 'value', { column: layer.valueColumn, domain: layer.domain });
+      break;
+    case 'surface':
+      addFields(out, prefix, group, SURFACE_FIELDS);
+      if (layer.valueColumn && layer.domain) mappingDefs(out, prefix, group, 'value', { column: layer.valueColumn, domain: layer.domain });
       break;
     case 'heatmap':
       addFields(out, prefix, group, HEATMAP_FIELDS);

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   blankHeatmapLayer,
+  blankHierarchyLayer,
+  blankMultiplesLayer,
+  blankSurfaceLayer,
   blankInstancerLayer,
   blankLineLayer,
   blankTextLayer,
@@ -22,7 +25,18 @@ function project(): Project {
   const line = blankLineLayer('ln-1', 'Line', 'ds');
   line.y = { ...line.y, column: 'Rainfall [mm]', domain: [0, 100] };
   const heat = { ...blankHeatmapLayer('hm-1', 'Heat', 'ds'), valueColumn: 'Rainfall [mm]', domain: [0, 50] as [number, number] };
-  return { ...p, layers: [layer, line, heat, blankTextLayer('tx-1', 'Text', null)] };
+  return {
+    ...p,
+    layers: [
+      layer,
+      line,
+      heat,
+      blankTextLayer('tx-1', 'Text', null),
+      blankMultiplesLayer('sm-1', 'Multiples', 'ds'),
+      blankHierarchyLayer('hi-1', 'Tree', 'ds'),
+      { ...blankSurfaceLayer('su-1', 'Surface', 'ds'), valueColumn: 'Rainfall [mm]', domain: [0, 80] as [number, number] },
+    ],
+  };
 }
 
 describe('parameter registry', () => {
@@ -53,6 +67,12 @@ describe('parameter registry', () => {
       'layer.hm-1.cell.0',
       'layer.tx-1.row',
       'layer.tx-1.transform.scale.0',
+      'layer.ln-1.cloner.dataStep',
+      'layer.ln-1.fill.opacity',
+      'layer.sm-1.panelSize.1',
+      'layer.hi-1.linkWidth',
+      'layer.su-1.height.1',
+      'layer.su-1.domain.0',
     ]) {
       expect(ids, id).toContain(id);
     }

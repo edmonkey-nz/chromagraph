@@ -16,6 +16,7 @@
     "@fastify/static": "^10.1.5",
     "@fastify/websocket": "^11.3.3",
     "d3-array": "^3.2.4",
+    "d3-hierarchy": "^3.1.2",
     "d3-scale": "^4.0.2",
     "d3-scale-chromatic": "^3.1.0",
     "d3-time": "^3.1.0",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@tweakpane/core": "^2.0.5",
     "@types/d3-array": "^3.2.2",
+    "@types/d3-hierarchy": "^3.1.7",
     "@types/d3-scale": "^4.0.9",
     "@types/d3-scale-chromatic": "^3.1.0",
     "@types/d3-time": "^3.0.4",

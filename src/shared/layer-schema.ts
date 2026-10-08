@@ -244,6 +244,22 @@ export const LineLayerSchema = LayerBaseSchema.extend({
    */
   breakOnGaps: z.boolean(),
   gapFactor: z.number().min(1),
+  /**
+   * Cloner as for the instancer, applied to the whole line: clone k is offset by k x
+   * position, orbits the pivot by k x orbit, fades by fade^k and takes its values from
+   * row i + k * dataStep (ridgelines). Per-clone rotation and scale are ignored for lines.
+   */
+  cloner: ClonerSchema,
+  /**
+   * Area fill between the line and its baseline (the line's own origin.y plus the clone's
+   * offset). With an opaque fill in the background colour, nearer clones hide the ones
+   * behind them (Joy Division style ridgelines).
+   */
+  fill: z.object({
+    mode: z.enum(['none', 'below']),
+    colour: hexColour,
+    opacity: z.number().min(0).max(1),
+  }),
 });
 export type LineLayer = z.infer<typeof LineLayerSchema>;
 
@@ -308,7 +324,138 @@ export const TextLayerSchema = LayerBaseSchema.extend({
 });
 export type TextLayer = z.infer<typeof TextLayerSchema>;
 
-export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text'] as const;
+/** How rows are split into panels for small multiples. */
+export const SPLITS = ['year', 'month', 'decade', 'category', 'rows'] as const;
+
+/**
+ * Small multiples: the rows are split into panels (one per year, month, decade, category
+ * value or fixed row chunk) laid out on a grid, each panel a mini chart of `valueColumn`.
+ * Everything is one instanced draw.
+ *
+ * Inside a panel, x is the row's position within the panel's period: day of year for
+ * `year`, day of month for `month`, year within the decade (with day fraction) for
+ * `decade`, otherwise the row's index within the panel. Gaps therefore stay visible.
+ * y is the scaled value (bars grow from the panel's baseline).
+ */
+export const SmallMultiplesLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('multiples'),
+  splitBy: z.enum(SPLITS),
+  /** Time column for year/month/decade splits; category column for `category`. */
+  splitColumn: z.string().nullable(),
+  /** Rows per panel for `rows`. */
+  chunkRows: z.number().int().min(1),
+  valueColumn: z.string().nullable(),
+  rows: vec2,
+  chart: z.enum(['bars', 'dots', 'cells']),
+  /** Panels per line of the grid. */
+  columns: z.number().int().min(1),
+  /** Top-left corner of the first panel, px (y up; panels fill downward). */
+  origin: vec3,
+  /** Panel width and height px, and the gap between panels px. */
+  panelSize: vec2,
+  gap: vec2,
+  /** Value scale: domain shared by all panels, or each panel scaled to its own range. */
+  domainMode: z.enum(['shared', 'per-panel']),
+  scale: z.enum(SCALE_TYPES),
+  domain: vec2.nullable(),
+  colour: hexColour,
+  /** Colour by value along a ramp (otherwise `colour`). */
+  colourByValue: z.boolean(),
+  ramp: z.enum(COLOUR_RAMPS),
+  reverse: z.boolean(),
+  /** Bar/dot size as a fraction of the per-row x step (bars) or px (dots). */
+  markSize: z.number().min(0.05).max(50),
+  /** Panel titles (e.g. "1923", "Mar 1923", the category) at this px size; 0 hides them. */
+  labelSize: z.number().min(0).max(200),
+  labelColour: hexColour,
+  /** Faint frame around each panel. */
+  frame: z.boolean(),
+});
+export type SmallMultiplesLayer = z.infer<typeof SmallMultiplesLayerSchema>;
+
+export const HIERARCHY_LAYOUTS = ['dendrogram', 'radial-dendrogram', 'tree', 'sunburst', 'icicle', 'pack', 'treemap'] as const;
+export const HIERARCHY_TIME_UNITS = ['decade', 'year', 'month', 'day'] as const;
+
+/** One level of the hierarchy: group by a calendar unit of a time column, or by a category column. */
+export const HierarchyLevelSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('time'), column: z.string(), unit: z.enum(HIERARCHY_TIME_UNITS) }),
+  z.object({ kind: z.literal('category'), column: z.string() }),
+]);
+export type HierarchyLevel = z.infer<typeof HierarchyLevelSchema>;
+
+/**
+ * Hierarchy (d3-hierarchy): rows are grouped level by level (e.g. decade -> year -> month)
+ * into a tree; leaves aggregate `valueColumn` with `aggregate` (an explicit choice), and
+ * parents sum or take the extreme of their children per `aggregate`. Rows with a missing
+ * value are left out of the totals and counted (reported, never filled in).
+ *
+ * Layouts: dendrogram (d3.cluster), tree (d3.tree), radial variants of the dendrogram,
+ * sunburst and icicle (d3.partition), pack (circle packing) and treemap. Layout runs off the
+ * output's main thread. Nodes are instanced (size/colour by value), links are screen-space
+ * segments `linkWidth` px wide.
+ */
+export const HierarchyLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('hierarchy'),
+  levels: z.array(HierarchyLevelSchema).min(1).max(5),
+  valueColumn: z.string().nullable(),
+  aggregate: z.enum(AGGREGATES),
+  rows: vec2,
+  layout: z.enum(HIERARCHY_LAYOUTS),
+  /** Bounding box: top-left corner and size, px (radial layouts use the box's centre and min half-size). */
+  origin: vec3,
+  size: vec2,
+  /** Radial layouts: inner radius px (leaves the centre clear). */
+  innerRadius: z.number().min(0),
+  /** Node marker size range px (by value); [r, r] for uniform. Unused by area layouts. */
+  nodeSize: vec2,
+  colourBy: z.enum(['value', 'depth', 'none']),
+  colour: hexColour,
+  scale: z.enum(SCALE_TYPES),
+  domain: vec2.nullable(),
+  ramp: z.enum(COLOUR_RAMPS),
+  reverse: z.boolean(),
+  linkWidth: z.number().min(0).max(20),
+  linkColour: hexColour,
+  linkOpacity: z.number().min(0).max(1),
+  /** Area layouts (sunburst, icicle, pack, treemap): gap between cells px. */
+  padding: z.number().min(0).max(40),
+  /** Label nodes down to this depth (0 = root only, -1 = none) at labelSize px. */
+  labelDepth: z.number().int().min(-1).max(5),
+  labelSize: z.number().min(8).max(200),
+  labelColour: hexColour,
+});
+export type HierarchyLayer = z.infer<typeof HierarchyLayerSchema>;
+
+/**
+ * 3D surface: values on a grid (calendar year x day, or rows wrapped `gridColumns` per line)
+ * as a height field. The grid lies in the x/y plane like the heat map (top-left at `origin`,
+ * `cell` px per cell) and heights rise along +z, so tilt the 3D camera to see relief.
+ * Cells with no data are holes in the surface; they are never interpolated over.
+ */
+export const SurfaceLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('surface'),
+  layout: z.enum(HEATMAP_LAYOUTS),
+  timeColumn: z.string().nullable(),
+  valueColumn: z.string().nullable(),
+  rows: vec2,
+  gridColumns: z.number().int().min(1),
+  aggregate: z.enum(AGGREGATES),
+  origin: vec3,
+  cell: vec2,
+  /** Height range px for the scaled value. */
+  height: vec2,
+  scale: z.enum(SCALE_TYPES),
+  domain: vec2.nullable(),
+  ramp: z.enum(COLOUR_RAMPS),
+  reverse: z.boolean(),
+  /** Shade with a fixed light (needs normals); off draws flat ramp colours. */
+  lit: z.boolean(),
+  wireframe: z.boolean(),
+  wireColour: hexColour,
+});
+export type SurfaceLayer = z.infer<typeof SurfaceLayerSchema>;
+
+export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface'] as const;
 export type LayerType = (typeof LAYER_TYPES)[number];
 
 /** Union of all layer types. */
@@ -317,6 +464,9 @@ export const LayerSchema = z.discriminatedUnion('type', [
   LineLayerSchema,
   HeatmapLayerSchema,
   TextLayerSchema,
+  SmallMultiplesLayerSchema,
+  HierarchyLayerSchema,
+  SurfaceLayerSchema,
 ]);
 export type LayerConfig = z.infer<typeof LayerSchema>;
 
@@ -393,6 +543,8 @@ export function blankLineLayer(id: string, name: string, datasetId: string | nul
     colourMap: { column: null, scale: 'linear', domain: null, ramp: 'viridis', reverse: false, steps: 5 },
     breakOnGaps: true,
     gapFactor: 1.5,
+    cloner: identityCloner(),
+    fill: { mode: 'none', colour: '#000000', opacity: 1 },
   };
 }
 
@@ -436,5 +588,85 @@ export function blankTextLayer(id: string, name: string, datasetId: string | nul
     outlineWidth: 0,
     outlineColour: '#000000',
     font: null,
+  };
+}
+
+export function blankMultiplesLayer(id: string, name: string, datasetId: string | null): SmallMultiplesLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'multiples',
+    splitBy: 'year',
+    splitColumn: null,
+    chunkRows: 365,
+    valueColumn: null,
+    rows: [0, 1],
+    chart: 'bars',
+    columns: 12,
+    origin: [60, 1020, 0],
+    panelSize: [140, 70],
+    gap: [10, 10],
+    domainMode: 'shared',
+    scale: 'linear',
+    domain: null,
+    colour: '#e8e8e8',
+    colourByValue: false,
+    ramp: 'viridis',
+    reverse: false,
+    markSize: 1,
+    labelSize: 0,
+    labelColour: '#9aa0a6',
+    frame: false,
+  };
+}
+
+export function blankHierarchyLayer(id: string, name: string, datasetId: string | null): HierarchyLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'hierarchy',
+    levels: [{ kind: 'time', column: '', unit: 'decade' }],
+    valueColumn: null,
+    aggregate: 'sum',
+    rows: [0, 1],
+    layout: 'dendrogram',
+    origin: [60, 1020, 0],
+    size: [1800, 960],
+    innerRadius: 40,
+    nodeSize: [2, 12],
+    colourBy: 'value',
+    colour: '#e8e8e8',
+    scale: 'sqrt',
+    domain: null,
+    ramp: 'viridis',
+    reverse: false,
+    linkWidth: 2,
+    linkColour: '#6b7280',
+    linkOpacity: 0.6,
+    padding: 1,
+    labelDepth: 1,
+    labelSize: 24,
+    labelColour: '#d8dade',
+  };
+}
+
+export function blankSurfaceLayer(id: string, name: string, datasetId: string | null): SurfaceLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'surface',
+    layout: 'grid',
+    timeColumn: null,
+    valueColumn: null,
+    rows: [0, 1],
+    gridColumns: 100,
+    aggregate: 'mean',
+    origin: [60, 1020, 0],
+    cell: [6, 6],
+    height: [0, 200],
+    scale: 'linear',
+    domain: null,
+    ramp: 'viridis',
+    reverse: false,
+    lit: true,
+    wireframe: false,
+    wireColour: '#ffffff',
   };
 }

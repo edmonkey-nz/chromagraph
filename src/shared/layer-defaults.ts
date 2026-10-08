@@ -22,6 +22,9 @@ import {
   type LayerType,
   type LineLayer,
   type TextLayer,
+  blankMultiplesLayer,
+  blankHierarchyLayer,
+  blankSurfaceLayer,
 } from './layer-schema.ts';
 import type { Dataset } from './project-schema.ts';
 
@@ -489,8 +492,15 @@ export function defaultLayerOfType(
     const datasetId = dataset?.id ?? null;
     if (type === 'line') return blankLineLayer(id, name, datasetId);
     if (type === 'heatmap') return blankHeatmapLayer(id, name, datasetId);
+    if (type === 'multiples') return blankMultiplesLayer(id, name, datasetId);
+    if (type === 'hierarchy') return blankHierarchyLayer(id, name, datasetId);
+    if (type === 'surface') return blankSurfaceLayer(id, name, datasetId);
     return blankInstancerLayer(id, name, datasetId);
   }
+  // Phase 7 types: data-aware defaults arrive with their control UI.
+  if (type === 'multiples') return blankMultiplesLayer(id, name, dataset.id);
+  if (type === 'hierarchy') return blankHierarchyLayer(id, name, dataset.id);
+  if (type === 'surface') return blankSurfaceLayer(id, name, dataset.id);
   if (type === 'line') return defaultLineLayerFor(id, name, dataset, summary);
   if (type === 'heatmap') return defaultHeatmapLayerFor(id, name, dataset, summary);
   return defaultLayerFor(id, name, dataset, summary);
@@ -510,5 +520,8 @@ export function fitAnyLayer(layer: LayerConfig, summary: DatasetSummary | null, 
       return fitLineLayer(layer, summary);
     case 'heatmap':
       return fitHeatmapLayer(layer, summary, timeZone);
+    default:
+      // Phase 7 types get their fits with their control UI.
+      return structuredClone(layer);
   }
 }

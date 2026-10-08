@@ -61,7 +61,21 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     needsData: false,
     create: (layer, data, mode) => createTextLayer(layer, data ? { table: data.table, timeZone: data.timeZone } : null, mode),
   },
+  // Phase 7 renderers replace these; until then such a layer shows as flagged, not built.
+  multiples: notBuiltYet('small multiples'),
+  hierarchy: notBuiltYet('hierarchy'),
+  surface: notBuiltYet('3D surface'),
 };
+
+function notBuiltYet<L extends LayerConfig>(what: string): LayerKind<L> {
+  return {
+    structureKey: (layer) => JSON.stringify(layer),
+    needsData: false,
+    create: () => {
+      throw new Error(`${what} layers are not available in this build yet`);
+    },
+  };
+}
 
 function kindOf(layer: LayerConfig): LayerKind<LayerConfig> {
   return KINDS[layer.type] as unknown as LayerKind<LayerConfig>;
