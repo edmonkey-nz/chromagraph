@@ -194,6 +194,7 @@ export class Hub {
         if (msg.role === 'control') {
           this.send(client, { t: 'log', entries: this.log.recent() });
           await this.sendProjects(client);
+          await this.sendSnapshots(client);
           await this.sendProfiles(client);
           for (const [clientId, status] of this.outputStatus) this.send(client, { t: 'outputStatus', clientId, status });
         }
@@ -222,7 +223,82 @@ export class Hub {
         if (await this.tryOpen(msg.name)) this.broadcastFull();
         else this.send(client, { t: 'error', message: `could not open "${msg.name}"` });
         await this.broadcastProjects();
+        await this.broadcastSnapshots();
         return;
+      case 'saveNow': {
+        if (client.role !== 'control') return;
+        if (this.saveTimer) {
+          await this.flushSave();
+        } else {
+          // Nothing pending: write anyway, so the user gets an explicit confirmation.
+          await this.queueSave();
+        }
+        return;
+      }
+      case 'duplicateProject': {
+        if (client.role !== 'control') return;
+        if (!PROJECT_NAME_RE.test(msg.name)) {
+          this.send(client, { t: 'error', message: `"${msg.name}" is not a valid project name` });
+          return;
+        }
+        try {
+          await this.flushSave();
+          const copy = await this.store.duplicate(this.projectName, msg.name, this.doc.project);
+          this.keepLastProject = null;
+          this.setProject(msg.name, copy);
+          await this.writeServerState();
+          this.log.info(`saved "${msg.name}" as a copy of the open project and opened it`);
+          this.broadcastFull();
+          this.broadcast({ t: 'saved', project: msg.name, at: Date.now() }, 'control');
+        } catch (err) {
+          const message = err instanceof ProjectError ? err.message : String(err);
+          this.send(client, { t: 'error', message: `Save As failed: ${message}` });
+        }
+        await this.broadcastProjects();
+        await this.broadcastSnapshots();
+        return;
+      }
+      case 'snapshotCreate': {
+        if (client.role !== 'control') return;
+        try {
+          await this.flushSave();
+          const info = await this.store.createSnapshot(this.projectName, msg.label, this.doc.project);
+          this.log.info(`snapshot "${info.label}" saved in "${this.projectName}"`);
+        } catch (err) {
+          this.send(client, { t: 'error', message: `snapshot failed: ${String(err)}` });
+        }
+        await this.broadcastSnapshots();
+        return;
+      }
+      case 'snapshotRestore': {
+        if (client.role !== 'control') return;
+        try {
+          const restored = await this.store.readSnapshot(this.projectName, msg.id);
+          await this.flushSave();
+          // Keep the state being replaced, so a restore can itself be undone.
+          await this.store.createSnapshot(this.projectName, 'before restore', this.doc.project);
+          const { name: _ignored, version: _v, ...fields } = restored;
+          const ops = Object.entries(fields).map(([key, value]) => ({ op: 'set' as const, path: ['project', key], value }));
+          const error = this.applyPatch(ops, 'server');
+          if (error) throw new ProjectError(error);
+          this.log.info(`restored snapshot ${msg.id} in "${this.projectName}"`);
+        } catch (err) {
+          const message = err instanceof ProjectError ? err.message : String(err);
+          this.send(client, { t: 'error', message: `restore failed: ${message}` });
+        }
+        await this.broadcastSnapshots();
+        return;
+      }
+      case 'snapshotDelete': {
+        if (client.role !== 'control') return;
+        try {
+          await this.store.deleteSnapshot(this.projectName, msg.id);
+        } catch (err) {
+          this.send(client, { t: 'error', message: `delete failed: ${String(err)}` });
+        }
+        await this.broadcastSnapshots();
+        return;
+      }
       case 'createProject': {
         if (client.role !== 'control') return;
         try {
@@ -238,6 +314,7 @@ export class Hub {
           this.send(client, { t: 'error', message });
         }
         await this.broadcastProjects();
+        await this.broadcastSnapshots();
         return;
       }
       case 'openProfile': {
@@ -325,6 +402,7 @@ export class Hub {
     this.saveChain = this.saveChain.then(async () => {
       try {
         await this.store.save(name, project);
+        this.broadcast({ t: 'saved', project: name, at: Date.now() }, 'control');
       } catch (err) {
         this.log.error(`autosave of "${name}" failed: ${String(err)}`);
       }
@@ -371,6 +449,18 @@ export class Hub {
     clearTimeout(this.profileTimer);
     this.profileTimer = null;
     await this.saveProfile();
+  }
+
+  private async snapshotsMessage(): Promise<ServerMessage> {
+    return { t: 'snapshots', project: this.projectName, list: await this.store.listSnapshots(this.projectName) };
+  }
+
+  private async sendSnapshots(client: Client): Promise<void> {
+    this.send(client, await this.snapshotsMessage());
+  }
+
+  private async broadcastSnapshots(): Promise<void> {
+    this.broadcast(await this.snapshotsMessage(), 'control');
   }
 
   private async sendProfiles(client: Client): Promise<void> {

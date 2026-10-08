@@ -1,6 +1,7 @@
-import { link, mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
+import { cp, link, mkdir, open, readdir, readFile, rename, rm, stat, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { defaultProject, migrate, PROJECT_NAME_RE, type Project } from '../shared/project-schema.ts';
+import type { SnapshotInfo } from '../shared/protocol.ts';
 
 let tmpCounter = 0;
 
@@ -146,7 +147,97 @@ export class ProjectStore {
     await mkdir(this.dataDir(name), { recursive: true });
     await writeFileAtomic(this.file(name), `${JSON.stringify(project, null, 2)}\n`, { backup: true });
   }
+
+  /**
+   * Save As: copy `from` (its data files and snapshots, not its backups) to a new project
+   * `to`, with `project` (the current state) as its project.json. Built in a temporary
+   * folder and renamed into place, so a crash never leaves a half-copied project.
+   */
+  async duplicate(from: string, to: string, project: Project): Promise<Project> {
+    if (await this.exists(to)) throw new ProjectError(`project "${to}" already exists`);
+    const target = this.dir(to);
+    const staging = join(this.root, `.${to}.${process.pid}.${tmpCounter++}.tmp`);
+    try {
+      await mkdir(staging, { recursive: true });
+      await cp(this.dataDir(from), join(staging, 'data'), { recursive: true, errorOnExist: false });
+      const snaps = join(this.dir(from), 'snapshots');
+      if (await exists(snaps)) await cp(snaps, join(staging, 'snapshots'), { recursive: true });
+      const copy: Project = { ...project, name: to };
+      await writeFileAtomic(join(staging, 'project.json'), `${JSON.stringify(copy, null, 2)}\n`);
+      await rename(staging, target);
+      return copy;
+    } catch (err) {
+      await rm(staging, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+  }
+
+  // ---- snapshots: projects/<name>/snapshots/<id>.json = { label, createdAt, project } ----
+
+  private snapshotDir(name: string): string {
+    return join(this.dir(name), 'snapshots');
+  }
+
+  async createSnapshot(name: string, label: string, project: Project, now = Date.now()): Promise<SnapshotInfo> {
+    const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const id = `${stamp}-${Math.random().toString(36).slice(2, 6)}`;
+    await mkdir(this.snapshotDir(name), { recursive: true });
+    const body = { label, createdAt: now, project };
+    await writeFileAtomic(join(this.snapshotDir(name), `${id}.json`), `${JSON.stringify(body, null, 2)}\n`);
+    return { id, label, createdAt: now, layerCount: project.layers.length };
+  }
+
+  /** Snapshots newest first. Unreadable files are skipped (and left on disk for inspection). */
+  async listSnapshots(name: string): Promise<SnapshotInfo[]> {
+    let files: string[];
+    try {
+      files = await readdir(this.snapshotDir(name));
+    } catch {
+      return [];
+    }
+    const out: SnapshotInfo[] = [];
+    for (const f of files) {
+      if (!f.endsWith('.json') || !SNAPSHOT_ID_RE.test(f.slice(0, -5))) continue;
+      try {
+        const body = JSON.parse(await readFile(join(this.snapshotDir(name), f), 'utf8')) as {
+          label?: unknown;
+          createdAt?: unknown;
+          project?: { layers?: unknown[] };
+        };
+        out.push({
+          id: f.slice(0, -5),
+          label: typeof body.label === 'string' ? body.label : '',
+          createdAt: typeof body.createdAt === 'number' ? body.createdAt : 0,
+          layerCount: Array.isArray(body.project?.layers) ? body.project.layers.length : 0,
+        });
+      } catch {
+        // skip unreadable snapshot
+      }
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** A snapshot's project, migrated and validated. Throws ProjectError if unusable. */
+  async readSnapshot(name: string, id: string): Promise<Project> {
+    if (!SNAPSHOT_ID_RE.test(id)) throw new ProjectError(`invalid snapshot id "${id}"`);
+    let body: { project?: unknown };
+    try {
+      body = JSON.parse(await readFile(join(this.snapshotDir(name), `${id}.json`), 'utf8')) as { project?: unknown };
+    } catch (err) {
+      throw new ProjectError(`snapshot "${id}" cannot be read: ${isNoEnt(err) ? 'missing' : String(err)}`);
+    }
+    const r = migrate(body.project);
+    if (!r.ok) throw new ProjectError(`snapshot "${id}" is not a usable project: ${r.error}`);
+    return r.project;
+  }
+
+  async deleteSnapshot(name: string, id: string): Promise<void> {
+    if (!SNAPSHOT_ID_RE.test(id)) throw new ProjectError(`invalid snapshot id "${id}"`);
+    await unlink(join(this.snapshotDir(name), `${id}.json`));
+  }
 }
+
+const SNAPSHOT_ID_RE = /^\d{8}-\d{6}-[a-z0-9]{1,8}$/;
 
 async function exists(path: string): Promise<boolean> {
   try {
