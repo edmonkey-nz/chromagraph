@@ -40,6 +40,16 @@ describe('migrate', () => {
     expect(scene.layers[0]!.effects.trails).toEqual({ enabled: true, persistence: 0.5 });
   });
 
+  it('v8 gives every layer, scenes included, a timeline that follows the project', () => {
+    const v7 = JSON.parse(readFileSync(new URL('../fixtures/projects/v7.json', import.meta.url), 'utf8'));
+    const r = migrate(v7);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    if (!r.ok) return;
+    const all = [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)];
+    expect(all.length).toBeGreaterThan(2);
+    for (const l of all) expect(l.timeline).toEqual({ own: false, duration: 600, loop: true });
+  });
+
   it('rejects missing, newer and invalid versions', () => {
     expect(migrate({ name: 'x' }).ok).toBe(false);
     expect(migrate({ ...defaultProject('x'), version: CURRENT_VERSION + 1 }).ok).toBe(false);

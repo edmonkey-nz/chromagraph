@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 7;
+export const CURRENT_VERSION = 8;
 
 
 export const DatasetSchema = z.object({
@@ -229,6 +229,13 @@ export const migrations: Record<number, Migration> = {
     const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
     return { ...perLayerEffects(doc), scenes: scenes.map(perLayerEffects) };
   },
+  // v8: every layer (also inside scenes) has a timeline; off, so it follows the project's.
+  7: (doc) => {
+    const withTimeline = (layers: unknown): unknown =>
+      Array.isArray(layers) ? layers.map((l: Doc) => ({ ...l, timeline: l.timeline ?? { own: false, duration: 600, loop: true } })) : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withTimeline(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withTimeline(sc.layers) })) };
+  },
 };
 
 export type MigrateResult =
@@ -270,6 +277,8 @@ export interface Session {
   testPattern: boolean;
   debugOverlay: boolean;
   transport: Transport;
+  /** Transports of layers with their own timeline, by layer id (see LayerTimelineSchema). */
+  layerTransports: Record<string, Transport>;
   /**
    * The most recent scene change. A control window sends it in the same patch that copies
    * the scene into the project; the output then morphs from what it was showing to the new
@@ -287,7 +296,7 @@ export interface Morph {
 }
 
 export function defaultSession(nowMs = 0): Session {
-  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 }, morph: null };
+  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 }, layerTransports: {}, morph: null };
 }
 
 /**
@@ -312,6 +321,8 @@ export const SessionSchema = z.object({
   testPattern: z.boolean(),
   debugOverlay: z.boolean(),
   transport: TransportSchema,
+  /** Transports of layers with their own timeline, by layer id (see LayerTimelineSchema). */
+  layerTransports: z.record(z.string(), TransportSchema).default({}),
   morph: MorphSchema.nullable().default(null),
 });
 

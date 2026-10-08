@@ -3,6 +3,8 @@ import { wallMs } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { LogEntry, OutputStatus, ProjectProblem } from '../../shared/protocol.ts';
+import { orphanParamIds } from '../../shared/modulation-helpers.ts';
+import { parseParamId } from '../../shared/parameters.ts';
 import { touchesProject } from '../../shared/save-status.ts';
 import { replacesProjectBranch } from '../../shared/scene-helpers.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
@@ -23,13 +25,15 @@ import { Card, h, loadSetting, saveSetting } from './ui.ts';
 /**
  * Control window composition.
  *
- *   header       project switcher, Save / Save as / Snapshots, save state, connection pills
- *   top band     live preview (top left, with edit-mode tools) | tabs: Datasets, Output
- *                windows, Calibration, Problems, Log
+ *   header       project switcher, Save / Save as / Snapshots, save state, output buttons,
+ *                connection pills
  *   workspace    cards in columns:
- *                  show    Scenes, Timeline, Modulation  (what changes over time)
- *                  look    Output, Camera                 (the whole frame)
- *                  layers  one card per layer, two columns when wide
+ *                  show    Scenes, Timeline                     (what changes over time)
+ *                  look    live preview (with edit-mode tools), Output, Camera
+ *                  layers  one card per layer, full height, two columns when wide; each card
+ *                          has the layer's own Modulation folder
+ *   drawer       tabs along the bottom: Datasets, Output windows, Calibration, Diagnostics,
+ *                Problems, Log. Closed it is just the tab strip; a tab opens it upwards.
  *
  * Each card has its own Tweakpane pane. GUI values are only ever sent as patches; the
  * renderer never reads them.
@@ -95,7 +99,9 @@ const state = new SyncedState(
     scenesPanel.update(doc);
     layersPanel.update(doc, external);
     editMode.update(doc);
-    modulationPanel.update(doc, external);
+    cameraModulation.update(doc, external);
+    cameraModulationFolder.title = cameraModulation.count > 0 ? `Modulation (${cameraModulation.count})` : 'Modulation';
+    renderProblems();
     calibrationPanel.update(doc, external);
   },
   () => socket.send({ t: 'requestFull' }),
@@ -148,14 +154,17 @@ const scenesCard = card(el.zoneShow, 'scenes', 'Scenes');
 const scenesPanel = new ScenesPanel(scenesCard.body, { sendPatch, getDoc, showError });
 const timelineCard = card(el.zoneShow, 'timeline', 'Timeline');
 const timelinePanel = new TimelinePanel(paneIn(timelineCard), { sendPatch, getDoc });
-const modulationCard = card(el.zoneShow, 'modulation', 'Modulation');
-const modulationPanel = new ModulationPanel(paneIn(modulationCard), { sendPatch, getDoc, showError });
 
 // Look column: the whole frame.
 const outputCard = card(el.zoneLook, 'output', 'Output');
 const outputPanel = new OutputPanel(paneIn(outputCard), { sendPatch, getDoc });
 const cameraCard = card(el.zoneLook, 'camera', 'Camera');
-const cameraPanel = new CameraPanel(paneIn(cameraCard), sendPatch);
+const cameraPane = paneIn(cameraCard);
+const cameraPanel = new CameraPanel(cameraPane, sendPatch);
+// The camera's own modulators (motion presets show here too).
+const cameraModulationFolder = cameraPane.addFolder({ title: 'Modulation', expanded: loadSetting('camera-modulation') === 'open' });
+cameraModulationFolder.on('fold', (ev) => saveSetting('camera-modulation', ev.expanded ? 'open' : 'closed'));
+const cameraModulation = new ModulationPanel(cameraModulationFolder, { sendPatch, getDoc, showError }, { kind: 'camera' });
 
 // ---- datasets ----------------------------------------------------------------------
 
@@ -177,7 +186,8 @@ datasetsPanel.onChange = () => layersPanel.refreshSummaries();
 setInterval(() => {
   const now = wallMs();
   timelinePanel.tick(now);
-  modulationPanel.tick(now);
+  layersPanel.tick(now);
+  if (cameraModulationFolder.expanded) cameraModulation.tick(now);
   scenesPanel.tick(now);
   projectBar.renderState(Date.now());
 }, LIVE_TICK_MS);
@@ -257,6 +267,13 @@ outputButtons.projector.addEventListener('click', () => void outputRequest('/api
 outputButtons.window.addEventListener('click', () => void outputRequest('/api/output/launch', { mode: 'window' }, 'Output not opened'));
 outputButtons.close.addEventListener('click', () => void outputRequest('/api/output/close', {}, 'Output not closed'));
 
+// Clicking a Tweakpane checkbox's label toggles it, as a native <label> would.
+document.addEventListener('click', (ev) => {
+  const label = ev.target instanceof Element ? ev.target.closest('.tp-lblv_l') : null;
+  const input = label?.parentElement?.querySelector<HTMLInputElement>(':scope > .tp-lblv_v .tp-ckbv_i');
+  if (input && !input.disabled) input.click();
+});
+
 // ---- diagnostics tab ---------------------------------------------------------------------
 // Session switches (never saved with the project). The calibration panel also drives the test pattern.
 
@@ -281,13 +298,57 @@ el.log.addEventListener('scroll', () => {
   if (el.log.clientHeight > 0) logFollow = el.log.scrollTop + el.log.clientHeight >= el.log.scrollHeight - 4;
 });
 
-const tabs = new Tabs($('tab-datasets').parentElement as HTMLElement, 'tab', (panel) => {
-  if (panel === 'panel-log') {
-    unseenLogIssues = 0;
-    el.badges.log.textContent = '';
-    if (logFollow) el.log.scrollTop = el.log.scrollHeight;
-  }
-});
+// The drawer along the bottom: a tab opens it (or, if already showing, closes it); the
+// chevron toggles it; its top edge drags to resize. Open state and height are remembered.
+const drawer = $('drawer');
+const drawerToggle = $<HTMLButtonElement>('drawer-toggle');
+function setDrawer(open: boolean): void {
+  drawer.classList.toggle('open', open);
+  drawerToggle.setAttribute('aria-expanded', String(open));
+  saveSetting('drawer', open ? 'open' : 'closed');
+  if (open && tabs.active === 'panel-log') seenLog();
+}
+drawerToggle.addEventListener('click', () => setDrawer(!drawer.classList.contains('open')));
+{
+  const stored = Number(loadSetting('drawer-h'));
+  if (stored > 0) drawer.style.setProperty('--drawer-h', `${stored}px`);
+  const handle = $('drawer-handle');
+  handle.addEventListener('pointerdown', (down) => {
+    const panels = $('drawer-panels');
+    const startY = down.clientY;
+    const startH = panels.getBoundingClientRect().height;
+    handle.setPointerCapture(down.pointerId);
+    const move = (ev: PointerEvent) => {
+      const hgt = Math.round(Math.min(Math.max(startH + startY - ev.clientY, 120), window.innerHeight * 0.8));
+      drawer.style.setProperty('--drawer-h', `${hgt}px`);
+      saveSetting('drawer-h', String(hgt));
+    };
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  });
+}
+
+function seenLog(): void {
+  unseenLogIssues = 0;
+  el.badges.log.textContent = '';
+  if (logFollow) el.log.scrollTop = el.log.scrollHeight;
+}
+
+const tabs = new Tabs(
+  $('tab-datasets').parentElement as HTMLElement,
+  'tab',
+  (panel) => {
+    if (panel === 'panel-log' && drawer.classList.contains('open')) seenLog();
+  },
+  (_panel, wasActive) => setDrawer(!(wasActive && drawer.classList.contains('open'))),
+);
+setDrawer(loadSetting('drawer') === 'open');
 
 // ---- status, banners, log -----------------------------------------------------------
 
@@ -359,15 +420,39 @@ function renderBanners(): void {
   );
 }
 
+/**
+ * Project problems from the server, plus modulators left behind by deleted layers (a layer's
+ * other orphans show in its own Modulation folder).
+ */
 function renderProblems(): void {
-  el.badges.problems.textContent = problems.length > 0 ? String(problems.length) : '';
-  if (problems.length === 0) {
+  const doc = state.doc;
+  const orphans = doc ? orphanParamIds(doc.project).filter((id) => !hasOwner(doc, id)) : [];
+  const count = problems.length + orphans.length;
+  el.badges.problems.textContent = count > 0 ? String(count) : '';
+  if (count === 0) {
     el.problems.className = 'muted';
     el.problems.textContent = 'None.';
     return;
   }
   el.problems.className = '';
-  el.problems.replaceChildren(...problems.map((p) => h('div', { textContent: `${p.project}: ${p.message}` })));
+  const rows: HTMLElement[] = problems.map((p) => h('div', { textContent: `${p.project}: ${p.message}` }));
+  if (orphans.length > 0) {
+    const removeAll = h('button', { type: 'button', className: 'btn small', textContent: 'Remove all' });
+    removeAll.addEventListener('click', () => sendPatch(orphans.map((id) => ({ op: 'remove', path: ['project', 'parameters', id] }))));
+    rows.push(h('div', { className: 'problem-row summary' }, `${orphans.length} modulator${orphans.length > 1 ? 's' : ''} of deleted layers`, removeAll));
+    for (const id of orphans) {
+      const remove = h('button', { type: 'button', className: 'btn small ghost', textContent: 'Remove' });
+      remove.addEventListener('click', () => sendPatch([{ op: 'remove', path: ['project', 'parameters', id] }]));
+      rows.push(h('div', { className: 'problem-row muted' }, id, remove));
+    }
+  }
+  el.problems.replaceChildren(...rows);
+}
+
+/** True when a parameter id belongs to the camera or to a layer that still exists. */
+function hasOwner(doc: SyncDoc, id: string): boolean {
+  const t = parseParamId(id);
+  return t?.kind === 'camera' || (t?.kind === 'layer' && doc.project.layers.some((l) => l.id === t.layerId));
 }
 
 function addLog(entry: LogEntry): void {
@@ -376,7 +461,7 @@ function addLog(entry: LogEntry): void {
   el.log.append(line);
   while (el.log.childElementCount > MAX_LOG_LINES) el.log.firstElementChild?.remove();
   if (logFollow) el.log.scrollTop = el.log.scrollHeight;
-  if (entry.level !== 'info' && tabs.active !== 'panel-log') {
+  if (entry.level !== 'info' && !(tabs.active === 'panel-log' && drawer.classList.contains('open'))) {
     unseenLogIssues++;
     el.badges.log.textContent = String(unseenLogIssues);
   }

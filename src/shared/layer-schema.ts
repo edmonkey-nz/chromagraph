@@ -174,6 +174,23 @@ export function defaultLayerEffects(): LayerEffects {
   };
 }
 
+/**
+ * The layer's timeline. Off (`own: false`) the layer's ramps, keyframes and data playhead
+ * follow the project timeline; on, they follow this duration and loop, played by the
+ * layer's own transport (session.layerTransports[layerId]).
+ */
+export const LayerTimelineSchema = z.object({
+  own: z.boolean(),
+  /** Seconds for one full pass of the layer's playhead. */
+  duration: z.number().positive(),
+  loop: z.boolean(),
+});
+export type LayerTimeline = z.infer<typeof LayerTimelineSchema>;
+
+export function defaultLayerTimeline(): LayerTimeline {
+  return { own: false, duration: 600, loop: true };
+}
+
 /** Fields every layer type has. */
 export const LayerBaseSchema = z.object({
   id: z.string().min(1),
@@ -184,6 +201,7 @@ export const LayerBaseSchema = z.object({
   blend: z.enum(BLEND_MODES),
   transform: TransformSchema,
   effects: LayerEffectsSchema,
+  timeline: LayerTimelineSchema,
 });
 export type LayerBase = z.infer<typeof LayerBaseSchema>;
 
@@ -554,13 +572,14 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     blend: 'normal',
     transform: identityTransform(),
     effects: defaultLayerEffects(),
+    timeline: defaultLayerTimeline(),
     cloner: identityCloner(),
     channels: defaultChannels(),
   };
 }
 
 function base(id: string, name: string, datasetId: string | null): LayerBase {
-  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects() };
+  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects(), timeline: defaultLayerTimeline() };
 }
 
 export function blankLineLayer(id: string, name: string, datasetId: string | null): LineLayer {

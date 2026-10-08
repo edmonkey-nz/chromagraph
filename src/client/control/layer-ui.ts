@@ -13,6 +13,8 @@ import {
   type Mapping,
 } from '../../shared/layer-schema.ts';
 import type { Path } from '../../shared/patch.ts';
+import type { ModulationPanel } from './modulation-panel.ts';
+import type { TimelinePanel } from './timeline-panel.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 
 /**
@@ -51,6 +53,11 @@ export interface Entry {
   refreshReadout: (() => void) | null;
   /** Show a new title on the layer's card. */
   retitle(title: string): void;
+  /** The layer's own modulators (its "Modulation" folder). */
+  modulation: ModulationPanel | null;
+  modulationFolder: FolderApi | null;
+  /** The layer's "Timeline" folder: the own-timeline switch and, when on, its controls. */
+  timeline: { panel: TimelinePanel; own: { value: boolean }; ownApi: { refresh(): void }; folder: FolderApi } | null;
 }
 
 /** What a folder builder can do for its layer. */

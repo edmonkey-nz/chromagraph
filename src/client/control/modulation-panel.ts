@@ -8,10 +8,9 @@ import {
   MIN_WINDOW,
   modulatedValue,
   orphanParamIds,
-  paramTitle,
   PLAYHEAD_MODES,
   playheadKind,
-  projectPhase,
+  paramPhase,
   randomSeed,
   removeKeyframe,
   type PlayheadMode,
@@ -32,13 +31,20 @@ import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { ProjectSchema, type SyncDoc } from '../../shared/project-schema.ts';
 
 /**
- * "Modulation" card: add a modulator to any registered parameter,
- * edit or remove it, sweep a layer's rows with the data playhead helper, and clean up
- * modulators whose parameter has gone. Like the layers panel, the GUI holds no
- * authoritative state: every edit is a patch, and the folder is rebuilt from the synced
- * document on structural or remote changes only, so a drag is never interrupted by our
- * own echo.
+ * Modulation for one owner: a layer (the "Modulation" folder in its card) or the camera
+ * (in the Camera card). Add a modulator to one of the owner's parameters, edit or remove
+ * it, sweep a layer's rows with the data playhead helper, and clean up the owner's
+ * modulators whose parameter has gone (modulators of deleted layers are listed under
+ * Problems instead). Like the layers panel, the GUI holds no authoritative state: every
+ * edit is a patch, and the folder is rebuilt from the synced document on structural or
+ * remote changes only, so a drag is never interrupted by our own echo.
  */
+
+export type ModulationScope = { kind: 'layer'; layerId: string } | { kind: 'camera' };
+
+export function scopePrefix(scope: ModulationScope): string {
+  return scope.kind === 'layer' ? `layer.${scope.layerId}.` : 'camera.';
+}
 
 export interface ModulationPanelDeps {
   sendPatch(ops: PatchOp[]): void;
@@ -87,51 +93,67 @@ function shapeKey(m: Modulator): string {
 export class ModulationPanel {
   private root: FolderApi;
   private entries = new Map<string, Entry>();
-  /** Folder expanded state by key, kept across rebuilds. */
-  private expanded = new Map<string, boolean>();
   private folders: { key: string; api: FolderApi }[] = [];
   private builtKey: string | null = null;
   private builtShapes = new Map<string, string>();
-  private builtParams: SyncDoc['project']['parameters'] | null = null;
+  /** The scope's parameters as last built, by id (to spot remote edits of just these). */
+  private builtParams = new Map<string, Parameter>();
   /** Selections in the helper sections, kept across rebuilds. */
   private addModel = { param: '', kind: 'lfo' as ModulatorKind };
-  private playheadModel = { layer: '', mode: 'reveal' as PlayheadMode, width: 0.1 };
+  private playheadModel = { mode: 'reveal' as PlayheadMode, width: 0.1 };
   private quietDepth = 0;
+  private readonly prefix: string;
 
-  /** `root` is the card's own pane: the panel rebuilds all of its children. */
-  constructor(root: FolderApi, private deps: ModulationPanelDeps) {
+  /**
+   * `root` is a folder the panel owns: it rebuilds all of its children. `expanded` keeps
+   * folder states by key; pass a shared map to keep them when the owner's card is rebuilt.
+   */
+  constructor(
+    root: FolderApi,
+    private deps: ModulationPanelDeps,
+    private scope: ModulationScope,
+    private expanded = new Map<string, boolean>(),
+  ) {
     this.root = root;
+    this.prefix = scopePrefix(scope);
+  }
+
+  /** Number of modulators in scope (for the folder title). */
+  get count(): number {
+    return this.builtParams.size;
+  }
+
+  private inScope = (id: string): boolean => id.startsWith(this.prefix);
+
+  private scopedDefs(doc: SyncDoc): ParamDef[] {
+    return parameterDefs(doc.project).filter((d) => this.inScope(d.id));
   }
 
   // ---- reconciling with the synced document ------------------------------------------------
 
   update(doc: SyncDoc, external: boolean): void {
-    const project = doc.project;
-    const defs = parameterDefs(project);
-    const params = project.parameters;
+    const defs = this.scopedDefs(doc);
+    const scoped = Object.entries(doc.project.parameters).filter(([id]) => this.inScope(id));
     const key = [
-      defs.map((d) => `${d.id}\u0001${d.group}\u0001${d.label}`).join('\u0002'),
-      Object.keys(params).sort().join('\u0002'),
-      project.layers.map((l) => `${l.id}\u0001${l.name}`).join('\u0002'),
+      defs.map((d) => `${d.id}\u0001${d.label}`).join('\u0002'),
+      scoped.map(([id]) => id).sort().join('\u0002'),
     ].join('\u0003');
-    const shapesChanged = Object.entries(params).some(([id, p]) => this.builtShapes.get(id) !== shapeKey(p.modulator));
-    if (key !== this.builtKey || shapesChanged || (external && params !== this.builtParams)) {
-      this.rebuild(doc, defs, key);
-    }
-    this.builtParams = params;
+    const shapesChanged = scoped.some(([id, p]) => this.builtShapes.get(id) !== shapeKey(p.modulator));
+    const remoteEdit = external && scoped.some(([id, p]) => this.builtParams.get(id) !== p);
+    if (key !== this.builtKey || shapesChanged || remoteEdit) this.rebuild(doc, defs, key);
+    else this.builtParams = new Map(scoped);
   }
 
   /** Refresh the live value monitors (call about 10 times a second). Sends nothing. */
   tick(nowMs: number): void {
     const doc = this.deps.getDoc();
     if (!doc || this.entries.size === 0) return;
-    const phase = projectPhase(doc.project, doc.session.transport, nowMs);
     this.quiet(() => {
       for (const e of this.entries.values()) {
         const p = doc.project.parameters[e.id];
         if (!p) continue;
         const base = readParam(doc.project, e.id) ?? e.def.min;
-        e.monitor.value = modulatedValue(e.def, p.modulator, base, nowMs, phase);
+        e.monitor.value = modulatedValue(e.def, p.modulator, base, nowMs, paramPhase(doc.project, doc.session, e.id, nowMs));
         e.monitorApi.refresh();
       }
     });
@@ -139,7 +161,7 @@ export class ModulationPanel {
 
   private rebuildFromDoc(): void {
     const doc = this.deps.getDoc();
-    if (doc) this.rebuild(doc, parameterDefs(doc.project), null);
+    if (doc) this.rebuild(doc, this.scopedDefs(doc), null);
   }
 
   private rebuild(doc: SyncDoc, defs: ParamDef[], key: string | null): void {
@@ -149,24 +171,25 @@ export class ModulationPanel {
     this.entries.clear();
     this.builtShapes.clear();
     this.builtKey = key;
-    this.builtParams = doc.project.parameters;
-
     const params = doc.project.parameters;
+    this.builtParams = new Map(Object.entries(params).filter(([id]) => this.inScope(id)));
+
     this.quiet(() => {
-      this.buildAdd(doc, defs);
-      this.buildPlayhead(doc);
       for (const def of defs) {
         const p = params[def.id];
         if (p) this.buildEntry(doc, def, p.modulator);
       }
-      this.buildOrphans(doc, defs);
+      this.buildAdd(doc, defs);
+      this.buildPlayhead(doc);
+      this.buildOrphans(doc);
     });
-    for (const [id, p] of Object.entries(params)) this.builtShapes.set(id, shapeKey(p.modulator));
+    for (const [id, p] of this.builtParams) this.builtShapes.set(id, shapeKey(p.modulator));
   }
 
   private folder(parent: FolderApi, title: string, key: string, def: boolean): FolderApi {
-    const api = parent.addFolder({ title, expanded: this.expanded.get(key) ?? def });
-    this.folders.push({ key, api });
+    const k = `${this.prefix}${key}`;
+    const api = parent.addFolder({ title, expanded: this.expanded.get(k) ?? def });
+    this.folders.push({ key: k, api });
     return api;
   }
 
@@ -228,7 +251,7 @@ export class ModulationPanel {
     if (!def || doc.project.parameters[id]) return;
     const base = readParam(doc.project, id) ?? def.min;
     const value: Parameter = { modulator: defaultModulator(this.addModel.kind, def, base) };
-    this.expanded.set(`mod/${id}`, true);
+    this.expanded.set(`${this.prefix}mod/${id}`, true);
     this.sendChecked([{ op: 'set', path: ['project', 'parameters', id], value }], 'New modulator');
   }
 
@@ -246,19 +269,21 @@ export class ModulationPanel {
 
   private createPlayhead(): void {
     const doc = this.deps.getDoc();
-    if (!doc) return;
-    const { layer, mode, width } = this.playheadModel;
+    if (!doc || this.scope.kind !== 'layer') return;
+    const layer = this.scope.layerId;
+    const { mode, width } = this.playheadModel;
     const ops = dataPlayheadOps(doc.project, layer, mode, width);
     if (!ops) {
       this.deps.showError('Pick a layer for the data playhead.');
       return;
     }
     const target = doc.project.layers.find((l) => l.id === layer);
+    const k = `${this.prefix}mod/layer.${layer}`;
     if (target && playheadKind(target) === 'row') {
-      this.expanded.set(`mod/layer.${layer}.row`, true);
+      this.expanded.set(`${k}.row`, true);
     } else {
-      this.expanded.set(`mod/layer.${layer}.rows.1`, true);
-      if (mode === 'window') this.expanded.set(`mod/layer.${layer}.rows.0`, true);
+      this.expanded.set(`${k}.rows.1`, true);
+      if (mode === 'window') this.expanded.set(`${k}.rows.0`, true);
     }
     this.sendChecked(ops, 'Data playhead');
   }
@@ -266,59 +291,51 @@ export class ModulationPanel {
   // ---- building ---------------------------------------------------------------------------
 
   private buildAdd(doc: SyncDoc, defs: ParamDef[]): void {
-    const f = this.folder(this.root, 'Add modulator', 'add', true);
     const free = defs.filter((d) => !doc.project.parameters[d.id]);
+    const f = this.folder(this.root, 'Add modulator', 'add', this.builtParams.size === 0);
     const m = this.addModel;
     if (free.length === 0) {
       f.addButton({ title: 'Every parameter is modulated', disabled: true });
       return;
     }
     if (!free.some((d) => d.id === m.param)) m.param = free[0]!.id;
-    f.addBinding(m, 'param', { label: 'parameter', options: free.map((d) => ({ text: paramTitle(d), value: d.id })) });
+    f.addBinding(m, 'param', { label: 'parameter', options: free.map((d) => ({ text: d.label, value: d.id })) });
     f.addBinding(m, 'kind', { options: MODULATOR_KINDS.map((k) => ({ text: KIND_TITLES[k], value: k })) });
     f.addButton({ title: 'Add' }).on('click', () => this.addModulator());
   }
 
   /**
-   * Layers with a row range (instancer, line, heat map, small multiples, hierarchy, 3D
-   * surface) get reveal/window sweeps of `rows`; text layers, which show one row, get
-   * "Follow playhead" (a 0 -> 1 ramp on `row`).
+   * The data playhead for this layer. Layers with a row range (instancer, line, heat map,
+   * small multiples, hierarchy, 3D surface) get reveal/window sweeps of `rows`; text
+   * layers, which show one row, get "Follow playhead" (a 0 -> 1 ramp on `row`).
    */
   private buildPlayhead(doc: SyncDoc): void {
+    if (this.scope.kind !== 'layer') return;
+    const layerId = this.scope.layerId;
+    const layer = doc.project.layers.find((l) => l.id === layerId);
+    const kind = layer ? playheadKind(layer) : null;
+    if (!kind) return;
     const f = this.folder(this.root, 'Data playhead', 'playhead', false);
-    const layers = doc.project.layers.filter((l) => playheadKind(l) !== null);
     const m = this.playheadModel;
-    if (layers.length === 0) {
-      f.addButton({ title: 'Add a layer first', disabled: true });
-      return;
+    const follow = kind === 'row';
+    if (!follow) {
+      const mode = f.addBinding(m, 'mode', {
+        options: PLAYHEAD_MODES.map((v) => ({ text: v === 'reveal' ? 'reveal (rows grow)' : 'window (rows slide)', value: v })),
+      });
+      const width = f.addBinding(m, 'width', { label: 'window width', min: MIN_WINDOW, max: 1, step: 0.01 });
+      const show = () => (width.hidden = m.mode !== 'window');
+      mode.on('change', show);
+      show();
     }
-    if (!layers.some((l) => l.id === m.layer)) m.layer = layers[0]!.id;
-    const kindOf = (id: string) => {
-      const l = layers.find((x) => x.id === id);
-      return l ? playheadKind(l) : 'rows';
-    };
-    f.addBinding(m, 'layer', {
-      options: layers.map((l) => ({ text: `${l.name || l.id}${playheadKind(l) === 'row' ? ' (text)' : ''}`, value: l.id })),
-    }).on('change', () => show());
-    const mode = f.addBinding(m, 'mode', {
-      options: PLAYHEAD_MODES.map((v) => ({ text: v === 'reveal' ? 'reveal (rows grow)' : 'window (rows slide)', value: v })),
-    });
-    const width = f.addBinding(m, 'width', { label: 'window width', min: MIN_WINDOW, max: 1, step: 0.01 });
-    mode.on('change', () => show());
-    const create = f.addButton({ title: 'Create' });
+    const create = f.addButton({ title: follow ? 'Follow playhead' : 'Create' });
+    create.element.title = follow
+      ? 'Ramp the text layer’s row 0 → 1 over the timeline, so it shows the row under the playhead'
+      : 'Sweep this layer’s rows over the timeline';
     create.on('click', () => this.createPlayhead());
-    const show = () => {
-      const follow = kindOf(m.layer) === 'row';
-      mode.hidden = follow;
-      width.hidden = follow || m.mode !== 'window';
-      create.title = follow ? 'Follow playhead' : 'Create';
-      create.element.title = follow ? 'Ramp the text layer’s row 0 → 1 over the timeline, so it shows the row under the playhead' : '';
-    };
-    show();
   }
 
   private titleOf(def: ParamDef, m: Modulator): string {
-    return `${paramTitle(def)} (${KIND_TITLES[m.kind]}${m.enabled ? '' : ', off'})`;
+    return `${def.label} (${KIND_TITLES[m.kind]}${m.enabled ? '' : ', off'})`;
   }
 
   private buildEntry(doc: SyncDoc, def: ParamDef, mod: Modulator): void {
@@ -399,8 +416,9 @@ export class ModulationPanel {
     folder.addButton({ title: 'Remove modulator' }).on('click', () => this.removeModulator(id));
   }
 
-  private buildOrphans(doc: SyncDoc, defs: ParamDef[]): void {
-    const orphans = orphanParamIds(doc.project, defs);
+  /** This owner's modulators whose parameter has gone (e.g. a channel that was unmapped). */
+  private buildOrphans(doc: SyncDoc): void {
+    const orphans = orphanParamIds(doc.project).filter(this.inScope);
     if (orphans.length === 0) return;
     // The folder title is the note; each label says why its parameter is gone.
     const f = this.folder(this.root, `Orphaned (${orphans.length})`, 'orphans', true);

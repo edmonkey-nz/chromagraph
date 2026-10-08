@@ -95,14 +95,20 @@ the NVIDIA GPU.
 - **Mappings:** any column to position, size, colour, opacity or rotation, through
   linear, log, sqrt or quantise scales and colour ramps.
 - **Animation:** LFO, noise, ramp or keyframe modulators on almost any number, on a looping
-  timeline of up to 24 h. The data playhead reveals the record over time.
+  timeline of up to 24 h. Each layer card has its own **Modulation** folder (with the data
+  playhead, which reveals the record over time); the camera's is in the Camera card.
+- **Per-layer timelines:** in a layer card's **Timeline** folder, tick **own timeline** to
+  give that layer its own duration, loop, play/pause and scrub. The project Timeline
+  card's Play/Pause and Restart still drive every layer.
+- **Data, outputs and diagnostics:** in the drawer along the bottom of the control window.
+  Click a tab to open it, and click it again to close it.
 - **Scenes:** capture looks, then morph between them (0.1–10 s).
 - **Effects:** glow and motion trails, set per layer in each layer card's **Glow** and
   **Trails** folders. Layers with the same settings cost nothing extra; each layer with
   its own trails costs about one more draw of that layer.
 - **Camera moves:** in the Camera card under Motion, pick a preset (orbit, swing, zoom, pan,
   tilt, drift, fly-around) and set its speed. Presets are camera modulators, so you can
-  fine-tune them in the Modulation card.
+  fine-tune them in the Camera card's Modulation folder.
 - **Editing:** a 3D camera; the move/rotate/scale gizmo and orbit in the preview (tick
   **Edit**); four-corner keystone with a test pattern.
 

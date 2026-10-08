@@ -11,7 +11,7 @@ import {
 import { clampParam, layerParamPrefix, paramPatchPath, parameterDefs, readParam, type ParamDef } from './parameters.ts';
 import type { PatchOp } from './patch.ts';
 import type { LayerConfig } from './layer-schema.ts';
-import type { Project } from './project-schema.ts';
+import type { Project, Session } from './project-schema.ts';
 
 /**
  * Pure helpers for the control window's timeline and modulation panels: sensible defaults,
@@ -99,6 +99,40 @@ export function defaultModulator(kind: ModulatorKind, def: Pick<ParamDef, 'min' 
 /** Timeline phase of a project at wall time `nowMs`. */
 export function projectPhase(project: Pick<Project, 'timeline'>, transport: Transport, nowMs: number): number {
   return timelinePhase(transport, project.timeline.duration, project.timeline.loop, nowMs);
+}
+
+/**
+ * The transport that plays a layer's own timeline. A layer switched to its own timeline
+ * without one yet (e.g. by going to a scene) plays with the project's transport.
+ */
+export function layerTransport(session: Pick<Session, 'transport' | 'layerTransports'>, layerId: string): Transport {
+  return session.layerTransports[layerId] ?? session.transport;
+}
+
+/**
+ * The timeline phase that drives a layer's ramps, keyframes and data playhead: its own
+ * timeline's, or the project's when it has none (or the layer is unknown).
+ */
+export function layerPhase(
+  project: Pick<Project, 'timeline' | 'layers'>,
+  session: Pick<Session, 'transport' | 'layerTransports'>,
+  layerId: string,
+  nowMs: number,
+): number {
+  const layer = project.layers.find((l) => l.id === layerId);
+  if (!layer?.timeline.own) return projectPhase(project, session.transport, nowMs);
+  return timelinePhase(layerTransport(session, layerId), layer.timeline.duration, layer.timeline.loop, nowMs);
+}
+
+/** The phase a parameter's modulators run on: its layer's own timeline, or the project's. */
+export function paramPhase(
+  project: Pick<Project, 'timeline' | 'layers'>,
+  session: Pick<Session, 'transport' | 'layerTransports'>,
+  paramId: string,
+  nowMs: number,
+): number {
+  const m = /^layer\.([^.]+)\./.exec(paramId);
+  return m ? layerPhase(project, session, m[1]!, nowMs) : projectPhase(project, session.transport, nowMs);
 }
 
 /**

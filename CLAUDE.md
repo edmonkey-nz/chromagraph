@@ -310,6 +310,18 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   output, the preview and the control window agree, and avoids drift over hours.
 - **Transport.** `session.transport` drives the timeline. The server persists it in
   `server-state.json`, so a restart keeps the playhead where it was.
+- **Per-layer timelines.** `layer.timeline = { own, duration, loop }` (schema v8). With
+  `own` on, the layer's ramps, keyframes and data playhead run on its own timeline, played
+  by `session.layerTransports[layerId]`. Without a transport yet, it falls back to the
+  project's.
+  - `layerPhase` / `paramPhase` in `shared/modulation-helpers.ts` pick the phase. The
+    output's `ModulationEngine` computes one phase per owner each frame.
+  - Control: each layer card has a "Timeline" folder. `TimelinePanel` drives either the
+    project timeline or a layer's, through a `TimelineTarget`. `ownTimelineOps` switches a
+    layer on at the project's current position, so nothing jumps.
+  - The project transport's Play/Pause and Restart also drive every own timeline; scrubbing
+    it does not.
+  - Scene morphs switch `timeline` straight to the target's (no lerp).
 - **Output.** `ModulationEngine` (`client/output/modulation.ts`) builds its setters on
   deep-copied scratch configs whenever the project changes. Each frame it only writes
   numbers and calls `LayerManager.applyEffective`. When modulators are removed,
@@ -341,15 +353,26 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 - Dev mode unregisters any leftover service worker.
 
 **Control window layout.**
-- `client/control/index.html` and `main.ts` lay the window out as: a header (project
-  switcher, Save, Save As, Snapshots, the save indicator), then a top band with the
-  preview top left and data tabs to its right (`tabs.ts`: Datasets, Output windows,
-  Calibration, Diagnostics, Problems, Log). Diagnostics holds the test-pattern and
-  debug-overlay switches (session state).
-- Below that are cards in columns. Each card has its own Tweakpane pane, themed through
-  `--tp-*` CSS variables. Shared card helpers are in `ui.ts`.
-- The cards are Show (Scenes, Timeline, Modulation), Look (Output background, Camera) and
-  Layers (double width, one card per layer).
+- `client/control/index.html` and `main.ts` lay the window out as a header (project
+  switcher, Save, Save As, Snapshots, the save indicator, the output buttons), the
+  workspace, and a drawer along the bottom.
+- **Workspace.** Cards in columns, each with its own Tweakpane pane themed through `--tp-*`
+  CSS variables. Shared card helpers are in `ui.ts`.
+  - Show: Scenes, Timeline.
+  - Look: the live preview, Output (background), Camera (with its own Modulation folder).
+    In edit mode the preview spans both left columns.
+  - Layers: full height, one card per layer, two columns when wide.
+  - Body rows are placed explicitly, because the banner bar is `display: none` when empty.
+- **Modulation is per owner.** `ModulationPanel` takes a scope (`{kind:'layer', layerId}` or
+  camera) and shows only that owner's modulators, an "Add modulator" for its parameters, the
+  data playhead (layers) and its own orphans. `LayersPanel` puts one in each card's last
+  folder, keeping its folder states across card rebuilds. Modulators of deleted layers are
+  listed, with Remove buttons, under Problems.
+- **Drawer** (`tabs.ts`: Datasets, Output windows, Calibration, Diagnostics, Problems, Log).
+  Closed, it is just the tab strip with badges. A tab opens it upwards; clicking the shown
+  tab or the chevron closes it. Its top edge drags to resize. Open state and height are
+  kept in localStorage. Diagnostics holds the test-pattern and debug-overlay switches
+  (session state).
 - **Save state.** The save indicator (`shared/save-status.ts`) counts patches in flight
   until their echo arrives and the next `saved` message.
 

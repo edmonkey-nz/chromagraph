@@ -13,10 +13,17 @@ export class Tabs {
     tablist: HTMLElement,
     private storeKey: string,
     private onShow: (panelId: string) => void = () => {},
+    /** A tab was clicked; `wasActive` when it was already the shown one (the drawer closes then). */
+    private onClick: (panelId: string, wasActive: boolean) => void = () => {},
   ) {
     this.tabs = [...tablist.querySelectorAll<HTMLButtonElement>('[role=tab]')];
     for (const tab of this.tabs) {
-      tab.addEventListener('click', () => this.show(this.panelOf(tab)));
+      tab.addEventListener('click', () => {
+        const panel = this.panelOf(tab);
+        const wasActive = panel === this.current;
+        this.show(panel);
+        this.onClick(panel, wasActive);
+      });
       tab.addEventListener('keydown', (ev) => this.onKey(ev, tab));
     }
     const stored = loadSetting(storeKey);

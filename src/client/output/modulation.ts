@@ -18,6 +18,10 @@ interface Owner {
   layerId: string | null;
   scratch: LayerConfig | Camera | Project['output'];
   dirty: boolean;
+  /** A layer with its own timeline: its duration and loop (its transport is read per frame). */
+  timeline: { duration: number; loop: boolean } | null;
+  /** Timeline phase for this owner's bindings, set at the start of each frame. */
+  phase: number;
 }
 
 export interface ModulationTargets {
@@ -45,7 +49,7 @@ export class ModulationEngine {
 
   constructor(private targets: ModulationTargets) {}
 
-  /** Timeline phase computed on the last frame (0..1). */
+  /** The project timeline's phase on the last frame (0..1; layers with their own timeline differ). */
   get phase(): number {
     return this._phase;
   }
@@ -94,11 +98,14 @@ export class ModulationEngine {
               : project.layers.find((l) => l.id === target.layerId);
         if (!source) continue;
         index = owners.length;
+        const own = target.kind === 'layer' && 'timeline' in source && source.timeline.own ? source.timeline : null;
         owners.push({
           kind: target.kind,
           layerId: target.kind === 'layer' ? target.layerId : null,
           scratch: structuredClone(source) as Owner['scratch'],
           dirty: false,
+          timeline: own ? { duration: own.duration, loop: own.loop } : null,
+          phase: 0,
         });
         ownerIndex.set(key, index);
       }
@@ -122,10 +129,17 @@ export class ModulationEngine {
     this._phase = timelinePhase(doc.session.transport, timeline.duration, timeline.loop, nowMs);
     if (this.bindings.length === 0) return;
 
+    // Layers with their own timeline run on their own transport (no allocation: a lookup each).
+    for (let i = 0; i < this.owners.length; i++) {
+      const o = this.owners[i]!;
+      const t = o.timeline;
+      o.phase = t ? timelinePhase(doc.session.layerTransports[o.layerId!] ?? doc.session.transport, t.duration, t.loop, nowMs) : this._phase;
+    }
     for (let i = 0; i < this.bindings.length; i++) {
       const b = this.bindings[i]!;
-      b.write(clampParam(b.def, evaluate(b.modulator, b.base, nowMs, this._phase)));
-      this.owners[b.owner]!.dirty = true;
+      const owner = this.owners[b.owner]!;
+      b.write(clampParam(b.def, evaluate(b.modulator, b.base, nowMs, owner.phase)));
+      owner.dirty = true;
     }
     for (let i = 0; i < this.owners.length; i++) {
       const o = this.owners[i]!;

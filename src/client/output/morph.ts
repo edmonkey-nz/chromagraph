@@ -340,7 +340,7 @@ export class MorphEngine {
   }
 
   private lerpPlan(from: LayerConfig, target: LayerConfig): LerpPlan<LayerConfig> {
-    return buildLerpPlan(from, target, target.type === 'instancer' ? { targetOnly: INSTANCER_LAYOUT_KEYS } : {});
+    return buildLerpPlan(from, target, { targetOnly: target.type === 'instancer' ? INSTANCER_WITH_TIMELINE : TIMELINE_ONLY });
   }
 
   // ---- per frame -------------------------------------------------------------------
@@ -464,6 +464,13 @@ export class MorphEngine {
     }
   }
 }
+
+/**
+ * A layer's timeline switches straight to the target's: a duration lerping mid-morph would
+ * whip its playhead back and forth.
+ */
+const TIMELINE_ONLY: ReadonlySet<string> = new Set(['timeline']);
+const INSTANCER_WITH_TIMELINE: ReadonlySet<string> = new Set([...INSTANCER_LAYOUT_KEYS, 'timeline']);
 
 function copyCamera(src: Camera, out: Camera): void {
   out.mode = src.mode;

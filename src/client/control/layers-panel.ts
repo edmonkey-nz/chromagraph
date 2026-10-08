@@ -3,6 +3,7 @@ import { defaultLayerOfType, fitAnyLayer, type DatasetSummary } from '../../shar
 import { datasetSwitchChanges, diffChanges, instanceCount, LAYER_TYPE_TITLES, type LayerChange } from '../../shared/layer-helpers.ts';
 import { LAYER_TYPES, LayerSchema, type LayerConfig, type LayerType } from '../../shared/layer-schema.ts';
 import { layerParamCopyOps, layerParamRemovalOps } from '../../shared/modulation-helpers.ts';
+import { wallMs } from '../../shared/modulators.ts';
 import { layerParamPrefix } from '../../shared/parameters.ts';
 import { applyOps, type Path, type PatchOp } from '../../shared/patch.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
@@ -10,6 +11,8 @@ import { buildHeatmap } from './heatmap-folders.ts';
 import { buildHierarchy } from './hierarchy-folders.ts';
 import { buildInstancer } from './instancer-folders.ts';
 import type { Entry, Labelled, LayerUi } from './layer-ui.ts';
+import { ModulationPanel } from './modulation-panel.ts';
+import { layerTimeline, ownTimelineOps, TimelinePanel } from './timeline-panel.ts';
 import { buildLine } from './line-folders.ts';
 import { buildMultiples } from './multiples-folders.ts';
 import { buildSurface } from './surface-folders.ts';
@@ -97,6 +100,8 @@ export class LayersPanel {
   private order: string[] = [];
   private datasets: readonly Dataset[] | null = null;
   private expanded = new Map<string, boolean>();
+  /** Expanded state inside the layers' Modulation folders (keys start with the parameter prefix). */
+  private modulationExpanded = new Map<string, boolean>();
   /** Non-zero while the panel itself writes into bindings; change events are ignored then. */
   private quietDepth = 0;
   /** The modulators the field labels were last marked from. */
@@ -221,7 +226,38 @@ export class LayersPanel {
       this.parameters = doc.project.parameters;
       for (const entry of this.entries.values()) this.applyMarks(entry, doc);
     }
-    for (const entry of this.entries.values()) entry.refreshReadout?.();
+    for (const entry of this.entries.values()) {
+      entry.refreshReadout?.();
+      this.updateTimeline(entry, doc);
+      this.updateModulation(entry, doc, external);
+    }
+  }
+
+  private updateTimeline(entry: Entry, doc: SyncDoc): void {
+    const t = entry.timeline;
+    if (!t) return;
+    t.panel.update(doc);
+    const own = entry.layer.timeline.own;
+    t.folder.title = own ? 'Timeline (own)' : 'Timeline';
+    if (t.own.value !== own) {
+      t.own.value = own;
+      this.quiet(() => t.ownApi.refresh());
+    }
+  }
+
+  /** Refresh the live values in the layers' Modulation folders (about 10 times a second). */
+  tick(nowMs: number): void {
+    for (const entry of this.entries.values()) {
+      if (entry.modulationFolder?.expanded) entry.modulation?.tick(nowMs);
+      if (entry.timeline?.folder.expanded) entry.timeline.panel.tick(nowMs);
+    }
+  }
+
+  private updateModulation(entry: Entry, doc: SyncDoc, external: boolean): void {
+    const m = entry.modulation;
+    if (!m || !entry.modulationFolder) return;
+    m.update(doc, external);
+    entry.modulationFolder.title = m.count > 0 ? `Modulation (${m.count})` : 'Modulation';
   }
 
   /** Label each modulatable field " ~" when any of its parameters has a modulator. */
@@ -396,8 +432,10 @@ export class LayersPanel {
     const ops: PatchOp[] = [];
     for (let k = layers.length; k > cur.index + 1; k--) ops.push({ op: 'set', path: ['project', 'layers', k], value: layers[k - 1] });
     ops.push({ op: 'set', path: ['project', 'layers', cur.index + 1], value: copy });
-    // The copy gets the original's modulators too, in the same patch.
+    // The copy gets the original's modulators (and own-timeline transport) too, in the same patch.
     ops.push(...layerParamCopyOps(cur.doc.project.parameters, id, newId));
+    const transport = cur.doc.session.layerTransports[id];
+    if (transport) ops.push({ op: 'set', path: ['session', 'layerTransports', newId], value: transport });
     for (const f of this.entries.get(id)?.folders ?? []) this.expanded.set(`${newId}${f.key.slice(id.length)}`, f.api.expanded);
     this.expanded.set(`${newId}/`, !(this.cards.get(id)?.collapsed ?? true));
     this.deps.sendPatch(ops);
@@ -411,7 +449,9 @@ export class LayersPanel {
     const now = this.currentIndex(id);
     // Its modulators go in the same patch, so none are left orphaned.
     if (now) {
-      this.deps.sendPatch([{ op: 'remove', path: ['project', 'layers', now.index] }, ...layerParamRemovalOps(now.doc.project.parameters, id)]);
+      const ops: PatchOp[] = [{ op: 'remove', path: ['project', 'layers', now.index] }, ...layerParamRemovalOps(now.doc.project.parameters, id)];
+      if (now.doc.session.layerTransports[id]) ops.push({ op: 'remove', path: ['session', 'layerTransports', id] });
+      this.deps.sendPatch(ops);
     }
   }
 
@@ -493,6 +533,9 @@ export class LayersPanel {
         card.setTitle(title);
         card.root.classList.toggle('off', title.endsWith('(off)'));
       },
+      modulation: null,
+      modulationFolder: null,
+      timeline: null,
     };
     this.entries.set(id, entry);
     this.cards.set(id, card);
@@ -543,6 +586,28 @@ export class LayersPanel {
       }
     });
     this.applyMarks(entry, doc);
+    // Last in the card: the layer's timeline, then its own modulators and data playhead.
+    const timelineFolder = this.folderIn(entry, pane, 'Timeline', `${id}/timeline`, false);
+    const own = { value: layer.timeline.own };
+    const ownApi = timelineFolder.addBinding(own, 'value', { label: 'own timeline' }).on('change', (ev) => {
+      if (this.quietDepth > 0) return;
+      const doc = this.deps.getDoc();
+      if (doc) this.deps.sendPatch(ownTimelineOps(doc, id, ev.value, wallMs()));
+    });
+    ownApi.element.title = 'Off: this layer’s ramps, keyframes and data playhead follow the project timeline. On: its own duration, loop and transport.';
+    const timelinePanel = new TimelinePanel(timelineFolder, { sendPatch: this.deps.sendPatch, getDoc: this.deps.getDoc }, layerTimeline(id));
+    entry.timeline = { panel: timelinePanel, own, ownApi, folder: timelineFolder };
+    this.updateTimeline(entry, doc);
+
+    const folder = this.folderIn(entry, pane, 'Modulation', `${id}/modulation`, false);
+    entry.modulationFolder = folder;
+    entry.modulation = new ModulationPanel(
+      folder,
+      { sendPatch: this.deps.sendPatch, getDoc: this.deps.getDoc, showError: this.deps.showError },
+      { kind: 'layer', layerId: id },
+      this.modulationExpanded,
+    );
+    this.updateModulation(entry, doc, true);
     return card;
   }
 }
