@@ -5,7 +5,14 @@ import { detectCadence } from '../../src/data/gaps.ts';
 import { LayerDataError } from '../../src/data/instance-data.ts';
 import {
   buildLineData,
+  cloneDataRow,
+  cloneLinePositions,
+  clonePointDrawable,
+  cloneSegmentVisible,
+  fillBaseline,
   firstPointAtOrAfter,
+  lineCloneCount,
+  MAX_LINE_DRAWN,
   lineStructureKey,
   linePositions,
   lineTStart,
@@ -14,6 +21,7 @@ import {
   P_T,
   rowRange,
   segmentBroken,
+  segmentRange,
   segmentVisible,
   type LineData,
 } from '../../src/data/line-data.ts';
@@ -161,5 +169,101 @@ describe('lineStructureKey', () => {
     expect(lineStructureKey({ ...a, rows: [0.2, 0.4], width: 9, breakOnGaps: false, gapFactor: 3, colour: '#ff0000' })).toBe(lineStructureKey(a));
     expect(lineStructureKey(withY(a, RAIN))).not.toBe(lineStructureKey(a));
     expect(lineStructureKey({ ...a, xMode: 'time', timeColumn: TIME })).not.toBe(lineStructureKey(a));
+  });
+});
+
+describe('segmentRange', () => {
+  it('covers exactly the segments with both ends in the rows range', () => {
+    const d = buildLineData(withY(layer(), DEFICIT), table, cadences);
+    const [first, last] = rowRange([0.3, 0.7], d.rowCount);
+    const [start, count] = segmentRange(d, first, last);
+    for (let i = start - 2; i < start + count + 2; i++) {
+      const inRange = i >= start && i < start + count;
+      expect(segmentVisible(d, i, first, last, false, 1.5)).toBe(inRange);
+    }
+    expect(segmentRange(d, 10, 5)).toEqual([0, 0]);
+  });
+});
+
+describe('line cloner', () => {
+  const rain = table.columns.find((c) => c.name === RAIN) as { values: Float32Array };
+
+  it('steps data rows by k x dataStep and drops rows outside the data', () => {
+    expect(cloneDataRow(10, 3, 365, 42_748)).toBe(1105);
+    expect(cloneDataRow(10, 0, 365, 42_748)).toBe(10);
+    expect(cloneDataRow(42_700, 1, 365, 42_748)).toBe(-1);
+    expect(cloneDataRow(10, 1, -365, 42_748)).toBe(-1);
+  });
+
+  it('breaks a clone where its stepped row is missing', () => {
+    const d = buildLineData(withY(layer(), DEFICIT), table, cadences);
+    const deficit = table.columns.find((c) => c.name === DEFICIT) as { values: Float32Array };
+    // Find a point whose row is valid but whose next row is missing.
+    let p = -1;
+    for (let i = 0; i < d.count - 1; i++) {
+      const r = d.points[i * POINT_STRIDE + P_ROW]!;
+      if (r + 1 < d.rowCount && Number.isNaN(deficit.values[r + 1]!)) {
+        p = i;
+        break;
+      }
+    }
+    expect(p).toBeGreaterThanOrEqual(0);
+    expect(clonePointDrawable(d, p, 0, 1)).toBe(true);
+    expect(clonePointDrawable(d, p, 1, 1)).toBe(false);
+    // Joining across gaps, the segment starting there is drawn by the original but clone 1
+    // breaks: a clone's missing value always breaks it.
+    const [first, last] = rowRange([0, 1], d.rowCount);
+    expect(cloneSegmentVisible(d, p, 0, 1, first, last, false, 1.5)).toBe(true);
+    expect(cloneSegmentVisible(d, p, 1, 1, first, last, false, 1.5)).toBe(false);
+    // Stepping past the end breaks the far clones of the last points.
+    expect(clonePointDrawable(d, d.count - 1, 1, 365)).toBe(false);
+  });
+
+  it('keeps positions from row i and takes values from row i + k x dataStep', () => {
+    const l = withY(layer({ origin: [10, 100, 0], step: [2, 0, 0] }), RAIN);
+    l.y = { ...l.y, domain: [0, 1000], range: [0, 1000] };
+    l.cloner = { ...l.cloner, count: 3, position: [0, 14, 0], dataStep: 365 };
+    const d = buildLineData(l, table, cadences);
+    const k2 = cloneLinePositions(d, l, 2);
+    const i = 100;
+    expect(k2[i * 3]).toBe(10 + 2 * i);
+    expect(k2[i * 3 + 1]).toBeCloseTo(100 + 2 * 14 + rain.values[i + 730]!, 3);
+    // The original is the plain line.
+    const k0 = cloneLinePositions(d, l, 0);
+    expect(Array.from(k0)).toEqual(Array.from(linePositions(d, l)));
+    // Points whose stepped row is past the data have no position.
+    expect(Number.isNaN(k2[(d.count - 1) * 3 + 1]!)).toBe(true);
+  });
+
+  it('caps segments x pieces x clones at MAX_LINE_DRAWN', () => {
+    expect(lineCloneCount(40, 364 * 2)).toBe(40);
+    expect(lineCloneCount(1000, 42_747 * 2)).toBe(Math.floor(MAX_LINE_DRAWN / (42_747 * 2)));
+    expect(lineCloneCount(1000, 42_747 * 2) * 42_747 * 2).toBeLessThanOrEqual(MAX_LINE_DRAWN);
+    expect(lineCloneCount(5, 0)).toBe(5);
+    expect(lineCloneCount(1, MAX_LINE_DRAWN * 2)).toBe(1);
+  });
+
+  it('structure key ignores cloner and fill', () => {
+    const a = withY(layer(), RAIN);
+    const b = { ...a, cloner: { ...a.cloner, count: 40, dataStep: 365 }, fill: { mode: 'below' as const, colour: '#123456', opacity: 0.5 } };
+    expect(lineStructureKey(b)).toBe(lineStructureKey(a));
+  });
+});
+
+describe('line fill', () => {
+  it('drops to the clone baseline: origin.y plus the clone offset', () => {
+    const l = layer({ origin: [0, 200, 0] });
+    l.cloner = { ...l.cloner, position: [5, 14, 0] };
+    expect(fillBaseline(l, 0)).toBe(200);
+    expect(fillBaseline(l, 3)).toBe(242);
+  });
+
+  it('breaks at gaps with the line (fill pieces share the segment rule)', () => {
+    const timeLine = buildLineData(withY(layer({ xMode: 'time', timeColumn: TIME }), RAIN), table, cadences);
+    const big = segmentEndingAt(timeLine, rowOf('1996-06-02T21:00:00Z'));
+    const [first, last] = rowRange([0, 1], timeLine.rowCount);
+    expect(cloneSegmentVisible(timeLine, big, 0, 0, first, last, true, 1.5)).toBe(false);
+    expect(cloneSegmentVisible(timeLine, big, 0, 0, first, last, false, 1.5)).toBe(true);
+    expect(cloneSegmentVisible(timeLine, big - 1, 0, 0, first, last, true, 1.5)).toBe(true);
   });
 });
