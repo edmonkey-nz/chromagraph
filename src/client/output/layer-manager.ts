@@ -2,6 +2,7 @@ import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
 import { multiplesStructureKey } from '../../data/multiples-data.ts';
+import { surfaceStructureKey } from '../../data/surface-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
@@ -10,6 +11,7 @@ import { createInstancer } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
 import { createLine } from './layers/line.ts';
 import { createMultiples } from './layers/multiples.ts';
+import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
 
@@ -70,7 +72,11 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     create: (layer, data, mode) => createMultiples(layer, required(data), mode),
   },
   hierarchy: notBuiltYet('hierarchy'),
-  surface: notBuiltYet('3D surface'),
+  surface: {
+    structureKey: (layer, timeZone) => surfaceStructureKey(layer, timeZone),
+    needsData: true,
+    create: (layer, data, mode) => createSurface(layer, required(data), mode),
+  },
 };
 
 function notBuiltYet<L extends LayerConfig>(what: string): LayerKind<L> {
