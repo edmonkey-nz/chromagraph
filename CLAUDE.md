@@ -157,10 +157,11 @@ mappable to MIDI/OSC.
 
 ## Build phases
 
-Status: phases 1–6 are done. That covers instancer, line, heat map and text layers,
-the cloner, layer transforms with gizmo editing in the preview, modulators and the
-timeline, and the keystone. Phase 7 is next. Nothing has been checked on the target
-GTX 1650 yet.
+Status: phases 1–7 are done. All seven layer types work: instancer, line, heat map, text,
+small multiples, hierarchy and 3D surface. Instancers and lines have cloners; lines have
+area fill for ridgelines. Layers have transforms with gizmo editing; modulators and the
+timeline work; the keystone works. Nothing has been checked on the target GTX 1650 yet.
+`FUTURE.md` lists what the user wants next.
 
 1. Server, project folders, two windows, state sync, reconnect behaviour.
 2. Data layer with tests against the rainfall fixture.
@@ -270,6 +271,26 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
 - `/output/?preview` is the control window's embedded preview. It connects with role
   `preview`, renders at half resolution, and never reports status or logs, nor writes
   the output's state cache.
+
+**Layer types beyond the instancer (phases 6–7).** Each type has:
+- a renderer in `client/output/layers/<type>.ts`,
+- pure data prep with tests in `src/data/<type>-data.ts`,
+- an entry in `LayerManager`'s `KINDS` registry (structure key, `needsData`, `create`),
+- control folders in `client/control/<type>-folders.ts`,
+- defaults and fit in `shared/layer-defaults.ts`.
+
+Notes by type:
+- **Heat map, small multiples and surface** keep values in data textures, so most edits
+  are uniform updates.
+- **Hierarchy** groups rows and runs the d3-hierarchy layout in
+  `data/hierarchy.worker.ts`. The worker caches the grouped tree, so a layout or size
+  change only re-lays out. The last layout keeps drawing until the next one arrives.
+- **Text** uses troika-three-text; its template syntax is in `shared/text-template.ts`.
+- **Lines** are screen-space quads. The line cloner draws far to near, with a fill, so
+  nearer ridges hide farther ones.
+
+Gap: layers can only report problems by throwing (which flags the layer). Non-fatal notes,
+such as the hierarchy label cap or ungrouped rows, only reach the browser console.
 
 **Parameters and modulation (phase 4).**
 - `shared/parameters.ts` is the registry. It lists every modulatable number with its id
