@@ -67,7 +67,6 @@ const CHART_CODE = { bars: 0, dots: 1, cells: 2 } as const;
  * The schema has no quantise step count for small multiples (a contract gap), so quantise
  * uses the same default the other layer types start with.
  */
-const QUANTISE_STEPS = 5;
 /** Labels beyond this many panels are not drawn (troika meshes are not free). */
 const MAX_LABELS = 1500;
 /** Labels are laid out at this size and scaled, so label size changes never re-layout. */
@@ -400,7 +399,7 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
       domainLo = lo;
       domainHi = hi;
       const domain = multiplesDomain(next.scale, next.domain, d);
-      (markUniforms.uScale!.value as Vector4).set(domain[0], domain[1], SCALE_CODE[next.scale], QUANTISE_STEPS);
+      (markUniforms.uScale!.value as Vector4).set(domain[0], domain[1], SCALE_CODE[next.scale], next.steps);
     }
     markUniforms.uPerPanel!.value = next.domainMode === 'per-panel' ? 1 : 0;
     markUniforms.uColourByValue!.value = next.colourByValue ? 1 : 0;

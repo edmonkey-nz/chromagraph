@@ -358,6 +358,8 @@ export const SmallMultiplesLayerSchema = LayerBaseSchema.extend({
   domainMode: z.enum(['shared', 'per-panel']),
   scale: z.enum(SCALE_TYPES),
   domain: vec2.nullable(),
+  /** Quantise step count (2..64), used only when scale is 'quantise'. */
+  steps: z.number().int().min(2).max(64).default(5),
   colour: hexColour,
   /** Colour by value along a ramp (otherwise `colour`). */
   colourByValue: z.boolean(),
@@ -412,6 +414,8 @@ export const HierarchyLayerSchema = LayerBaseSchema.extend({
   colour: hexColour,
   scale: z.enum(SCALE_TYPES),
   domain: vec2.nullable(),
+  /** Quantise step count (2..64), used only when scale is 'quantise'. */
+  steps: z.number().int().min(2).max(64).default(5),
   ramp: z.enum(COLOUR_RAMPS),
   reverse: z.boolean(),
   linkWidth: z.number().min(0).max(20),
@@ -446,6 +450,8 @@ export const SurfaceLayerSchema = LayerBaseSchema.extend({
   height: vec2,
   scale: z.enum(SCALE_TYPES),
   domain: vec2.nullable(),
+  /** Quantise step count (2..64), used only when scale is 'quantise'. */
+  steps: z.number().int().min(2).max(64).default(5),
   ramp: z.enum(COLOUR_RAMPS),
   reverse: z.boolean(),
   /** Shade with a fixed light (needs normals); off draws flat ramp colours. */
@@ -608,6 +614,7 @@ export function blankMultiplesLayer(id: string, name: string, datasetId: string 
     domainMode: 'shared',
     scale: 'linear',
     domain: null,
+    steps: 5,
     colour: '#e8e8e8',
     colourByValue: false,
     ramp: 'viridis',
@@ -636,6 +643,7 @@ export function blankHierarchyLayer(id: string, name: string, datasetId: string 
     colour: '#e8e8e8',
     scale: 'sqrt',
     domain: null,
+    steps: 5,
     ramp: 'viridis',
     reverse: false,
     linkWidth: 2,
@@ -663,6 +671,7 @@ export function blankSurfaceLayer(id: string, name: string, datasetId: string | 
     height: [0, 200],
     scale: 'linear',
     domain: null,
+    steps: 5,
     ramp: 'viridis',
     reverse: false,
     lit: true,

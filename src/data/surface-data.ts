@@ -20,6 +20,7 @@ import { MISSING_TEST, normalise } from './instance-data.ts';
  * The surface schema has no quantise step count (a contract gap), so quantise uses the same
  * default the other layer types start with.
  */
+/** Default quantise step count (the layer's `steps` overrides it). */
 export const SURFACE_QUANTISE_STEPS = 5;
 
 /** Fields whose change needs a new cell source (everything else is a uniform update or a refill). */
@@ -72,8 +73,14 @@ export function isHole(
 }
 
 /** Height (px along +z) of a cell value; mirrors the shader (clamped scale maths). */
-export function surfaceHeight(v: number, domain: readonly [number, number], scale: ScaleType, height: readonly [number, number]): number {
-  const n = normalise(v, [domain[0], domain[1]], scale, SURFACE_QUANTISE_STEPS, true);
+export function surfaceHeight(
+  v: number,
+  domain: readonly [number, number],
+  scale: ScaleType,
+  height: readonly [number, number],
+  steps: number = SURFACE_QUANTISE_STEPS,
+): number {
+  const n = normalise(v, [domain[0], domain[1]], scale, steps, true);
   return height[0] + (height[1] - height[0]) * n;
 }
 

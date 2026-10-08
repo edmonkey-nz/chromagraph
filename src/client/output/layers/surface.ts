@@ -21,7 +21,7 @@ import type { CalendarFields } from '../../../data/calendar.ts';
 import type { Table } from '../../../data/columns.ts';
 import { cellScratch, emptyStats, fillCells, heatmapDomain, textureShape, type Aggregate } from '../../../data/heatmap-data.ts';
 import { rowRange } from '../../../data/line-data.ts';
-import { prepareSurface, SURFACE_QUANTISE_STEPS, surfaceGrid } from '../../../data/surface-data.ts';
+import { prepareSurface, surfaceGrid } from '../../../data/surface-data.ts';
 import type { ScaleType, SurfaceLayer } from '../../../shared/layer-schema.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { rampTexture } from './ramps.ts';
@@ -284,12 +284,12 @@ export function createSurface(layer: SurfaceLayer, source: SurfaceSourceData, ca
 
     const scale = uniforms.uScale!.value as Vector4;
     if (next.domain) {
-      scale.set(next.domain[0], next.domain[1], SCALE_CODE[next.scale], SURFACE_QUANTISE_STEPS);
+      scale.set(next.domain[0], next.domain[1], SCALE_CODE[next.scale], next.steps);
       autoDomainSet = false;
     } else if (scale.z !== SCALE_CODE[next.scale] || !autoDomainSet) {
       // The auto domain only depends on the scale (and the aggregate, which refills autoStats).
       const domain = heatmapDomain(next.scale, null, autoStats);
-      scale.set(domain[0], domain[1], SCALE_CODE[next.scale], SURFACE_QUANTISE_STEPS);
+      scale.set(domain[0], domain[1], SCALE_CODE[next.scale], next.steps);
       autoDomainSet = true;
     }
     uniforms.uReverse!.value = next.reverse ? 1 : 0;

@@ -371,11 +371,22 @@ export function addValueColumn(ui: LayerUi, f: FolderApi, current: string | null
 }
 
 /** Scale, ramp and reverse for a layer's top-level colour fields. */
-export function addScaleRamp(ui: LayerUi, f: FolderApi, layer: { scale: (typeof SCALE_TYPES)[number]; ramp: (typeof COLOUR_RAMPS)[number]; reverse: boolean }) {
+export function addScaleRamp(
+  ui: LayerUi,
+  f: FolderApi,
+  layer: { scale: (typeof SCALE_TYPES)[number]; ramp: (typeof COLOUR_RAMPS)[number]; reverse: boolean; steps: number },
+) {
   const scale = addChoice(ui, f, layer.scale, 'scale', ['scale'], SCALE_TYPES);
+  const sm = { steps: layer.steps };
+  const steps = f.addBinding(sm, 'steps', { min: 2, max: 64, step: 1 });
+  steps.hidden = layer.scale !== 'quantise';
+  steps.on('change', (ev) => ui.set(['steps'], Math.min(64, Math.max(2, Math.round(ev.value)))));
+  scale.on('change', (ev) => {
+    steps.hidden = ev.value !== 'quantise';
+  });
   const ramp = addChoice(ui, f, layer.ramp, 'ramp', ['ramp'], COLOUR_RAMPS);
   const reverse = addPlain(ui, f, layer.reverse, 'reverse', ['reverse']);
-  return { scale, ramp, reverse };
+  return { scale, ramp, reverse, steps };
 }
 
 // ---- mappings --------------------------------------------------------------------------
