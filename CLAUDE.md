@@ -157,8 +157,10 @@ mappable to MIDI/OSC.
 
 ## Build phases
 
-Status: phases 1–5 are done (instancer layers, modulators, timeline and data playhead,
-keystone with output profiles). Phase 6 is next.
+Status: phases 1–6 are done. That covers instancer, line, heat map and text layers,
+the cloner, layer transforms with gizmo editing in the preview, modulators and the
+timeline, and the keystone. Phase 7 is next. Nothing has been checked on the target
+GTX 1650 yet.
 
 1. Server, project folders, two windows, state sync, reconnect behaviour.
 2. Data layer with tests against the rainfall fixture.
@@ -308,6 +310,10 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   must be absolute.
 - Dev mode unregisters any leftover service worker.
 
+**Control window start-up order.** `client/control/main.ts` creates `SyncedState` before
+the panels, because some panels read `state.doc` while they are being built. In the
+production bundle, getting this order wrong silently kills the control window.
+
 **Persistence.**
 - `writeFileAtomic` (`server/projects.ts`) writes to a temp file, fsyncs it and renames it
   into place. It makes `.bak` by hard-linking the old file.
@@ -315,3 +321,5 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   `project.json.corrupt-<time>`, so the next save can't rotate it over the good backup.
 - `server-state.json` records the last opened project, so the output boots into it even
   when no control window is open.
+- If that project fails to open at start-up, the server shows a fallback but keeps the
+  failed project as `lastProject`, so it reopens once fixed.
