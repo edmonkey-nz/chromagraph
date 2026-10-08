@@ -9,3 +9,4 @@ server-state.json
 output-profiles/*
 !output-profiles/default.json
 *.bak
+/backups/
