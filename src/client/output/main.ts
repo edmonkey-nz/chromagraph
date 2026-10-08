@@ -8,6 +8,7 @@ import { DatasetStore } from './datasets.ts';
 import { PreviewEditor } from './editor.ts';
 import { LayerManager } from './layer-manager.ts';
 import { ModulationEngine } from './modulation.ts';
+import { MorphEngine } from './morph.ts';
 import { LayerHost, type FrameContext } from './layers/layer.ts';
 import { invalidateRampTextures } from './layers/ramps.ts';
 import { createTestPattern } from './layers/test-pattern.ts';
@@ -38,10 +39,23 @@ let stage: Stage | null = null;
 let layers: LayerHost | null = null;
 let layerManager: LayerManager | null = null;
 
+// Scene morphs sit between the modulators and the layers/stage: while something morphs, its
+// modulated values are handed to the morph (which blends towards them) instead of applied.
+const morph = new MorphEngine({
+  manager: () => layerManager,
+  stage: () => stage,
+  report: (message) => report('error', message),
+});
 const modulation = new ModulationEngine({
-  applyLayer: (id, effective) => layerManager?.applyEffective(id, effective),
-  applyCamera: (effective) => stage?.setCamera(effective),
-  applyOutput: (effective) => stage?.setEffects(effective.effects),
+  applyLayer: (id, effective) => {
+    if (!morph.layerModulated(id, effective)) layerManager?.applyEffective(id, effective);
+  },
+  applyCamera: (effective) => {
+    if (!morph.cameraModulated(effective)) stage?.setCamera(effective);
+  },
+  applyOutput: (effective) => {
+    if (!morph.outputModulated(effective)) stage?.setEffects(effective.effects);
+  },
 });
 let socket: ReconnectingSocket | null = null;
 let connection: ConnectionState = 'closed';
@@ -79,7 +93,10 @@ const datasets = new DatasetStore(
   (level, message) => report(level, message),
   (_id, url) => {
     precache([url]);
-    if (state.doc) syncLayers(state.doc);
+    if (state.doc) {
+      syncLayers(state.doc);
+      morph.afterSync(state.doc); // a reload may rebuild a morphing layer
+    }
   },
 );
 
@@ -105,6 +122,8 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     datasets.sync(state.projectName, doc.project.datasets);
   }
   if (!stage || !layers) return;
+  // Before anything below changes the picture: a new scene morph captures what is on screen.
+  morph.begin(doc, prev);
   if (!prev || doc.project.output.background !== prev.project.output.background) {
     stage.setBackground(doc.project.output.background);
   }
@@ -123,6 +142,7 @@ function applyDoc(doc: SyncDoc, prev: SyncDoc | null): void {
     stage.setCamera(doc.project.camera);
     stage.setEffects(doc.project.output.effects);
   }
+  morph.afterSync(doc);
   if (doc.session.testPattern) {
     if (!layers.get(TEST_PATTERN_ID)) layers.set(TEST_PATTERN_ID, () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT));
   } else {
@@ -151,9 +171,11 @@ function createStage(): void {
       canvas,
       {
         lost: () => report('error', 'WebGL context lost; waiting for restore'),
+        report: (message) => report('error', `output effects: ${message}`),
         restored: () => {
           report('warn', 'WebGL context restored; rebuilding layers');
           invalidateRampTextures();
+          morph.reset();
           layerManager?.reset();
           layers?.rebuildAll((id) => (id === TEST_PATTERN_ID ? () => createTestPattern(OUTPUT_WIDTH, OUTPUT_HEIGHT) : null));
           if (state.doc) applyDoc(state.doc, null);
@@ -210,10 +232,12 @@ function tick(now: number): void {
     ctx.frame++;
     lastFrame = now;
     if (stage && layers && !stage.contextLost) {
-      modulation.frame(performance.timeOrigin + now);
+      const wall = performance.timeOrigin + now;
+      modulation.frame(wall);
+      morph.frame(wall, ctx);
       layers.update(ctx);
       editor?.frame();
-      stage.render();
+      stage.render(ctx.dt);
       editor?.renderOverlay();
     }
   } catch (err) {
@@ -260,7 +284,7 @@ window.setInterval(() => {
   debugEl.textContent =
     `${fps.toFixed(1)} fps  ${frameMs.toFixed(2)} ms cpu\n` +
     `${connection}  rev ${state.rev}  ${state.projectName}\n` +
-    `timeline ${(modulation.phase * 100).toFixed(1)}%  ${modulation.active} modulated\n` +
+    `timeline ${(modulation.phase * 100).toFixed(1)}%  ${modulation.active} modulated${morph.active ? '  morphing' : ''}\n` +
     `${stage?.rendererName ?? 'no renderer'}` +
     (layers?.errors.length ? `\n${layers.errors.length} layer error(s)` : '');
 }, 500);

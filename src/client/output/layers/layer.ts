@@ -63,15 +63,36 @@ export class LayerHost {
   }
 
   get(id: string): LayerInstance | null {
-    return this.slots.find((s) => s.id === id)?.instance ?? null;
+    return this.slot(id)?.instance ?? null;
   }
 
-  /** Run `fn` on a layer's instance inside the fence; failed or missing layers are skipped. */
-  call<T extends LayerInstance>(id: string, fn: (instance: T) => void): void {
-    const slot = this.slots.find((s) => s.id === id);
+  /** True when the layer's slot exists and has been flagged as failed. */
+  failed(id: string): boolean {
+    return this.slot(id)?.error != null;
+  }
+
+  /**
+   * Remove a slot without disposing its instance, which stays in the scene: the caller now
+   * owns it and must remove and dispose it (scene morphs fade old instances out this way).
+   */
+  detach(id: string): LayerInstance | null {
+    const i = this.slots.findIndex((s) => s.id === id);
+    if (i < 0) return null;
+    const slot = this.slots[i]!;
+    this.slots.splice(i, 1);
+    this.refreshErrors();
+    return slot.instance;
+  }
+
+  /**
+   * Run `fn` on a layer's instance inside the fence; failed or missing layers are skipped.
+   * `arg` is passed through so per-frame callers can use a pre-bound `fn` (no closures).
+   */
+  call<T extends LayerInstance, A = undefined>(id: string, fn: (instance: T, arg: A) => void, arg?: A): void {
+    const slot = this.slot(id);
     if (!slot?.instance || slot.error) return;
     try {
-      fn(slot.instance as T);
+      fn(slot.instance as T, arg as A);
     } catch (err) {
       this.fail(slot, `update failed: ${describe(err)}`);
     }
@@ -83,6 +104,12 @@ export class LayerHost {
     if (!slot?.instance) return;
     slot.instance.object.renderOrder = order;
     slot.instance.object.visible = visible && !slot.error;
+  }
+
+  /** Slot lookup without a closure (runs per frame for modulated and morphing layers). */
+  private slot(id: string): Slot | undefined {
+    for (let i = 0; i < this.slots.length; i++) if (this.slots[i]!.id === id) return this.slots[i];
+    return undefined;
   }
 
   ids(): string[] {

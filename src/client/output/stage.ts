@@ -7,13 +7,15 @@ import {
   PlaneGeometry,
   ShaderMaterial,
   Scene,
+  SRGBColorSpace,
   WebGLRenderer,
   WebGLRenderTarget,
   type Camera as ThreeCamera,
   type Object3D,
 } from 'three';
 import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
-import type { Camera, Effects } from '../../shared/project-schema.ts';
+import { defaultCamera, defaultEffects, type Camera, type Effects } from '../../shared/project-schema.ts';
+import { PostEffects } from './effects.ts';
 
 /** Full-screen quad; the fragment shader does the keystone mapping per pixel. */
 const WARP_VERTEX = /* glsl */ `
@@ -30,6 +32,8 @@ const WARP_VERTEX = /* glsl */ `
  */
 const WARP_FRAGMENT = /* glsl */ `
   uniform sampler2D uImage;
+  uniform sampler2D uBloom;
+  uniform float uBloomOn;
   uniform mat3 uInverse;
   varying vec2 vScreen;
   void main() {
@@ -37,7 +41,10 @@ const WARP_FRAGMENT = /* glsl */ `
     vec2 uv = p.xy / p.z;
     float edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
     float inside = p.z > 0.0 ? clamp(edge / max(fwidth(edge), 1e-6) + 0.5, 0.0, 1.0) : 0.0;
-    vec4 colour = texture2D(uImage, vec2(uv.x, 1.0 - uv.y));
+    vec2 imageUv = vec2(uv.x, 1.0 - uv.y);
+    vec4 colour = texture2D(uImage, imageUv);
+    // Bloom (half resolution) is added here when no trails pass consumed it.
+    if (uBloomOn > 0.5) colour.rgb += texture2D(uBloom, imageUv).rgb;
     gl_FragColor = vec4(colour.rgb * inside, 1.0);
     #include <colorspace_fragment>
   }
@@ -47,9 +54,9 @@ export const OUTPUT_WIDTH = 1920;
 export const OUTPUT_HEIGHT = 1080;
 
 /**
- * Owns the WebGL renderer. The scene is drawn into a fixed 1920x1080 render target, which
- * is then drawn to the screen through `warp` (a full-screen quad for now; it becomes the
- * keystone mesh in phase 5).
+ * Owns the WebGL renderer. The scene is drawn into a fixed 1920x1080 MSAA render target,
+ * then through the output effects (effects.ts: bloom, trails; skipped entirely when both
+ * are off), then to the screen through the keystone warp (an inverse homography per pixel).
  */
 export class Stage {
   readonly renderer: WebGLRenderer;
@@ -61,8 +68,12 @@ export class Stage {
   camera: ThreeCamera = this.orthoCamera;
   readonly rendererName: string;
   contextLost = false;
-  /** Current output effects (see setEffects). */
-  protected effects: Effects | null = null;
+  /**
+   * What is on screen now (after modulation and morphs), kept so a scene morph can start
+   * from it. Updated in place by setCamera / setEffects; never replaced.
+   */
+  readonly displayedCamera: Camera = defaultCamera();
+  readonly displayedEffects: Effects = defaultEffects();
 
   private target: WebGLRenderTarget;
   private warpScene = new Scene();
@@ -72,10 +83,11 @@ export class Stage {
   private warpGeometry = new PlaneGeometry(1, 1);
   private lastShaderError: string | null = null;
   private background = new Color(0x000000);
+  private post: PostEffects;
 
   constructor(
     private canvas: HTMLCanvasElement,
-    private events: { lost(): void; restored(): void },
+    private events: { lost(): void; restored(): void; report?(message: string): void },
     /** Render-target scale; the control window's preview renders at reduced resolution. */
     private targetScale = 1,
   ) {
@@ -97,10 +109,23 @@ export class Stage {
     this.warpMaterial = new ShaderMaterial({
       depthTest: false,
       depthWrite: false,
-      uniforms: { uImage: { value: this.target.texture }, uInverse: { value: this.warpInverse } },
+      uniforms: {
+        uImage: { value: this.target.texture },
+        uBloom: { value: null },
+        uBloomOn: { value: 0 },
+        uInverse: { value: this.warpInverse },
+      },
       vertexShader: WARP_VERTEX,
       fragmentShader: WARP_FRAGMENT,
     });
+    this.post = new PostEffects(
+      this.renderer,
+      this.target.width,
+      this.target.height,
+      this.background,
+      (message) => this.events.report?.(message),
+      (scene) => this.verifyObject(scene),
+    );
     const quad = new Mesh(this.warpGeometry, this.warpMaterial);
     quad.frustumCulled = false;
     this.warpScene.add(quad);
@@ -124,18 +149,47 @@ export class Stage {
 
   /**
    * Output effects (bloom glow, motion trails) on the 1080p image before the warp.
-   * Contract stub: the effects pass is implemented by the post-processing work; until then
-   * effects are accepted and ignored. Called on state changes and per frame when modulated.
+   * Called on state changes and per frame when modulated or morphing: it only copies
+   * numbers (render targets are made lazily by the first frame that needs them).
    */
   setEffects(effects: Effects): void {
-    this.effects = effects;
+    const d = this.displayedEffects;
+    d.bloom.enabled = effects.bloom.enabled;
+    d.bloom.strength = effects.bloom.strength;
+    d.bloom.radius = effects.bloom.radius;
+    d.bloom.threshold = effects.bloom.threshold;
+    d.trails.enabled = effects.trails.enabled;
+    d.trails.persistence = effects.trails.persistence;
+    this.post.set(d);
   }
 
   setBackground(hex: string): void {
     this.background.set(hex);
   }
 
+  /** Background from sRGB components 0..1 (per-frame morphs; no string parsing). */
+  setBackgroundRGB(r: number, g: number, b: number): void {
+    this.background.setRGB(r, g, b, SRGBColorSpace);
+  }
+
+  /** The displayed background as sRGB components 0..1, written into `out`. */
+  readBackground(out: { r: number; g: number; b: number }): void {
+    this.background.getRGB(out as Color, SRGBColorSpace);
+  }
+
   setCamera(cfg: Camera): void {
+    // (Guarded: test/shared/editor-maths.test.ts calls this on a bare stand-in object.)
+    const d = this.displayedCamera as Camera | undefined;
+    if (d) {
+      d.mode = cfg.mode;
+      d.fov = cfg.fov;
+      d.yaw = cfg.yaw;
+      d.pitch = cfg.pitch;
+      d.distance = cfg.distance;
+      d.target[0] = cfg.target[0];
+      d.target[1] = cfg.target[1];
+      d.target[2] = cfg.target[2];
+    }
     if (cfg.mode === '2d') {
       this.camera = this.orthoCamera;
       return;
@@ -163,15 +217,27 @@ export class Stage {
   }
 
   /** Compile an object's materials now so shader errors surface at build time, not mid-frame. */
-  verify = (object: Object3D): string | null => {
+  verify = (object: Object3D): string | null => this.verifyObject(object, this.scene);
+
+  /**
+   * Compile `root`'s materials and check them. three compiles lazily and only checks a
+   * program's link status on its first use, so compile() alone never reports an error;
+   * asking each compiled program for its uniforms runs that check now (onShaderError above).
+   */
+  verifyObject(root: Object3D, targetScene: Scene | null = null): string | null {
     this.lastShaderError = null;
     try {
-      this.renderer.compile(object, this.camera, this.scene);
+      const materials = this.renderer.compile(root, this.camera, targetScene);
+      for (const m of materials) {
+        const props = this.renderer.properties.get(m) as { currentProgram?: { getUniforms(): unknown } };
+        props.currentProgram?.getUniforms();
+        if (this.lastShaderError) break;
+      }
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
     }
     return this.lastShaderError;
-  };
+  }
 
   resize(): void {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -180,10 +246,22 @@ export class Stage {
     if (this.canvas.width !== w || this.canvas.height !== h) this.renderer.setSize(w, h, false);
   }
 
-  render(): void {
+  /** Draw one frame. `dt` is the frame clock's step in seconds (frame-rate independent trails). */
+  render(dt: number): void {
     if (this.contextLost) return;
     this.renderer.setRenderTarget(this.target);
     this.renderer.render(this.scene, this.camera);
+    const warp = this.warpMaterial.uniforms;
+    if (this.post.active) {
+      this.post.process(this.target.texture, dt, performance.now());
+      warp.uImage!.value = this.post.image ?? this.target.texture;
+      warp.uBloom!.value = this.post.bloomTexture;
+      warp.uBloomOn!.value = this.post.bloomTexture ? 1 : 0;
+    } else {
+      warp.uImage!.value = this.target.texture;
+      warp.uBloom!.value = null;
+      warp.uBloomOn!.value = 0;
+    }
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.warpScene, this.warpCamera);
   }
@@ -206,6 +284,8 @@ export class Stage {
     this.target.dispose();
     this.target = this.makeTarget();
     this.warpMaterial.uniforms.uImage!.value = this.target.texture;
+    this.warpMaterial.uniforms.uBloom!.value = null;
+    this.post.contextRestored();
     this.contextLost = false;
     this.events.restored();
   };

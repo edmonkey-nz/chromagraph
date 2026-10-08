@@ -52,6 +52,13 @@ import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
  * Cloner: clone k of row i sits at row i's arranged position, offset by the clone steps,
  * and takes its mapped values from row i + k * dataStep (waterfall / echo effects).
  * Clones are drawn far to near so the original (k = 0) is on top.
+ *
+ * Calendar fields (year index, day of year) are uploaded whenever the layer's time column
+ * has them, whatever the arrangement, so switching arrangement never rebuilds and a scene
+ * morph can move the marks between any two layouts: the layout uniforms are packed into
+ * uLayout, and up to two frozen "from" layouts (uFrom) are mixed in while a morph runs
+ * (beginLayoutMorph / setLayoutMix / endLayoutMorph). Two levels make an interrupted morph
+ * seamless: what was on screen (a blend of two layouts) morphs on to the new one.
  */
 
 export interface InstancerData {
@@ -62,6 +69,35 @@ export interface InstancerData {
 
 export interface InstancerInstance extends LayerInstance {
   apply(layer: InstancerLayer, cameraMode: '2d' | '3d'): void;
+  /**
+   * Freeze the layout now on screen as the "from" layout of a morph (stacking on an
+   * unfinished one). Until endLayoutMorph, positions are mix(from, current layout, mix).
+   */
+  beginLayoutMorph(): void;
+  /** Progress of the newest layout morph, 0..1 (eased). Uniform update only. */
+  setLayoutMix(mix: number): void;
+  /** Drop the from layouts: positions are exactly the current layout again. */
+  endLayoutMorph(): void;
+}
+
+/** Instancer fields that only move the marks (blended by position during a morph). */
+export const INSTANCER_LAYOUT_KEYS: ReadonlySet<string> = new Set([
+  'arrangement',
+  'origin',
+  'step',
+  'gridColumns',
+  'cell',
+  'radius',
+  'angleStep',
+  'radiusStep',
+  'followRange',
+]);
+
+/** True when the layer's time column has calendar fields, so they are always uploaded. */
+export function instancerCalendarReady(layer: InstancerLayer, source: Pick<InstancerData, 'table' | 'calendars'>): boolean {
+  const name = layer.timeColumn;
+  if (!name || !source.calendars[name]) return false;
+  return source.table.columns.some((c) => c.name === name && c.type === 'time');
 }
 
 /** Texture width for row lookups (row -> (row % W, row / W)). 4096 is guaranteed by WebGL2. */
@@ -149,18 +185,17 @@ const vertexShader = /* glsl */ `
   uniform float uColourByClone;
   uniform sampler2D uRamp;
 
-  uniform int uArrangement;
-  uniform vec3 uOrigin;
-  uniform vec3 uStep;
-  uniform float uGridColumns;
-  uniform vec2 uCell;
-  uniform float uRadius;
-  uniform float uAngleStep;
-  uniform float uRadiusStep;
+  // Layout, packed (see packLayout): [code, gridColumns, radius, angleStep],
+  // [origin.xyz, radiusStep], [step.xyz, tStart], [cell.xy, -, -].
+  uniform vec4 uLayout[4];
+  // Frozen layouts of a morph in progress: [0..3] older, [4..7] newer.
+  uniform vec4 uFrom[8];
+  uniform int uFromLevels;
+  uniform vec2 uLayoutMix;   // older -> newer (frozen), from -> current
+  uniform float uNeedCalendar;
   uniform int uFirstRow;
   uniform int uVisibleRows;
   uniform int uRowCount;
-  uniform float uTStart;
   uniform vec3 uSize;
   uniform float uHeightAlongZ;
   uniform vec3 uColour;
@@ -210,6 +245,22 @@ const vertexShader = /* glsl */ `
     return rx * ry * rz; // three's Euler order 'XYZ' is the matrix Rx * Ry * Rz
   }
 
+  // Arranged position of a row from a packed layout (see layer-schema.ts for the maths).
+  vec3 arrange(vec4 a, vec4 b, vec4 c, vec4 d, vec4 d0) {
+    float t = d0.x - c.w;
+    int code = int(a.x + 0.5);
+    if (code == 0) return b.xyz + t * c.xyz;
+    if (code == 1) {
+      float col = mod(t, a.y);
+      float line = floor(t / a.y);
+      return b.xyz + vec3(col * d.x, -line * d.y, 0.0);
+    }
+    if (code == 2) return b.xyz + vec3(d0.z * d.x, -d0.y * d.y, 0.0);
+    float ang = radians(t * a.w);
+    float r = a.z + (code == 4 ? t * b.w : 0.0);
+    return b.xyz + vec3(sin(ang) * r, cos(ang) * r, 0.0);
+  }
+
   void hideInstance() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     vAlpha = 0.0;
@@ -232,7 +283,7 @@ const vertexShader = /* glsl */ `
 
     bool hidden = d0.x < MISSING_TEST;
     #ifdef CALENDAR
-      hidden = hidden || d0.y < MISSING_TEST;
+      hidden = hidden || (uNeedCalendar > 0.5 && d0.y < MISSING_TEST);
     #endif
     #ifdef CH_Y
       hidden = hidden || d1.x < MISSING_TEST;
@@ -257,20 +308,11 @@ const vertexShader = /* glsl */ `
     #endif
     if (hidden) { hideInstance(); return; }
 
-    float t = d0.x - uTStart;
-    vec3 p;
-    if (uArrangement == 0) {
-      p = uOrigin + t * uStep;
-    } else if (uArrangement == 1) {
-      float col = mod(t, uGridColumns);
-      float line = floor(t / uGridColumns);
-      p = uOrigin + vec3(col * uCell.x, -line * uCell.y, 0.0);
-    } else if (uArrangement == 2) {
-      p = uOrigin + vec3(d0.z * uCell.x, -d0.y * uCell.y, 0.0);
-    } else {
-      float ang = radians(t * uAngleStep);
-      float r = uRadius + (uArrangement == 4 ? t * uRadiusStep : 0.0);
-      p = uOrigin + vec3(sin(ang) * r, cos(ang) * r, 0.0);
+    vec3 p = arrange(uLayout[0], uLayout[1], uLayout[2], uLayout[3], d0);
+    if (uFromLevels > 0) {
+      vec3 from = arrange(uFrom[4], uFrom[5], uFrom[6], uFrom[7], d0);
+      if (uFromLevels > 1) from = mix(arrange(uFrom[0], uFrom[1], uFrom[2], uFrom[3], d0), from, uLayoutMix.x);
+      p = mix(from, p, uLayoutMix.y);
     }
 
     vec3 size = uSize;
@@ -393,8 +435,31 @@ function domainMemo(data: ChannelData): (m: Mapping | ColourMapping) => readonly
 
 const DEG = Math.PI / 180;
 
+/** Pack the layout fields into 16 floats (the shader's uLayout). */
+function packLayout(l: InstancerLayer, tStart: number, out: Float32Array): void {
+  out[0] = ARRANGEMENT_CODE[l.arrangement];
+  out[1] = Math.max(1, l.gridColumns);
+  out[2] = l.radius;
+  out[3] = l.angleStep;
+  out[4] = l.origin[0];
+  out[5] = l.origin[1];
+  out[6] = l.origin[2];
+  out[7] = l.radiusStep;
+  out[8] = l.step[0];
+  out[9] = l.step[1];
+  out[10] = l.step[2];
+  out[11] = tStart;
+  out[12] = l.cell[0];
+  out[13] = l.cell[1];
+  out[14] = 0;
+  out[15] = 0;
+}
+
 export function createInstancer(layer: InstancerLayer, source: InstancerData, cameraMode: '2d' | '3d'): InstancerInstance {
-  const data: InstanceData = buildInstanceData(layer, source.table, source.cadences, source.calendars);
+  // Calendar fields whenever available (see the header), so the arrangement is never structural.
+  const data: InstanceData = instancerCalendarReady(layer, source)
+    ? buildInstanceData({ ...layer, arrangement: 'calendar' }, source.table, source.cadences, source.calendars)
+    : buildInstanceData(layer, source.table, source.cadences, source.calendars);
   const n = data.count;
   const channelNames = Object.keys(data.channels) as ChannelName[];
   const domains = new Map<ChannelName, (m: Mapping | ColourMapping) => readonly [number, number]>();
@@ -423,22 +488,24 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
   if (layer.primitive === 'box' || layer.primitive === 'sphere') defines.LIT = '';
 
   const colourData = data.channels.colour;
+  /** Current layout and the morph's frozen ones, packed as in the shader. */
+  const layout = new Float32Array(16);
+  const from = new Float32Array(32);
+  let fromLevels = 0;
+  /** Arrangement codes of the frozen layouts (calendar rows with no date hide while any is a calendar). */
+  let fromCalendar = false;
   const uniforms: Record<string, IUniform> = {
     uData0: { value: textures[0] },
     uData1: { value: textures[1] },
     uData2: { value: textures[2] },
-    uArrangement: { value: 0 },
-    uOrigin: { value: new Vector3() },
-    uStep: { value: new Vector3() },
-    uGridColumns: { value: 1 },
-    uCell: { value: new Vector2() },
-    uRadius: { value: 0 },
-    uAngleStep: { value: 0 },
-    uRadiusStep: { value: 0 },
+    uLayout: { value: layout },
+    uFrom: { value: from },
+    uFromLevels: { value: 0 },
+    uLayoutMix: { value: new Vector2(1, 1) },
+    uNeedCalendar: { value: 0 },
     uFirstRow: { value: 0 },
     uVisibleRows: { value: 0 },
     uRowCount: { value: n },
-    uTStart: { value: 0 },
     uSize: { value: new Vector3() },
     uHeightAlongZ: { value: 0 },
     uColour: { value: new Color() },
@@ -469,21 +536,12 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
   mesh.name = layer.name;
 
   const v3 = (name: string) => uniforms[name]!.value as Vector3;
-  const v2 = (name: string) => uniforms[name]!.value as Vector2;
   const set = (name: string, value: number) => {
     uniforms[name]!.value = value;
   };
 
   function apply(next: InstancerLayer, mode: '2d' | '3d'): void {
-    set('uArrangement', ARRANGEMENT_CODE[next.arrangement]);
-    v3('uOrigin').fromArray(next.origin);
-    v3('uStep').fromArray(next.step);
-    set('uGridColumns', Math.max(1, next.gridColumns));
-    v2('uCell').fromArray(next.cell);
-    set('uRadius', next.radius);
-    set('uAngleStep', next.angleStep);
-    set('uRadiusStep', next.radiusStep);
-
+    if (next.arrangement === 'calendar' && !data.yearIndex) throw new Error('the calendar arrangement needs a time column');
     const lo = Math.min(next.rows[0], next.rows[1]);
     const hi = Math.max(next.rows[0], next.rows[1]);
     const first = Math.max(0, Math.floor(lo * n));
@@ -496,7 +554,9 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     set('uVisibleRows', visible);
     set('uClones', clones);
     geometry.instanceCount = visible * clones;
-    set('uTStart', next.followRange && next.arrangement !== 'calendar' ? firstDefinedT(data.t, first) : 0);
+    const tStart = next.followRange && next.arrangement !== 'calendar' ? firstDefinedT(data.t, first) : 0;
+    packLayout(next, tStart, layout);
+    set('uNeedCalendar', next.arrangement === 'calendar' || fromCalendar ? 1 : 0);
 
     v3('uClonePosition').fromArray(cl.position);
     v3('uCloneRotation').set(cl.rotation[0] * DEG, cl.rotation[1] * DEG, cl.rotation[2] * DEG);
@@ -541,9 +601,38 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
 
   apply(layer, cameraMode);
 
+  const layoutMix = uniforms.uLayoutMix!.value as Vector2;
+
   return {
     object: mesh,
     apply,
+    beginLayoutMorph() {
+      if (fromLevels === 2) {
+        // A third level cannot be drawn: keep whichever older layout dominates the blend.
+        if (layoutMix.x >= 0.5) from.copyWithin(0, 16, 32);
+        fromLevels = 1;
+      } else if (fromLevels === 1) {
+        from.copyWithin(0, 16, 32);
+      }
+      // The newest frozen layout is the one drawn until now; the previous mix is frozen.
+      from.set(layout, 16);
+      layoutMix.x = fromLevels === 1 ? layoutMix.y : 1;
+      layoutMix.y = 0;
+      fromLevels += 1;
+      fromCalendar = from[16] === ARRANGEMENT_CODE.calendar || (fromLevels > 1 && from[0] === ARRANGEMENT_CODE.calendar);
+      set('uFromLevels', fromLevels);
+      set('uNeedCalendar', layout[0] === ARRANGEMENT_CODE.calendar || fromCalendar ? 1 : 0);
+    },
+    setLayoutMix(mix: number) {
+      layoutMix.y = mix;
+    },
+    endLayoutMorph() {
+      fromLevels = 0;
+      fromCalendar = false;
+      layoutMix.set(1, 1);
+      set('uFromLevels', 0);
+      set('uNeedCalendar', layout[0] === ARRANGEMENT_CODE.calendar ? 1 : 0);
+    },
     update(_ctx: FrameContext) {
       // Static between applies; modulators drive it through apply().
     },
