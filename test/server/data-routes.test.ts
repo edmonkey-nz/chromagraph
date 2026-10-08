@@ -90,3 +90,28 @@ describe('import and serve', () => {
     }
   });
 });
+
+describe('start-up with an unloadable last project', () => {
+  it('shows a fallback but keeps remembering the last project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dw-hub-'));
+    try {
+      const store = new ProjectStore(join(root, 'projects'));
+      await store.create('mine');
+      const { writeFile: wf } = await import('node:fs/promises');
+      await wf(join(root, 'projects/mine/project.json'), '{ broken');
+      await wf(join(root, 'server-state.json'), JSON.stringify({ lastProject: 'mine' }));
+      const log = new Log();
+      log.subscribe(() => {});
+      const hub = new Hub(store, log, join(root, 'server-state.json'));
+      // mine.bak is also unusable (create wrote only one save), so it must fall back.
+      await wf(join(root, 'projects/mine/project.json.bak'), '{ broken');
+      await hub.init();
+      expect(hub.currentProject.name).not.toBe('mine');
+      await hub.close();
+      const state = JSON.parse(await readFile(join(root, 'server-state.json'), 'utf8')) as { lastProject: string };
+      expect(state.lastProject).toBe('mine');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

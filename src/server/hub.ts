@@ -61,6 +61,8 @@ export class Hub {
   private unsubscribeLog: () => void;
   private bootSession: Session | null = null;
   private bootProfile: OutputProfile | null = null;
+  /** Last project that failed to open at start-up; stays in server-state until the user picks another. */
+  private keepLastProject: string | null = null;
   private profileTimer: NodeJS.Timeout | null = null;
   private stateTimer: NodeJS.Timeout | null = null;
 
@@ -88,9 +90,16 @@ export class Hub {
     const candidates = [last.lastProject, DEMO_PROJECT, ...(await this.store.list())].filter(
       (n): n is string => typeof n === 'string' && PROJECT_NAME_RE.test(n),
     );
+    const wanted = candidates[0] === last.lastProject ? last.lastProject : null;
     for (const name of candidates) {
       if (!(await this.store.exists(name))) continue;
       if (await this.tryOpen(name)) break;
+      if (name === wanted) {
+        // Keep remembering it: once the problem is fixed, the next start opens it again
+        // instead of whatever fallback is shown meanwhile.
+        this.keepLastProject = wanted;
+        this.log.warn(`could not open the last project "${wanted}"; showing a fallback until it is fixed`);
+      }
     }
     if (!this.doc) {
       // Nothing loadable: make a fresh project rather than run without state.
@@ -208,6 +217,7 @@ export class Hub {
       case 'openProject':
         if (client.role !== 'control') return;
         if (msg.name === this.projectName) return;
+        this.keepLastProject = null;
         await this.flushSave();
         if (await this.tryOpen(msg.name)) this.broadcastFull();
         else this.send(client, { t: 'error', message: `could not open "${msg.name}"` });
@@ -217,6 +227,7 @@ export class Hub {
         if (client.role !== 'control') return;
         try {
           const project = await this.store.create(msg.name);
+          this.keepLastProject = null;
           await this.flushSave();
           this.setProject(msg.name, project);
           await this.writeServerState();
@@ -389,7 +400,7 @@ export class Hub {
 
   private async writeServerState(): Promise<void> {
     try {
-      const state: ServerState = { lastProject: this.projectName, lastProfile: this.doc?.profile.name, session: this.doc?.session };
+      const state: ServerState = { lastProject: this.keepLastProject ?? this.projectName, lastProfile: this.doc?.profile.name, session: this.doc?.session };
       await writeFileAtomic(this.stateFile, `${JSON.stringify(state, null, 2)}\n`);
     } catch (err) {
       this.log.warn(`could not write server state: ${String(err)}`);
