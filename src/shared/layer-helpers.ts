@@ -13,8 +13,9 @@ import type { Path } from './patch.ts';
 
 /**
  * Pure helpers for the control window's Layers panel: titles, the instance budget readout,
- * minimal field diffs (for Fit to output) and the field changes when a layer switches
- * dataset. No DOM, so they are tested in Node.
+ * the Ridgeline presets (instancer and line), minimal field diffs (for Fit to output and
+ * presets) and the field changes when a layer switches dataset. No DOM, so they are tested
+ * in Node.
  */
 
 /** A field change inside one layer (path relative to the layer). */
@@ -165,7 +166,10 @@ export function diffChanges(before: unknown, after: unknown, path: Path = []): L
 /**
  * Field changes for switching a layer to dataset `datasetId` (null for none): column
  * references the new dataset doesn't have are dropped (with their manual domains), and a
- * time-dependent mode falls back when no time column is left. `summary` is the new
+ * time-dependent mode falls back when no time column is left. Grouping columns are re-pointed
+ * rather than dropped: a small multiples split moves to a suitable column (or another split,
+ * see repairSplit) and hierarchy levels are re-pointed or dropped, keeping at least one
+ * (repairLevels). `summary` is the new
  * dataset's summary, or null if it hasn't parsed yet (then only the id changes).
  */
 export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | null, summary: DatasetSummary | null): LayerChange[] {
