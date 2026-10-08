@@ -331,6 +331,34 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   must be absolute.
 - Dev mode unregisters any leftover service worker.
 
+**Control window layout.**
+- `client/control/index.html` and `main.ts` lay the window out as: a header (project
+  switcher, Save, Save As, Snapshots, the save indicator), then a top band with the
+  preview top left and data tabs to its right (`tabs.ts`: Datasets, Output windows,
+  Calibration, Problems, Log).
+- Below that are cards in columns. Each card has its own Tweakpane pane, themed through
+  `--tp-*` CSS variables. Shared card helpers are in `ui.ts`.
+- The cards are Show (Scenes, Timeline, Modulation), Look (Output & effects, Camera) and
+  Layers (double width, one card per layer).
+- **Save state.** The save indicator (`shared/save-status.ts`) counts patches in flight
+  until their echo arrives and the next `saved` message.
+
+**Saving, Save As and snapshots.**
+- Projects still autosave.
+- Save now, Save As (`ProjectStore.duplicate`, which builds in a staging folder and
+  renames it into place) and snapshots are protocol messages handled in `server/hub.ts`.
+- Snapshots live in `projects/<name>/snapshots/<id>.json`.
+- Restoring one first snapshots the current state ("before restore"), then applies the
+  restored state as a validated patch.
+
+**Scenes and morphing.**
+- `project.scenes` holds captured looks: layers, camera, output and parameters.
+  `shared/scene-helpers.ts` builds the "go to scene" ops.
+- Going to a scene is one patch that copies the scene into the project and sets
+  `session.morph`. The output then morphs from what is on screen: matching layers
+  interpolate, others crossfade.
+- The sender treats that patch's echo as external, so its own panes refresh.
+
 **Control window start-up order.** `client/control/main.ts` creates `SyncedState` before
 the panels, because some panels read `state.doc` while they are being built. In the
 production bundle, getting this order wrong silently kills the control window.
