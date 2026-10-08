@@ -22,8 +22,8 @@ export default defineConfig({
   // Pre-bundle up front: a dependency discovered at runtime makes Vite reload every page,
   // which would interrupt a running output window in dev.
   optimizeDeps: {
-    entries: ['control/index.html', 'output/index.html', '../data/parse.worker.ts'],
-    include: ['three', 'tweakpane', 'papaparse', 'zod'],
+    entries: ['control/index.html', 'output/index.html', '../data/parse.worker.ts', '../data/hierarchy.worker.ts'],
+    include: ['three', 'tweakpane', 'papaparse', 'zod', 'd3-hierarchy', 'd3-scale-chromatic', 'troika-three-text'],
   },
   test: {
     root: import.meta.dirname,

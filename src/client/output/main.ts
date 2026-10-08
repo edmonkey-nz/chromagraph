@@ -3,6 +3,7 @@ import type { LogLevel, OutputStatus } from '../../shared/protocol.ts';
 import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '../common/socket.ts';
 import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
+import { HIERARCHY_WORKER_URL } from '../../data/hierarchy-client.ts';
 import { DatasetStore } from './datasets.ts';
 import { PreviewEditor } from './editor.ts';
 import { LayerManager } from './layer-manager.ts';
@@ -280,7 +281,12 @@ if ('serviceWorker' in navigator && !preview) {
           .getEntriesByType('resource')
           .map((e) => e.name)
           .filter((u) => u.startsWith(location.origin));
-        precache([location.href, new URL(PARSE_WORKER_URL, location.href).href, ...loaded]);
+        precache([
+          location.href,
+          new URL(PARSE_WORKER_URL, location.href).href,
+          new URL(HIERARCHY_WORKER_URL, location.href).href,
+          ...loaded,
+        ]);
       })
       .catch((err: unknown) => {
         report('warn', `service worker registration failed: ${String(err)}`);
