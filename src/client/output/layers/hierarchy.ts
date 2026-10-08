@@ -23,7 +23,15 @@ import { BatchedText, Text } from 'troika-three-text';
 import type { CalendarFields } from '../../../data/calendar.ts';
 import type { Table } from '../../../data/columns.ts';
 import { hierarchyClient, type HierarchyClient } from '../../../data/hierarchy-client.ts';
-import { prepareHierarchyInputs, type GroupInputs, type HierarchyTree } from '../../../data/hierarchy-data.ts';
+import {
+  depthStats,
+  hierarchyDomainInto,
+  MAX_DEPTH,
+  prepareHierarchyInputs,
+  type DepthStats,
+  type GroupInputs,
+  type HierarchyTree,
+} from '../../../data/hierarchy-data.ts';
 import {
   ARC_VERTEX_STRIDE,
   CELL_STRIDE,
@@ -33,7 +41,6 @@ import {
   type HierarchyLayoutName,
   type HierarchyLayoutResult,
 } from '../../../data/hierarchy-layout.ts';
-import { rowRange } from '../../../data/line-data.ts';
 import type { HierarchyLayer, ScaleType } from '../../../shared/layer-schema.ts';
 import { OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../stage.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
@@ -104,7 +111,8 @@ const common = /* glsl */ `
   uniform float uColourBy;
   uniform vec3 uColour;
   uniform vec3 uMissingColour;
-  uniform vec4 uScale;
+  uniform vec4 uScale; // z: scale type, w: quantise steps
+  uniform vec2 uDomains[${MAX_DEPTH + 1}]; // scale domain per depth
   uniform float uReverse;
   uniform sampler2D uRamp;
   uniform float uMaxDepth;
@@ -122,6 +130,10 @@ const common = /* glsl */ `
     if (s.z == 3.0) return floor(clamp(n, 0.0, 0.99999) * s.w) / (s.w - 1.0);
     return clamp(n, 0.0, 1.0);
   }
+  vec4 scaleAt(float depth) {
+    int d = int(clamp(depth, 0.0, ${MAX_DEPTH.toFixed(1)}));
+    return vec4(uDomains[d], uScale.z, uScale.w);
+  }
   // Local box px (x right, y down from the top-left) -> output px (y up).
   vec3 boxToWorld(vec2 p) { return vec3(uOrigin.x + p.x, uOrigin.y - p.y, uOrigin.z); }
   vec3 nodeColour(float value, float depth) {
@@ -131,7 +143,7 @@ const common = /* glsl */ `
       n = uMaxDepth > 0.0 ? depth / uMaxDepth : 0.0;
     } else {
       if (value < MISSING_TEST) return uMissingColour;
-      n = norm(value, uScale);
+      n = norm(value, scaleAt(depth));
     }
     if (uReverse > 0.5) n = 1.0 - n;
     return texture2D(uRamp, vec2(n, 0.5)).rgb;
@@ -173,7 +185,7 @@ const nodeVertex = /* glsl */ `
   ${hideGlsl}
   void main() {
     if (aNode.w < -0.5) { hide(); return; }
-    float n = aNode.z < MISSING_TEST ? 0.0 : norm(aNode.z, uScale);
+    float n = aNode.z < MISSING_TEST ? 0.0 : norm(aNode.z, scaleAt(aNode.w));
     float r = mix(uNodeSize.x, uNodeSize.y, n);
     if (r <= 0.0) { hide(); return; }
     vec3 p = boxToWorld(aNode.xy) + vec3(position.xy * 2.0 * r, 0.0);
@@ -350,6 +362,7 @@ export function createHierarchy(
     uColour: { value: new Color() },
     uMissingColour: { value: new Color(MISSING_COLOUR) },
     uScale: { value: new Vector4(0, 1, 0, QUANTISE_STEPS) },
+    uDomains: { value: Array.from({ length: MAX_DEPTH + 1 }, () => new Vector2(0, 1)) },
     uReverse: { value: 0 },
     uRamp: { value: rampTexture(layer.ramp) },
     uMaxDepth: { value: 1 },
@@ -434,18 +447,22 @@ export function createHierarchy(
   let firstFailures = 0;
   let disposed = false;
   let fatal: Error | null = null;
+  // `tree` and `layout` are what is drawn. A result is held in `pending` (with its tree)
+  // until update() swaps both in together; `arrived` is the newest tree received, keyed by
+  // `treeKey`, so the next job knows whether it needs the tree sent again.
   let tree: HierarchyTree | null = null;
-  let treeKey = '';
   let layout: HierarchyLayoutResult | null = null;
+  let arrived: HierarchyTree | null = null;
+  let treeKey = '';
   let pending: HierarchyLayoutResult | null = null;
+  let pendingTree: HierarchyTree | null = null;
   let pendingParams = blankParams();
   let treeVersion = 0;
 
   // Applied state, for change detection.
   let current: HierarchyLayer = layer;
-  let leafMin = NaN;
-  let leafMax = NaN;
-  let leafMinPositive = NaN;
+  let stats: DepthStats | null = null;
+  const domainScratch = [0, 1];
   let domainVersion = -1;
   // Labels are re-placed only when the layout or a label setting changed.
   let labelsDirty = true;
@@ -476,12 +493,12 @@ export function createHierarchy(
       .then((res) => {
         if (disposed) return;
         if (res.tree) {
-          tree = res.tree;
+          arrived = res.tree;
           treeKey = groupKey;
-          treeVersion++;
         }
-        if (!tree || res.layout.nodeCount !== tree.nodeCount) throw new Error('layout does not match its tree');
+        if (!arrived || res.layout.nodeCount !== arrived.nodeCount) throw new Error('layout does not match its tree');
         pending = res.layout;
+        pendingTree = arrived;
         pendingParams = job;
       })
       .catch((err: unknown) => {
@@ -504,8 +521,12 @@ export function createHierarchy(
   }
 
   /** Swap a finished layout in (from update(), inside the LayerHost fence). */
-  function swap(next: HierarchyLayoutResult): void {
-    const t = tree!;
+  function swap(next: HierarchyLayoutResult, nextTree: HierarchyTree): void {
+    if (nextTree !== tree) {
+      tree = nextTree;
+      treeVersion++;
+    }
+    const t = nextTree;
     layout = next;
     copyParams(shown, pendingParams);
 
@@ -551,7 +572,7 @@ export function createHierarchy(
 
     if (domainVersion !== treeVersion) {
       domainVersion = treeVersion;
-      leafRange(t);
+      stats = depthStats(t);
       colourUniforms.uMaxDepth!.value = Math.max(1, t.levels);
       if (t.missingTotal > 0 || t.ungrouped > 0) {
         console.info(
@@ -565,21 +586,6 @@ export function createHierarchy(
     apply(current, mode);
   }
 
-  /** Leaf value range, for auto domains (leaves are the finest and most numerous level). */
-  function leafRange(t: HierarchyTree): void {
-    leafMin = NaN;
-    leafMax = NaN;
-    leafMinPositive = NaN;
-    for (let i = 0; i < t.nodeCount; i++) {
-      if (t.depth[i] !== t.levels) continue;
-      const v = t.value[i]!;
-      if (!Number.isFinite(v)) continue;
-      if (!(leafMin <= v)) leafMin = v;
-      if (!(leafMax >= v)) leafMax = v;
-      if (v > 0 && !(leafMinPositive <= v)) leafMinPositive = v;
-    }
-  }
-
   /** All nodes in depth order (root first), reusing `into` when it is big enough. */
   function labelCandidatesOf(t: HierarchyTree, into: Int32Array): Int32Array {
     const out = into.length >= t.nodeCount ? into : new Int32Array(t.nodeCount);
@@ -589,25 +595,18 @@ export function createHierarchy(
     return out;
   }
 
+  /** Scale type and the domain per depth (see hierarchyDomainInto). */
   function setScaleUniform(next: HierarchyLayer): void {
-    let lo: number;
-    let hi: number;
-    if (next.domain) {
-      lo = next.domain[0];
-      hi = next.domain[1];
-    } else {
-      lo = leafMin;
-      hi = leafMax;
-      if (next.scale === 'log' && !(lo > 0)) {
-        lo = Number.isFinite(leafMinPositive) ? leafMinPositive : 1;
-        if (!(hi > lo)) hi = lo * 10;
+    (colourUniforms.uScale!.value as Vector4).set(0, 1, SCALE_CODE[next.scale], QUANTISE_STEPS);
+    const domains = colourUniforms.uDomains!.value as Vector2[];
+    for (let d = 0; d <= MAX_DEPTH; d++) {
+      if (tree && stats) hierarchyDomainInto(domainScratch, tree, stats, next.scale, next.domain, d);
+      else {
+        domainScratch[0] = next.domain?.[0] ?? 0;
+        domainScratch[1] = next.domain?.[1] ?? 1;
       }
+      domains[d]!.set(domainScratch[0]!, domainScratch[1]!);
     }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
-      lo = 0;
-      hi = 1;
-    }
-    (colourUniforms.uScale!.value as Vector4).set(lo, hi, SCALE_CODE[next.scale], QUANTISE_STEPS);
   }
 
   function labelText(i: number): Text {
@@ -639,6 +638,9 @@ export function createHierarchy(
       for (let k = 0; k < labelCandidates; k++) {
         const i = labelOrder[k]!;
         if (t.depth[i]! > next.labelDepth) break;
+        // Treemap cells share their top-left corner with their first child, so only the
+        // deepest labelled level is labelled.
+        if (l.layout === 'treemap' && t.depth[i]! < Math.min(next.labelDepth, t.levels)) continue;
         if (!l.visible[i] && !(l.layout === 'radial-dendrogram' && i === 0)) continue;
         if (!labelFits(l, i, size)) continue;
         wantedCount++;
@@ -751,9 +753,9 @@ export function createHierarchy(
     root.name = next.name;
 
     // Job parameters: regroup for rows, re-lay out for the layout fields that matter.
-    const [first, last] = rowRange(next.rows, rowCount);
-    wanted.first = first;
-    wanted.last = last;
+    // As rowRange() in line-data.ts, inlined so a modulated apply() allocates nothing.
+    wanted.first = Math.max(0, Math.floor(Math.min(next.rows[0], next.rows[1]) * rowCount));
+    wanted.last = Math.min(rowCount - 1, Math.ceil(Math.max(next.rows[0], next.rows[1]) * rowCount) - 1);
     wanted.layout = next.layout;
     wanted.width = next.size[0];
     wanted.height = next.size[1];
@@ -801,10 +803,12 @@ export function createHierarchy(
     apply,
     update(_ctx: FrameContext) {
       if (fatal) throw fatal;
-      if (pending) {
+      if (pending && pendingTree) {
         const next = pending;
+        const nextTree = pendingTree;
         pending = null;
-        swap(next);
+        pendingTree = null;
+        swap(next, nextTree);
       }
     },
     dispose() {

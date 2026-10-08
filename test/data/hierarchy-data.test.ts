@@ -4,6 +4,8 @@ import { calendarFields } from '../../src/data/calendar.ts';
 import type { NumberColumn, Table, TimeColumn } from '../../src/data/columns.ts';
 import {
   copyInputs,
+  depthStats,
+  hierarchyDomainInto,
   dayOfMonth,
   groupHierarchy,
   hierarchyStructureKey,
@@ -324,4 +326,34 @@ describe('groupHierarchy with categories', () => {
 it('treats every aggregate name', () => {
   const all: Aggregate[] = ['mean', 'sum', 'min', 'max', 'last'];
   for (const a of all) expect(Number.isFinite(group(layer({ aggregate: a })).value[0])).toBe(true);
+});
+
+describe('hierarchyDomainInto', () => {
+  const out = [0, 0];
+
+  it('scales summed trees per depth, so parents do not saturate', () => {
+    const tree = group(layer());
+    const stats = depthStats(tree);
+    hierarchyDomainInto(out, tree, stats, 'linear', null, 0);
+    expect(out).toEqual([tree.value[0], tree.value[0]]);
+    hierarchyDomainInto(out, tree, stats, 'linear', null, 1);
+    const decades = childrenOf(tree, 0).map((i) => tree.value[i]!);
+    expect(out).toEqual([Math.min(...decades), Math.max(...decades)]);
+    hierarchyDomainInto(out, tree, stats, 'linear', [0, 10], 2);
+    expect(out).toEqual([0, 10]);
+  });
+
+  it('shares the leaves range for means, and starts log domains above zero', () => {
+    const tree = group(layer({ aggregate: 'mean' }));
+    const stats = depthStats(tree);
+    hierarchyDomainInto(out, tree, stats, 'linear', null, 1);
+    expect(out).toEqual([stats.min[3], stats.max[3]]);
+    expect(stats.min[3]).toBe(0);
+    hierarchyDomainInto(out, tree, stats, 'log', null, 0);
+    expect(out[0]).toBe(stats.minPositive[3]);
+    expect(out[0]).toBeGreaterThan(0);
+    const empty = depthStats(group(layer({ valueColumn: DEFICIT }), 0, 10));
+    hierarchyDomainInto(out, { levels: 3, sizeByValue: true }, empty, 'linear', null, 3);
+    expect(out).toEqual([0, 1]);
+  });
 });

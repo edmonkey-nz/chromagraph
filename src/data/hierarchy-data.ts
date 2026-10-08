@@ -409,3 +409,71 @@ export function groupHierarchy(inputs: GroupInputs, aggregate: Aggregate, first:
     sizeByValue: !values || aggregate === 'sum',
   };
 }
+
+/** Deepest node depth (the schema allows up to five levels below the root). */
+export const MAX_DEPTH = 5;
+
+/** Value range per depth (index = depth, 0..MAX_DEPTH); NaN where a depth has no values. */
+export interface DepthStats {
+  min: Float64Array;
+  max: Float64Array;
+  /** Smallest positive value per depth, for auto log domains. */
+  minPositive: Float64Array;
+}
+
+export function depthStats(tree: HierarchyTree): DepthStats {
+  const stats: DepthStats = {
+    min: new Float64Array(MAX_DEPTH + 1).fill(NaN),
+    max: new Float64Array(MAX_DEPTH + 1).fill(NaN),
+    minPositive: new Float64Array(MAX_DEPTH + 1).fill(NaN),
+  };
+  for (let i = 0; i < tree.nodeCount; i++) {
+    const d = Math.min(tree.depth[i]!, MAX_DEPTH);
+    const v = tree.value[i]!;
+    if (!Number.isFinite(v)) continue;
+    if (!(stats.min[d]! <= v)) stats.min[d] = v;
+    if (!(stats.max[d]! >= v)) stats.max[d] = v;
+    if (v > 0 && !(stats.minPositive[d]! <= v)) stats.minPositive[d] = v;
+  }
+  return stats;
+}
+
+/**
+ * The scale domain used for nodes at `depth`, written into `out` (no allocation, as it runs
+ * per frame for a modulated layer). An explicit domain applies to every depth. An auto
+ * domain is per depth when the tree adds up (sum or row counts: a parent is the total of
+ * its children, so levels are not comparable and one shared range would saturate every
+ * parent), and otherwise the leaves' range (a parent's mean, min, max or last lies within
+ * its leaves' range, so one shared range keeps levels comparable). Log scales start at the
+ * smallest positive value; an unusable range falls back to [0, 1].
+ */
+export function hierarchyDomainInto(
+  out: Float64Array | number[],
+  tree: Pick<HierarchyTree, 'levels' | 'sizeByValue'>,
+  stats: DepthStats,
+  scale: HierarchyLayer['scale'],
+  domain: readonly [number, number] | null,
+  depth: number,
+): void {
+  let lo: number;
+  let hi: number;
+  if (domain) {
+    lo = domain[0];
+    hi = domain[1];
+  } else {
+    const d = tree.sizeByValue ? Math.min(Math.max(0, depth), MAX_DEPTH) : Math.min(tree.levels, MAX_DEPTH);
+    lo = stats.min[d]!;
+    hi = stats.max[d]!;
+    if (scale === 'log' && !(lo > 0)) {
+      const p = stats.minPositive[d]!;
+      lo = Number.isFinite(p) ? p : 1;
+      if (!(hi > lo)) hi = lo * 10;
+    }
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
+    lo = 0;
+    hi = 1;
+  }
+  out[0] = lo;
+  out[1] = hi;
+}

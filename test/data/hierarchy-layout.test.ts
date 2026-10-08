@@ -109,18 +109,22 @@ describe('layoutHierarchy', () => {
       expect(rad).toBeGreaterThanOrEqual(40 - 1e-3);
       expect(rad).toBeLessThanOrEqual(H / 2 + 1e-3);
       expect(Math.hypot(r.x[i]! - r.cx, r.y[i]! - r.cy)).toBeCloseTo(rad, 2);
-      if (tree.depth[i] === 1) expect(rad).toBeCloseTo(40, 3);
+      if (tree.depth[i] === 1) expect(rad).toBeCloseTo(40 + (H / 2 - 40) / 2, 3);
       if (tree.depth[i] === 2) expect(rad).toBeCloseTo(H / 2, 3);
     }
     // Spokes are straight parent -> child lines; none from the (hidden) centre.
     for (let s = 0; s < r.segments.length; s += 4) {
       expect(Math.hypot(r.segments[s]! - r.cx, r.segments[s + 1]! - r.cy)).toBeGreaterThan(39);
     }
-    // With no inner radius the root shows and level 1 sits one ring out.
+    // The root's spokes run from the inner circle to level 1.
+    const first = [...Array(tree.nodeCount).keys()].find((i) => tree.depth[i] === 1)!;
+    expect(r.segments.slice(0, 4).every(Number.isFinite)).toBe(true);
+    expect(Math.hypot(r.segments[0]! - r.cx, r.segments[1]! - r.cy)).toBeCloseTo(40, 2);
+    expect(Math.hypot(r.segments[2]! - r.x[first]!, r.segments[3]! - r.y[first]!)).toBeCloseTo(0, 2);
+    // With no inner radius the root shows at the centre.
     const open = layoutHierarchy(tree, params('radial-dendrogram', { innerRadius: 0 }));
     expect(open.visible[0]).toBe(1);
-    const first = [...Array(tree.nodeCount).keys()].find((i) => tree.depth[i] === 1)!;
-    expect(open.radius[first]).toBeCloseTo(H / 2 / 3, 3);
+    expect(open.radius[first]).toBeCloseTo(H / 4, 3);
   });
 
   it('sunburst: arcs fill the turn per ring, sized by value', () => {

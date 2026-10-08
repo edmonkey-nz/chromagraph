@@ -175,16 +175,12 @@ export function layoutHierarchy(tree: HierarchyTree, params: LayoutParams): Hier
         .size([2 * Math.PI, 1])
         .separation((a, b) => (a.parent === b.parent ? 1 : 2) / Math.max(1, a.depth));
       const laid = lay(root);
-      // The levels run from the first ring to R. The first ring is innerRadius, or one
-      // ring's step out from the centre when that is 0 (so level 1 is not on the root).
-      let fMin = 1;
-      for (const c of laid.children ?? []) fMin = Math.min(fMin, c.y);
-      const levels = Math.max(1, tree.levels);
-      const ringStart = inner > 0 ? inner : R / (levels + 1);
+      // Levels are evenly spaced rings from the inner radius (where the root's spokes
+      // start) out to R; the root itself is the centre.
       laid.each((node) => {
         const i = node.data;
         const a = finite(node.x);
-        const r = node.depth === 0 ? 0 : fMin < 1 ? ringStart + ((node.y - fMin) / (1 - fMin)) * (R - ringStart) : R;
+        const r = node.depth === 0 ? 0 : inner + finite(node.y) * (R - inner);
         angle[i] = a;
         radius[i] = finite(r);
         x[i] = cx + Math.sin(a) * radius[i]!;
