@@ -1617,10 +1617,11 @@
         background: var(--accent);
         opacity: 0.8;
       }
+      /* Narrow: a slimmer label column, where the kind chip becomes a coloured dot. */
       @container (max-width: 620px) {
         .tl-header,
         .tl-group {
-          --tl-label-w: 132px;
+          --tl-label-w: 148px;
         }
         .tl-hint,
         .tl-type {
@@ -1628,6 +1629,23 @@
         }
         .tl-label {
           padding-left: 8px;
+          padding-right: 4px;
+        }
+        .tl-kind {
+          width: 7px;
+          height: 7px;
+          padding: 0;
+          font-size: 0;
+          line-height: 0;
+          background: currentColor;
+        }
+        .tl-kind.ramp,
+        .tl-kind.lfo,
+        .tl-kind.noise {
+          background: currentColor;
+        }
+        .tl-lrow {
+          gap: 4px;
         }
       }
 

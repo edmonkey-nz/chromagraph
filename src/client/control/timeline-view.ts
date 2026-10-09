@@ -78,6 +78,7 @@ const SCOPE_POINTS = 160;
 const COLLAPSED_KEY = 'timeline-collapsed';
 
 const KIND_CHIPS: Record<Lane['kind'], string> = { keyframes: 'keys', ramp: 'ramp', lfo: 'LFO', noise: 'noise' };
+const KIND_TITLES: Record<Lane['kind'], string> = { keyframes: 'Keyframes', ramp: 'Ramp', lfo: 'LFO (free-running)', noise: 'Noise (free-running)' };
 
 /** Last transport known for a timeline: the synced one, or one we just sent or are scrubbing. */
 class TransportTrack {
@@ -245,6 +246,14 @@ export class TimelineView {
   private lastReadoutMs = 0;
   private trackWidth = 0;
   private scope = new Float32Array(SCOPE_POINTS);
+  /** LFO and noise canvases on screen: only those redraw their scope each frame. */
+  private onScreen = new WeakSet<Element>();
+  private waveObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) this.onScreen.add(e.target);
+      else this.onScreen.delete(e.target);
+    }
+  });
   /** Our last sent edit applied locally, until a newer document arrives (see editDoc). */
   private optimistic: { base: SyncDoc; doc: SyncDoc } | null = null;
 
@@ -395,6 +404,7 @@ export class TimelineView {
     const hadFocus = this.root.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.param : undefined;
     this.drag = null;
     this.builtKey = key;
+    this.waveObserver.disconnect();
     this.groups = groups.map((g) => this.buildGroup(doc, g));
     this.lanesById.clear();
     for (const gu of this.groups) for (const lu of gu.lanes) this.lanesById.set(lu.lane.id, lu);
@@ -506,6 +516,7 @@ export class TimelineView {
     if (wave) {
       track.append(h('span', { className: 'tl-free', textContent: `free-running · last ${formatValue(Math.round(lane.windowSec * 10) / 10)} s` }));
       canvas.title = `${lane.kind === 'lfo' ? 'LFO' : 'Noise'}: runs on the wall clock, not the timeline. Edit it in the Modulation folder.`;
+      this.waveObserver.observe(canvas);
     } else {
       dot = h('span', { className: 'tl-dot' });
       track.append(dot);
@@ -513,7 +524,11 @@ export class TimelineView {
     }
     const valueEl = h('span', { className: 'tl-value' });
     const infoEl = h('span', { className: 'tl-sub' });
-    const chip = h('span', { className: `tl-kind ${lane.kind}`, textContent: `${KIND_CHIPS[lane.kind]}${lane.enabled ? '' : ' (off)'}` });
+    const chip = h('span', {
+      className: `tl-kind ${lane.kind}`,
+      textContent: `${KIND_CHIPS[lane.kind]}${lane.enabled ? '' : ' (off)'}`,
+      title: `${KIND_TITLES[lane.kind]}${lane.enabled ? '' : ' (switched off)'}`,
+    });
     const keyBtn = iconButton('key', wave ? 'LFO and noise do not run on the timeline' : 'Key at playhead', () => this.keyAtPlayhead(lane.id), 'tl-mini');
     keyBtn.disabled = wave;
     const removeBtn = iconButton('close', 'Remove this modulator', () => this.send(removeLaneOps(lane.id), 'Remove'), 'tl-mini danger');
@@ -863,7 +878,7 @@ export class TimelineView {
       }
       for (const lu of gu.lanes) {
         const lane = lu.lane;
-        if (lane.kind === 'lfo' || lane.kind === 'noise') this.drawWave(lu, now);
+        if ((lane.kind === 'lfo' || lane.kind === 'noise') && this.onScreen.has(lu.canvas)) this.drawWave(lu, now);
         const v = laneValue(lane, now, phase);
         if (lu.dot) {
           const dx = Math.round(xOf(phase, gu.width) * 2) / 2;
@@ -1224,8 +1239,8 @@ export class TimelineView {
         this.deps.showError('A keyframes lane needs at least one key (remove the modulator instead).');
         return;
       }
-      this.commit(ops, 'Delete key', null);
       this.selection = null;
+      this.commit(ops, 'Delete key', null);
       return;
     }
     const big = ev.shiftKey ? 10 : 1;
