@@ -126,13 +126,31 @@ export function seekEdit(doc: SyncDoc, target: TimelineTarget, current: Transpor
   return { next, ops: [...(restart ? (target.alsoOn?.(doc, 'restart', nowMs) ?? []) : []), ...target.transportOps(doc, next)] };
 }
 
+/**
+ * Change a timeline's duration, loop or playback, re-anchoring its transport from `current`
+ * so the playhead does not jump. Null when the target has no timeline or nothing changes.
+ */
+export function timelineEdit(doc: SyncDoc, target: TimelineTarget, current: Transport, change: Partial<Timeline>, nowMs: number): TransportEdit | null {
+  const tl = target.timeline(doc);
+  if (!tl) return null;
+  const wanted: Partial<Timeline> = {};
+  if (change.duration !== undefined && change.duration !== tl.duration) wanted.duration = change.duration;
+  if (change.loop !== undefined && change.loop !== tl.loop) wanted.loop = change.loop;
+  if (change.playback !== undefined && change.playback !== tl.playback) wanted.playback = change.playback;
+  const ops = target.timelineOps(doc, wanted);
+  if (ops.length === 0) return null;
+  const next = reanchor(current, tl, { ...tl, ...wanted }, nowMs);
+  return { next, ops: [...ops, ...target.transportOps(doc, next)] };
+}
+
 /** Minimum gap between seeks sent while the phase slider is being dragged. */
 export const SCRUB_INTERVAL_MS = 50;
 
 /** A binding, as far as this panel needs to know (its change handler is attached at creation). */
 type Refreshable = BladeApi & { refresh(): void };
 
-const QUICK_SET: { title: string; seconds: number }[] = [
+/** Quick durations offered next to the duration field. */
+export const QUICK_SET: { title: string; seconds: number }[] = [
   { title: '1 min', seconds: 60 },
   { title: '10 min', seconds: 600 },
   { title: '1 h', seconds: 3600 },
@@ -295,16 +313,8 @@ export class TimelinePanel {
   /** Change duration or loop, re-anchoring the transport so the playhead does not jump. */
   private setTimeline(change: Partial<Timeline>): void {
     const doc = this.deps.getDoc();
-    const tl = doc ? this.target.timeline(doc) : null;
-    if (!doc || !tl || !this.transport) return;
-    const wanted: Partial<Timeline> = {};
-    if (change.duration !== undefined && change.duration !== tl.duration) wanted.duration = change.duration;
-    if (change.loop !== undefined && change.loop !== tl.loop) wanted.loop = change.loop;
-    if (change.playback !== undefined && change.playback !== tl.playback) wanted.playback = change.playback;
-    const ops = this.target.timelineOps(doc, wanted);
-    if (ops.length === 0) return;
-    const next = reanchor(this.transport, tl, { ...tl, ...wanted }, wallMs());
-    this.sendTransport(next, [...ops, ...this.target.transportOps(doc, next)]);
+    const edit = doc && this.transport ? timelineEdit(doc, this.target, this.transport, change, wallMs()) : null;
+    if (edit) this.sendTransport(edit.next, edit.ops);
   }
 
   private togglePlay(): void {

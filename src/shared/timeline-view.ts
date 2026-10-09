@@ -171,6 +171,39 @@ function span(lo: number, hi: number, def: ParamDef): { lo: number; hi: number }
   return { lo: lo - pad, hi: hi + pad };
 }
 
+/**
+ * How a curve lane is scaled vertically: to the parameter's slider range (widened to any
+ * values outside it), or fitted to its own values, so small moves on a wide range show.
+ */
+export type LaneScale = 'slider' | 'fit';
+
+/** Fitted lanes: padding above and below the values, as a fraction of their spread. */
+export const FIT_PAD = 0.1;
+/** Fitted lanes: the smallest span drawn, as a fraction of the slider range (so a flat lane stays flat). */
+export const FIT_MIN_SPAN = 0.02;
+
+/**
+ * The value range a curve lane draws, given the lowest and highest value its keys and curve
+ * reach. `slider`: the slider range, widened to the values. `fit`: the values with FIT_PAD
+ * padding, at least FIT_MIN_SPAN of the slider range tall (2 for whole-number parameters),
+ * kept inside the valid range where it can be.
+ */
+export function laneRange(def: ParamDef, lo: number, hi: number, scale: LaneScale): { lo: number; hi: number } {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return span(def.min, def.max, def);
+  if (scale === 'slider') return span(Math.min(lo, def.min), Math.max(hi, def.max), def);
+  const minSpan = Math.max(Math.abs(def.max - def.min) * FIT_MIN_SPAN, def.integer ? 2 : 0, Math.abs(lo + hi) * 1e-6, 1e-6);
+  const spread = hi - lo;
+  const pad = Math.max(spread * FIT_PAD, (minSpan - spread) / 2);
+  let a = Math.max(lo - pad, def.hardMin);
+  let b = Math.min(hi + pad, def.hardMax);
+  // Clipped by the valid range: grow the other way instead, so the lane keeps its height.
+  if (b - a < minSpan) {
+    if (a <= def.hardMin) b = Math.min(a + minSpan, def.hardMax);
+    else a = Math.max(b - minSpan, def.hardMin);
+  }
+  return span(a, b, def);
+}
+
 /** "LFO · sine · 4 s · ±20" or "Noise · 0.5/s · ±20". */
 export function waveSummary(m: Extract<Modulator, { kind: 'lfo' | 'noise' }>): string {
   const amount = `±${formatValue(Math.abs(m.amount))}`;
@@ -184,8 +217,8 @@ export function waveWindow(m: Extract<Modulator, { kind: 'lfo' | 'noise' }>): nu
   return Math.min(Math.max(sec, 0.02), 600);
 }
 
-/** A lane for one modulated parameter, with its playhead at `phase`. */
-export function buildLane(def: ParamDef, raw: Modulator, base: number, nowMs: number, phase: number, samples = CURVE_SAMPLES): Lane {
+/** A lane for one modulated parameter, with its playhead at `phase` (curve lanes scaled by `scale`). */
+export function buildLane(def: ParamDef, raw: Modulator, base: number, nowMs: number, phase: number, samples = CURVE_SAMPLES, scale: LaneScale = 'slider'): Lane {
   const modulator = sortedModulator(raw);
   const common = { id: def.id, def, enabled: modulator.enabled, base, modulator };
   const value = clampParam(def, evaluate(modulator, base, nowMs, phase));
@@ -205,8 +238,8 @@ export function buildLane(def: ParamDef, raw: Modulator, base: number, nowMs: nu
   const on = { ...modulator, enabled: true };
   const n = Math.max(2, samples);
   const raws = new Float64Array(n);
-  let lo = def.min;
-  let hi = def.max;
+  let lo = Infinity;
+  let hi = -Infinity;
   for (let i = 0; i < n; i++) {
     const v = clampParam(def, evaluate(on, base, nowMs, i / (n - 1)));
     raws[i] = v;
@@ -217,7 +250,7 @@ export function buildLane(def: ParamDef, raw: Modulator, base: number, nowMs: nu
     if (k.value < lo) lo = k.value;
     if (k.value > hi) hi = k.value;
   }
-  const r = span(lo, hi, def);
+  const r = laneRange(def, lo, hi, scale);
   const out = new Float32Array(n);
   for (let i = 0; i < n; i++) out[i] = (raws[i]! - r.lo) / (r.hi - r.lo);
   return { ...common, kind: modulator.kind, ...r, value, keys, samples: out };
@@ -226,9 +259,10 @@ export function buildLane(def: ParamDef, raw: Modulator, base: number, nowMs: nu
 /**
  * Everything the Timeline tab draws at `nowMs`: the project clock, then one group per layer
  * in stack order, then the camera. Each group lists one lane per modulated parameter (in
- * the registry's order) and the parameters it could add a lane for.
+ * the registry's order) and the parameters it could add a lane for. Curve lanes are scaled by
+ * `scale` (see laneRange).
  */
-export function timelineView(doc: SyncDoc, nowMs: number, samples = CURVE_SAMPLES): TimelineView {
+export function timelineView(doc: SyncDoc, nowMs: number, samples = CURVE_SAMPLES, scale: LaneScale = 'slider'): TimelineView {
   const { project, session } = doc;
   const defs = parameterDefs(project);
   const params = project.parameters;
@@ -246,7 +280,7 @@ export function timelineView(doc: SyncDoc, nowMs: number, samples = CURVE_SAMPLE
         continue;
       }
       const base = readParam(project, def.id) ?? def.min;
-      lanes.push(buildLane(def, p.modulator, base, nowMs, clock.playhead, samples));
+      lanes.push(buildLane(def, p.modulator, base, nowMs, clock.playhead, samples, scale));
     }
     return { settings, transport, clock, lanes, free };
   };
@@ -396,6 +430,13 @@ export function keyAtPlayheadOps(doc: SyncDoc, paramId: string, nowMs: number): 
 /** Remove a parameter's modulator (its lane). */
 export function removeLaneOps(paramId: string): PatchOp[] {
   return [{ op: 'remove', path: paramPath(paramId) }];
+}
+
+/** What to ask before removing a lane: “Remove the 3 keyframes on “opacity” (Rain)? …”. */
+export function removeLaneQuestion(lane: Lane, owner: string): string {
+  const n = lane.kind === 'keyframes' ? lane.keys.length : 0;
+  const what = lane.kind === 'keyframes' ? `${n} keyframe${n === 1 ? '' : 's'}` : lane.kind === 'lfo' ? 'LFO' : lane.kind;
+  return `Remove the ${what} on “${lane.def.label}” (${owner})? The parameter goes back to its base value.`;
 }
 
 /** A dragged phase without pixel noise: 5 decimals (under a second on a 24 h timeline). */
