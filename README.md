@@ -97,6 +97,8 @@ the NVIDIA GPU.
 - **Text keeps the file's formatting:** numbers show the decimals the CSV writes ("0.0",
   "12.30") and dates pad the day ("02 Jan 1879"), so text doesn't jump as values change.
 - **About:** the **?** after the title shows ABOUT.md.
+- **Timeline strip:** under the preview, it shows where playback is. Click or drag its ruler
+  to move the playhead; play/pause and restart are there too.
 - **Labels on instancers:** in an instancer's **Labels** folder, label its points by year,
   decade or every N rows (date or a column's value). They follow the layer's spiral, ring,
   line or calendar, and are revealed by its data playhead. **Hide points** gives a

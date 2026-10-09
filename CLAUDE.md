@@ -394,6 +394,13 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   `--tp-*` CSS variables. Shared card helpers are in `ui.ts`.
   - Left: the live preview and Camera (with its own Modulation folder). In edit mode the
     column widens for a bigger preview.
+  - Under the preview is the project timeline strip (`TimelineStrip`,
+    `client/control/timeline-strip.ts`): Play/Pause, Restart, position, a playback chip, and a
+    ruler to scrub.
+    - It uses the same `playPauseEdit` / `seekEdit` as the Timeline card and tab, and
+      throttles scrubs to one every 50 ms (the last is always sent).
+    - It ignores incoming transports while dragging, and until the echo of its last send.
+    - It animates only while on screen and the page is visible. It stays when Live is off.
   - Right zone (`#zone-layers`), full height, in tabs (`Tabs`, remembered as `right-tab`):
     - **Scene** (`#panel-scene`): Scenes, Timeline, Output (background) and Calibration
       cards, flowing down CSS columns at least 400 px wide.
