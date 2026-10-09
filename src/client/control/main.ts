@@ -20,6 +20,7 @@ import { ProjectBar } from './project-bar.ts';
 import { ScenesPanel } from './scenes-panel.ts';
 import { Tabs } from './tabs.ts';
 import { TimelinePanel } from './timeline-panel.ts';
+import { TimelineStrip } from './timeline-strip.ts';
 import { TimelineView } from './timeline-view.ts';
 import { renderMarkdown } from './markdown.ts';
 import { Card, h, icon, loadSetting, saveSetting } from './ui.ts';
@@ -30,7 +31,8 @@ import { Card, h, icon, loadSetting, saveSetting } from './ui.ts';
  *   header       project switcher, Save / Save as / Snapshots, save state, output buttons,
  *                connection pills
  *   workspace    two columns:
- *                  left    live preview (with edit-mode tools), Camera
+ *                  left    live preview (with edit-mode tools) and the project timeline
+ *                          strip under it, Camera
  *                  right   tabs, full height: Scene (Scenes, Timeline, Output, Calibration),
  *                          Datasets, Layers (one card per layer, two columns when wide; each
  *                          card has the layer's own Modulation folder) and Timeline (the
@@ -113,6 +115,7 @@ const state = new SyncedState(
     scenesPanel.update(doc);
     layersPanel.update(doc, external);
     timelineView.update(doc, external);
+    timelineStrip.update(doc);
     el.badges.layers.textContent = doc.project.layers.length > 0 ? String(doc.project.layers.length) : '';
     const animated = Object.keys(doc.project.parameters).filter((id) => hasOwner(doc, id)).length;
     el.badges.timeline.textContent = animated > 0 ? String(animated) : '';
@@ -252,6 +255,10 @@ el.previewToggle.addEventListener('change', () => {
   editMode.previewChanged(el.previewToggle.checked);
 });
 setPreview(loadSetting('preview') !== 'off');
+
+// The project timeline under the preview (always shown, also with the preview off). It
+// animates itself while on screen.
+const timelineStrip = new TimelineStrip($('timeline-strip'), { sendPatch, getDoc });
 
 // ---- edit mode (gizmo editing in the preview) ---------------------------------------------
 

@@ -740,6 +740,56 @@
         pointer-events: auto;
       }
 
+      /* ---- project timeline strip (under the preview; see timeline-strip.ts) --------------------- */
+      /* Transport above a full-width ruler; one row when the strip is wide (edit mode at 1080p). */
+      .tstrip-host {
+        container-type: inline-size;
+        border-top: 1px solid var(--line-soft);
+      }
+      .tstrip {
+        --tl-playhead: #f3f5f9;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 2px;
+        padding: 6px 10px 8px;
+      }
+      .tstrip .tstrip-bar {
+        min-height: 0;
+        padding: 0;
+        gap: 4px;
+        min-width: 0;
+      }
+      .tstrip .tstrip-bar .icon-btn {
+        width: 28px;
+        height: 28px;
+        flex: none;
+      }
+      .tstrip .tstrip-pos {
+        font-size: 13px;
+        margin-left: 6px;
+      }
+      .tstrip .tl-chip {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tstrip-ruler {
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.025);
+        overflow: hidden;
+      }
+      .tstrip-ruler .tl-head-mark {
+        bottom: 0;
+      }
+      @container (min-width: 720px) {
+        .tstrip {
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          padding: 6px 10px;
+        }
+      }
+
       /* ---- bottom drawer: Datasets, Output windows, Calibration, Diagnostics, Problems, Log ---------- */
       .drawer {
         grid-row: 4;
@@ -2105,6 +2155,8 @@
             <div id="edit-badge"></div>
             <div id="preview-off" hidden>Preview off. It frees the GPU while the output keeps running.</div>
           </div>
+          <!-- The project timeline: transport, position and a ruler to scrub (TimelineStrip). -->
+          <div id="timeline-strip" class="tstrip-host" role="group" aria-label="Project timeline"></div>
         </div>
         <div class="zone" id="zone-look" aria-label="Camera"></div>
       </div>
