@@ -19,8 +19,11 @@ import {
   moveRampOps,
   normalise,
   rampAsKeyframes,
+  reframeLane,
   removeLaneOps,
   tickStep,
+  tidyPhase,
+  tidyValue,
   timelineSummary,
   timelineView,
   waveSummary,
@@ -373,5 +376,26 @@ describe('display helpers', () => {
     expect(formatTick(2.5, 0.5, 10)).toBe('2.5 s');
     expect(formatTick(90, 30, 600)).toBe('1:30');
     expect(formatTick(90, 30, 3600)).toBe('0:01:30');
+  });
+});
+
+describe('dragging helpers', () => {
+  it('rounds dragged phases and values to sensible precision', () => {
+    expect(tidyPhase(0.39999995340827765)).toBe(0.4);
+    expect(tidyValue(0.6000002906436012, 1)).toBe(0.6);
+    expect(tidyValue(123.456, 4000)).toBe(123);
+    expect(tidyValue(12.3456, 200)).toBe(12.3);
+    expect(tidyValue(7, 0)).toBe(7);
+  });
+
+  it('keeps a lane’s scale fixed while a key is dragged', () => {
+    const d = doc();
+    d.project.parameters['layer.ly-a.transform.position.0'] = param({ kind: 'ramp', enabled: true, from: -5000, to: 100, easing: 'linear' });
+    const lane = timelineView(d, T0).groups[0]!.lanes.find((l) => l.id === 'layer.ly-a.transform.position.0') as CurveLane;
+    const value = denormalise(lane, lane.samples[64]!);
+    reframeLane(lane, -6000, 3000);
+    expect([lane.lo, lane.hi]).toEqual([-6000, 3000]);
+    expect(denormalise(lane, lane.samples[64]!)).toBeCloseTo(value, 2);
+    expect(lane.samples[0]).toBeCloseTo(1000 / 9000, 5);
   });
 });

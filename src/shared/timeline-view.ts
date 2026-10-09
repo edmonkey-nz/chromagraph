@@ -398,6 +398,21 @@ export function removeLaneOps(paramId: string): PatchOp[] {
   return [{ op: 'remove', path: paramPath(paramId) }];
 }
 
+/** A dragged phase without pixel noise: 5 decimals (under a second on a 24 h timeline). */
+export function tidyPhase(p: number): number {
+  return Math.round(p * 1e5) / 1e5;
+}
+
+/**
+ * A dragged value without pixel noise: rounded to about 1/2000 of the lane's span, to a
+ * whole number of decimals (whole numbers for a span of 2000 or more, 4 decimals for 0..1).
+ */
+export function tidyValue(v: number, span: number): number {
+  if (!Number.isFinite(v) || !(span > 0)) return v;
+  const decimals = Math.min(Math.max(Math.ceil(-Math.log10(span / 2000)), 0), 8);
+  return Number(v.toFixed(decimals));
+}
+
 // ---- ruler ----------------------------------------------------------------------------------
 
 const TICK_STEPS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];

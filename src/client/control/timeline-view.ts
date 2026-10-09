@@ -11,6 +11,8 @@ import {
   denormalise,
   emptyClock,
   formatTick,
+  tidyPhase,
+  tidyValue,
   keyAtPlayheadOps,
   laneValue,
   moveKeyOps,
@@ -197,6 +199,12 @@ const phaseOf = (x: number, w: number) => Math.min(Math.max((x - PAD_X) / Math.m
 /** y (px) of lane position n (0 bottom, 1 top). */
 const yOf = (n: number, hgt: number) => PAD_Y + (1 - n) * (hgt - PAD_Y * 2);
 const nOf = (y: number, hgt: number) => 1 - (y - PAD_Y) / (hgt - PAD_Y * 2);
+
+/** " ◂" while a ping-pong or reverse playhead runs back towards 0 (" ▸" on a ping-pong's way out). */
+function arrow(tl: TimelineSettings, clock: ClockState): string {
+  if (tl.playback === 'forward') return '';
+  return clock.direction < 0 ? ' ◂' : ' ▸';
+}
 
 function isCurve(lane: Lane): lane is CurveLane {
   return lane.kind === 'ramp' || lane.kind === 'keyframes';
@@ -512,8 +520,8 @@ export class TimelineView {
     const label = h(
       'div',
       { className: 'tl-label' },
-      h('div', { className: 'tl-lrow' }, h('span', { className: 'tl-name', textContent: lane.def.label, title: paramTitle(lane.def) }), chip),
-      h('div', { className: 'tl-lrow' }, valueEl, infoEl, h('span', { className: 'spacer' }), keyBtn, removeBtn),
+      h('div', { className: 'tl-lrow' }, h('span', { className: 'tl-name', textContent: lane.def.label, title: paramTitle(lane.def) }), chip, h('span', { className: 'spacer' }), keyBtn, removeBtn),
+      h('div', { className: 'tl-lrow' }, valueEl, infoEl),
     );
     const row = h('div', { className: `tl-row tl-lane ${wave ? 'wave' : 'curve'}${lane.enabled ? '' : ' disabled'}` }, label, track);
     gu.body.append(row);
@@ -826,7 +834,7 @@ export class TimelineView {
     clockState(pt, settings, now, this.masterClock);
     this.moveHead(this.masterRuler, this.masterClock.playhead, this.trackWidth);
     if (readouts) {
-      const pos = `${formatClock(this.masterClock.playhead * settings.duration, settings.duration)} / ${formatClock(settings.duration)}`;
+      const pos = `${formatClock(this.masterClock.playhead * settings.duration, settings.duration)} / ${formatClock(settings.duration)}${arrow(settings, this.masterClock)}`;
       if (pos !== this.lastMasterPos) {
         this.lastMasterPos = pos;
         this.masterPos.textContent = pos;
@@ -846,7 +854,7 @@ export class TimelineView {
       if (gu.ruler) this.moveHead(gu.ruler, phase, gu.width);
       if (readouts && gu.posEl && gu.playBtn) {
         const d = gu.g.settings.duration;
-        const pos = `${formatClock(phase * d, d)} / ${formatClock(d)}`;
+        const pos = `${formatClock(phase * d, d)} / ${formatClock(d)}${arrow(gu.g.settings, clock)}`;
         if (pos !== gu.lastPos) {
           gu.lastPos = pos;
           gu.posEl.textContent = pos;
@@ -1132,7 +1140,7 @@ export class TimelineView {
       const { x, y } = local(ev);
       if (this.hitKey(lu, x, y) >= 0) return;
       const doc = this.editDoc();
-      const edit = doc ? addKeyOps(doc.project, lu.lane.id, phaseOf(x, lu.group.width)) : null;
+      const edit = doc ? addKeyOps(doc.project, lu.lane.id, tidyPhase(phaseOf(x, lu.group.width))) : null;
       if (!edit) {
         this.deps.showError('No key added (64 keys is the most a lane can have).');
         return;
@@ -1148,9 +1156,9 @@ export class TimelineView {
     if (shift && d.axis === null && Math.hypot(x - d.x0, y - d.y0) >= AXIS_PX) d.axis = Math.abs(x - d.x0) >= Math.abs(y - d.y0) ? 'x' : 'y';
     if (!shift) d.axis = null;
     const lane = d.lu.lane;
-    const at = lane.kind === 'ramp' || d.axis === 'y' ? d.startAt : phaseOf(xOf(d.startAt, w) + (x - d.x0), w);
+    const at = lane.kind === 'ramp' || d.axis === 'y' ? d.startAt : tidyPhase(phaseOf(xOf(d.startAt, w) + (x - d.x0), w));
     const n = Math.min(Math.max(nOf(yOf(normalise(d, d.startValue), CURVE_H) + (y - d.y0), CURVE_H), 0), 1);
-    const value = d.axis === 'x' ? d.startValue : denormalise(d, n);
+    const value = d.axis === 'x' ? d.startValue : tidyValue(denormalise(d, n), d.hi - d.lo);
     if (at === d.last.at && value === d.last.value) return;
     d.last = { at, value };
     let ops: PatchOp[] | null;
