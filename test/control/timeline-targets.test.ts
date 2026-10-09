@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layerTimeline, ownTimelineOps, playPauseEdit, projectTimeline, seekEdit } from '../../src/client/control/timeline-panel.ts';
+import { layerTimeline, ownTimelineOps, playPauseEdit, projectTimeline, seekEdit, timelineEdit } from '../../src/client/control/timeline-panel.ts';
 import { blankInstancerLayer } from '../../src/shared/layer-schema.ts';
 import { layerPhase, paramPhase } from '../../src/shared/modulation-helpers.ts';
 import { applyOps } from '../../src/shared/patch.ts';
@@ -102,5 +102,49 @@ describe('transport edits (shared by the Timeline card and the Timeline tab)', (
     const d = doc();
     expect(playPauseEdit(d, layerTimeline('ly-a'), d.session.transport, T0)).toBeNull();
     expect(seekEdit(d, layerTimeline('ly-a'), d.session.transport, 0.5, T0)).toBeNull();
+  });
+});
+
+describe('fades and gap before restart (project timeline only)', () => {
+  const gapDoc = (): SyncDoc => {
+    const d = doc();
+    d.project.timeline = { ...d.project.timeline, duration: 10, gap: 2 };
+    return d;
+  };
+
+  it('setting the gap, fades or fade length patches the project timeline and keeps the playhead', () => {
+    const d = gapDoc();
+    const now = T0 + 5_000; // halfway through the pass
+    for (const change of [{ gap: 4 }, { fadeIn: true }, { fadeOut: true }, { fadeLength: 3 }]) {
+      const edit = timelineEdit(d, projectTimeline, d.session.transport, change, now)!;
+      const key = Object.keys(change)[0]!;
+      expect(edit.ops.map((o) => o.path.join('.'))).toEqual([`project.timeline.${key}`, 'session.transport']);
+      const next = checked(d, edit.ops);
+      expect(layerPhase(next.project, next.session, 'ly-a', now)).toBeCloseTo(0.5);
+    }
+    expect(timelineEdit(d, projectTimeline, d.session.transport, { gap: 2 }, now)).toBeNull(); // unchanged
+  });
+
+  it('a layer’s own timeline ignores fades and gap', () => {
+    const now = T0 + 5_000;
+    const d = checked(gapDoc(), ownTimelineOps(gapDoc(), 'ly-a', true, now));
+    expect(timelineEdit(d, layerTimeline('ly-a'), d.session.transport, { gap: 3, fadeIn: true }, now)).toBeNull();
+    const edit = timelineEdit(d, layerTimeline('ly-a'), d.session.transport, { gap: 3, duration: 20 }, now)!;
+    expect(edit.ops.map((o) => o.path.join('.'))).toEqual(['project.layers.0.timeline.duration', 'session.layerTransports.ly-a']);
+    checked(d, edit.ops);
+  });
+
+  it('a scrub lands in the pass; pausing in the gap keeps the time held there', () => {
+    const d = gapDoc();
+    const inGap = T0 + 11_000;
+    const scrub = seekEdit(d, projectTimeline, d.session.transport, 0.3, inGap)!;
+    const after = checked(d, scrub.ops);
+    expect(layerPhase(after.project, after.session, 'ly-b', inGap)).toBeCloseTo(0.3);
+    expect(layerPhase(after.project, after.session, 'ly-b', inGap + 7_000)).toBe(1); // the gap follows the pass
+    const pause = playPauseEdit(d, projectTimeline, d.session.transport, inGap)!;
+    const play = playPauseEdit(checked(d, pause.ops), projectTimeline, pause.next, inGap + 60_000)!;
+    const playing = checked(d, play.ops);
+    expect(layerPhase(playing.project, playing.session, 'ly-b', inGap + 60_900)).toBe(1);
+    expect(layerPhase(playing.project, playing.session, 'ly-b', inGap + 61_500)).toBeCloseTo(0.05);
   });
 });
