@@ -1,5 +1,5 @@
 import type { FolderApi } from 'tweakpane';
-import { encodeQr, qrText, type QrLevel } from '../../data/qr-data.ts';
+import { encodeQr, QR_MAX_BYTES, qrText, utf8Length, type QrLevel } from '../../data/qr-data.ts';
 import { QR_CONTENTS, QR_LEVELS, type LayerConfig, type QrLayer } from '../../shared/layer-schema.ts';
 import { addChoice, addIdentity, addNumber, addOpacityBlend, addPlain, addVec3, buildEffects, buildTransform, type LayerUi } from './layer-ui.ts';
 
@@ -19,6 +19,7 @@ const LEVEL_TITLES: Record<QrLevel, string> = {
   H: 'H: 30 % (sturdiest)',
 };
 const SCAN_HINT = 'Dark on light scans best; keep the margin at 4; on a wall aim for at least ~20 cm wide.';
+const EFFECTS_HINT = 'Glow and blur soften the module edges and can stop the code scanning.';
 
 export function buildQr(ui: LayerUi, layer: QrLayer, titleOf: (l: LayerConfig) => string): void {
   const root = ui.entry.folder;
@@ -44,7 +45,7 @@ export function buildQr(ui: LayerUi, layer: QrLayer, titleOf: (l: LayerConfig) =
   addPlain(ui, k, layer.light, 'light', ['light']).element.title = `${SCAN_HINT} The light colour also fills the margin.`;
   addOpacityBlend(ui, k, layer);
   const tip = k.addBlade({ view: 'text', label: '', parse: (v: string) => v, value: 'Scanning tips (hover)', disabled: true });
-  tip.element.title = SCAN_HINT;
+  tip.element.title = `${SCAN_HINT} ${EFFECTS_HINT}`;
 
   const p = ui.folder(root, 'Placement', 'Placement', true);
   addNumber(ui, p, layer.size, 'size (px)', ['size'], {
@@ -97,10 +98,10 @@ function addDatasetNote(ui: LayerUi, f: FolderApi, layer: QrLayer): void {
   f.addBlade({ view: 'text', label: 'link', parse: (v: string) => v, value: text, disabled: true }).element.title = hint;
 }
 
-/** "33 × 33 modules, 7.6 px each", or what is wrong. */
+/** "33 × 33 modules, 7.6 px each", or what is wrong (on one line). */
 function addReadout(ui: LayerUi, f: FolderApi): void {
   const m = { code: '' };
-  const api = f.addBinding(m, 'code', { label: 'code', readonly: true, multiline: true, rows: 2, interval: 0 });
+  const api = f.addBinding(m, 'code', { label: 'code', readonly: true, interval: 0 });
   api.element.title = `Modules across (margin included) and the px each gets at 1080p. ${SCAN_HINT}`;
   let encoded: { text: string | null; level: QrLevel; count: number; error: string | null } | null = null;
   const refresh = () => {
@@ -110,10 +111,16 @@ function addReadout(ui: LayerUi, f: FolderApi): void {
     const text = qrText(l, datasets);
     if (!encoded || encoded.text !== text || encoded.level !== l.level) {
       encoded = { text, level: l.level, count: 0, error: null };
-      try {
-        if (text !== null) encoded.count = encodeQr(text, l.level).count;
-      } catch (err) {
-        encoded.error = err instanceof Error ? err.message : String(err);
+      const bytes = text === null ? 0 : utf8Length(text);
+      if (bytes > QR_MAX_BYTES[l.level]) {
+        // The output flags the layer with the full message.
+        encoded.error = `too long: ${bytes} bytes, at most ${QR_MAX_BYTES[l.level]} at ${l.level}`;
+      } else {
+        try {
+          if (text !== null) encoded.count = encodeQr(text, l.level).count;
+        } catch (err) {
+          encoded.error = err instanceof Error ? err.message : String(err);
+        }
       }
     }
     let out: string;

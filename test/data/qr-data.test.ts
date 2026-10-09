@@ -1,6 +1,6 @@
 import jsQR from 'jsqr';
 import { describe, expect, it } from 'vitest';
-import { encodeQr, QR_MAX_BYTES, qrSide, qrTexels, qrText, type QrLevel, type QrMatrix } from '../../src/data/qr-data.ts';
+import { encodeQr, QR_MAX_BYTES, qrSide, qrTexels, qrText, utf8Length, type QrLevel, type QrMatrix } from '../../src/data/qr-data.ts';
 import { blankQrLayer, QR_LEVELS } from '../../src/shared/layer-schema.ts';
 
 /**
@@ -83,6 +83,7 @@ describe('encodeQr', () => {
     expect(encodeQr('a'.repeat(max), level).count).toBe(177); // version 40
     expect(() => encodeQr('a'.repeat(max + 1), level)).toThrow(/too long for a QR code: 1274 bytes, at most 1273 at level H/);
     // Counted in UTF-8 bytes: "ā" is two.
+    expect(utf8Length('ā1')).toBe(3);
     expect(() => encodeQr('ā'.repeat(1000), 'Q')).toThrow(/2000 bytes, at most 1663/);
     expect(encodeQr('a'.repeat(QR_MAX_BYTES.L), 'L').count).toBe(177);
   });

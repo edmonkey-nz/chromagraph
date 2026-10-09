@@ -43,6 +43,11 @@ export function qrText(layer: Pick<QrLayer, 'content' | 'text' | 'datasetId'>, d
   return trimmed === '' ? null : trimmed;
 }
 
+/** Bytes `text` takes in UTF-8, which is what counts against QR_MAX_BYTES. */
+export function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 /** `text` as a "binary string" of its UTF-8 bytes (one char per byte), which the encoder takes as is. */
 function utf8Binary(text: string): { binary: string; length: number } {
   const bytes = new TextEncoder().encode(text);
