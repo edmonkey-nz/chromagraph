@@ -3,7 +3,7 @@ import { dataUrl, DatasetLoader, type LoadedFile } from '../../data/dataset-load
 import type { Cadence } from '../../data/gaps.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import { summarise, type DatasetSummary } from '../../shared/layer-defaults.ts';
-import type { Dataset } from '../../shared/project-schema.ts';
+import { DatasetSchema, type Dataset } from '../../shared/project-schema.ts';
 
 interface Report {
   file: string;
@@ -15,6 +15,32 @@ interface Report {
 }
 
 const DAY_MS = 86_400_000;
+
+type CreditField = 'source' | 'url' | 'attribution';
+
+/** The credit inputs: field, label, placeholder and hover hint. */
+const CREDIT_FIELDS: readonly [field: CreditField, label: string, placeholder: string, hint: string][] = [
+  ['source', 'source', 'NIWA CliFlo', 'Where the data comes from, e.g. "NIWA CliFlo". Text layers show it with {@source} and {@credit}.'],
+  ['url', 'link', 'https://cliflo.niwa.co.nz', 'A link to the data, e.g. "https://cliflo.niwa.co.nz", shown as typed. Text layers show it with {@url}.'],
+  [
+    'attribution',
+    'attribution',
+    '© NIWA, CC BY 4.0',
+    'The credit or licence line the source asks for, e.g. "© NIWA, CC BY 4.0". Text layers show it with {@attribution} and {@credit}.',
+  ],
+];
+
+/**
+ * One dataset's card. The card and its credit inputs are kept across renders (only the head
+ * and the report are rebuilt), so an echo or another window's change never takes the focus
+ * or the text from an input being typed in.
+ */
+interface Card {
+  el: HTMLElement;
+  head: HTMLElement;
+  body: HTMLElement;
+  credits: Record<CreditField, HTMLInputElement>;
+}
 
 function timeZones(): string[] {
   try {
@@ -93,8 +119,8 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEle
 }
 
 /**
- * Datasets section of the control window: import, per-file parse report, label and
- * timezone editing, removal. Reports are produced by the same worker parser the output uses.
+ * Datasets section of the control window: import, per-file parse report, label, timezone
+ * and credits (source, link, attribution) editing, removal. Reports are produced by the same worker parser the output uses.
  */
 export class DatasetsPanel {
   private loader = new DatasetLoader();
@@ -102,6 +128,7 @@ export class DatasetsPanel {
   private datasets: readonly Dataset[] = [];
   private projectName = '';
   private zones = timeZones();
+  private cards = new Map<string, Card>();
 
   /** Called whenever a dataset report finishes loading (or fails), after the panel re-renders. */
   onChange: (() => void) | null = null;
@@ -123,6 +150,7 @@ export class DatasetsPanel {
   update(projectName: string, datasets: readonly Dataset[]): void {
     if (projectName !== this.projectName) {
       this.reports.clear();
+      this.cards.clear();
       this.projectName = projectName;
     }
     if (datasets === this.datasets) return;
@@ -183,13 +211,83 @@ export class DatasetsPanel {
 
   private render(): void {
     if (this.datasets.length === 0) {
+      this.cards.clear();
       this.root.replaceChildren(h('div', { className: 'muted' }, 'No datasets yet. Import a CSV or JSON file.'));
       return;
     }
-    this.root.replaceChildren(...this.datasets.map((d, i) => this.renderDataset(d, i)));
+    const ids = new Set(this.datasets.map((d) => d.id));
+    for (const id of [...this.cards.keys()]) if (!ids.has(id)) this.cards.delete(id);
+    const els = this.datasets.map((d, i) => this.renderDataset(d, i));
+    // Re-placing a card would blur an input in it, so only do it when the list changed.
+    const kids = this.root.children;
+    if (kids.length !== els.length || els.some((el, i) => kids[i] !== el)) this.root.replaceChildren(...els);
+  }
+
+  private card(d: Dataset): Card {
+    const known = this.cards.get(d.id);
+    if (known) return known;
+    const head = h('div', { className: 'ds-head' });
+    const body = h('div', { className: 'ds-body' });
+    const grid = h('div', { className: 'ds-credits' });
+    const credits = {} as Record<CreditField, HTMLInputElement>;
+    for (const [field, label, placeholder, hint] of CREDIT_FIELDS) {
+      credits[field] = this.creditInput(d.id, field, placeholder, hint);
+      grid.append(h('label', { textContent: label, title: hint, htmlFor: credits[field].id }), credits[field]);
+    }
+    const card: Card = { el: h('div', { className: 'dataset' }, head, grid, body), head, body, credits };
+    this.cards.set(d.id, card);
+    return card;
+  }
+
+  /**
+   * A credit text box. It sends on change (Enter or leaving the box), not per keystroke;
+   * Escape puts back the project's value. Leaving it without a change also shows the
+   * project's value, in case another window changed it meanwhile.
+   */
+  private creditInput(id: string, field: CreditField, placeholder: string, hint: string): HTMLInputElement {
+    const max = DatasetSchema.shape[field].maxLength ?? 2000;
+    const input = h('input', { type: 'text', placeholder, title: hint, maxLength: max, spellcheck: false, id: `ds-${field}-${id}` });
+    let sent = false;
+    const current = () => this.datasets.find((d) => d.id === id)?.[field] ?? '';
+    input.addEventListener('focus', () => (sent = false));
+    input.addEventListener('change', () => {
+      sent = true;
+      this.sendCredit(id, field, input.value);
+    });
+    input.addEventListener('blur', () => {
+      // Its echo may have arrived while the box still had the focus (Enter).
+      input.value = sent ? input.value.trim() : current();
+    });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape') return;
+      input.value = current();
+      input.blur();
+    });
+    return input;
+  }
+
+  /** Validate and send one credit field; the dataset's index is looked up now, by id. */
+  private sendCredit(id: string, field: CreditField, raw: string): void {
+    const index = this.datasets.findIndex((d) => d.id === id);
+    const dataset = this.datasets[index];
+    if (!dataset) return;
+    const value = raw.trim();
+    if (value === dataset[field]) return;
+    const check = DatasetSchema.shape[field].safeParse(value);
+    if (!check.success) {
+      this.showError(`The ${field === 'url' ? 'link' : field} of "${dataset.label}" was not saved: ${check.error.issues[0]?.message ?? 'invalid'}`);
+      return;
+    }
+    this.sendPatch([{ op: 'set', path: ['project', 'datasets', index, field], value }]);
   }
 
   private renderDataset(d: Dataset, index: number): HTMLElement {
+    const card = this.card(d);
+    for (const [field] of CREDIT_FIELDS) {
+      const input = card.credits[field];
+      // Never overwrite the box being typed in; it sends its own value when left.
+      if (document.activeElement !== input && input.value !== d[field]) input.value = d[field];
+    }
     const report = this.reports.get(d.id);
     const path = (key: string) => ['project', 'datasets', index, key];
 
@@ -210,8 +308,9 @@ export class DatasetsPanel {
       }
     });
 
-    const head = h('div', { className: 'ds-head' }, label, h('span', { className: 'muted' }, d.file), tz, remove);
-    const body = h('div', { className: 'ds-body' });
+    const { head, body } = card;
+    head.replaceChildren(label, h('span', { className: 'muted' }, d.file), tz, remove);
+    body.replaceChildren();
 
     if (!report || report.status === 'loading') {
       body.append(h('div', { className: 'muted' }, 'Parsing…'));
@@ -245,6 +344,6 @@ export class DatasetsPanel {
         );
       }
     }
-    return h('div', { className: 'dataset' }, head, body);
+    return card.el;
   }
 }
