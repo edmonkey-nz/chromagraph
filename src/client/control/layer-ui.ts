@@ -218,39 +218,76 @@ export function addOpacityBlend(ui: LayerUi, f: FolderApi, layer: LayerConfig): 
   f.addBinding(m, 'blend', { options: options(BLEND_MODES) }).on('change', (ev) => ui.set(['blend'], ev.value));
 }
 
-type EffectSliders = [field: string, label: string, min: number, max: number, hint: string][];
+type EffectSliders = [field: string, label: string, min: number, max: number, step: number, hint: string][];
+type EffectKey = 'glow' | 'trails' | 'shadow' | 'blur';
 
 /**
- * "Glow" and "Trails" folders (every layer, open when the effect is on). Moving a slider
- * while its effect is off switches the effect on: greyed-out or dead sliders read as broken.
+ * "Glow", "Trails", "Shadow" and "Blur" folders (every layer, open when the effect is on).
+ * Changing any setting while its effect is off switches the effect on: greyed-out or dead
+ * sliders read as broken.
  */
 export function buildEffects(ui: LayerUi, f: FolderApi, layer: LayerConfig): void {
   const fx = structuredClone(layer.effects);
-  const section = (key: 'glow' | 'trails', title: string, sliders: EffectSliders) => {
-    const model = fx[key] as unknown as Record<string, number | boolean>;
+  const section = (key: EffectKey, title: string, sliders: EffectSliders) => {
+    const model = fx[key] as unknown as Record<string, unknown>;
     const folder = ui.folder(f, title, key, fx[key].enabled);
     const on = folder.addBinding(model, 'enabled', { label: 'on' }).on('change', (ev) => ui.set(['effects', key, 'enabled'], ev.value));
-    for (const [field, label, min, max, hint] of sliders) {
-      const api = folder.addBinding(model, field, { label, min, max, step: 0.01 }).on('change', (ev) => {
-        if (ui.isQuiet()) return;
-        const changes: LayerChange[] = [{ path: ['effects', key, field], value: ev.value }];
-        if (!model.enabled) {
-          model.enabled = true;
-          changes.push({ path: ['effects', key, 'enabled'], value: true });
-          ui.quiet(() => on.refresh());
-        }
-        ui.send(changes);
-      });
+    /** Send `changes`, switching the effect on with them when it is off. */
+    const send = (changes: LayerChange[]) => {
+      if (ui.isQuiet()) return;
+      if (!model.enabled) {
+        model.enabled = true;
+        changes.push({ path: ['effects', key, 'enabled'], value: true });
+        ui.quiet(() => on.refresh());
+      }
+      ui.send(changes);
+    };
+    for (const [field, label, min, max, step, hint] of sliders) {
+      const api = folder
+        .addBinding(model, field, { label, min, max, step })
+        .on('change', (ev) => send([{ path: ['effects', key, field], value: ev.value }]));
       api.element.title = hint;
       ui.mark(api, label, `effects.${key}.${field}`);
     }
+    return { folder, model, send };
   };
   section('glow', 'Glow', [
-    ['strength', 'strength', 0, 3, 'How bright the glow is'],
-    ['radius', 'radius', 0, 1, 'How far the glow spreads'],
-    ['threshold', 'threshold', 0, 1, 'How bright a mark must be to glow: 0 = everything glows, 1 = only pure white'],
+    ['strength', 'strength', 0, 3, 0.01, 'How bright the glow is'],
+    ['radius', 'radius', 0, 1, 0.01, 'How far the glow spreads'],
+    ['threshold', 'threshold', 0, 1, 0.01, 'How bright a mark must be to glow: 0 = everything glows, 1 = only pure white'],
   ]);
-  section('trails', 'Trails', [['persistence', 'length', 0, 0.99, 'How much of each frame stays on the next (per 1/60 s): 0 = no trail, 0.95 = long smears']]);
+  section('trails', 'Trails', [['persistence', 'length', 0, 0.99, 0.01, 'How much of each frame stays on the next (per 1/60 s): 0 = no trail, 0.95 = long smears']]);
+
+  const shadow = section('shadow', 'Shadow', []);
+  shadow.folder
+    .addBinding(shadow.model, 'colour', { label: 'colour' })
+    .on('change', (ev) => shadow.send([{ path: ['effects', 'shadow', 'colour'], value: ev.value }])).element.title = 'Colour of the shadow';
+  const shadowSliders: EffectSliders = [
+    ['opacity', 'opacity', 0, 1, 0.01, 'How dark the shadow is: 0 = invisible, 1 = solid colour'],
+    ['spread', 'spread', 0, 100, 1, 'How soft the shadow is, in output pixels: 0 = a sharp copy of the layer'],
+  ];
+  for (const [field, label, min, max, step, hint] of shadowSliders) {
+    const api = shadow.folder
+      .addBinding(shadow.model, field, { label, min, max, step })
+      .on('change', (ev) => shadow.send([{ path: ['effects', 'shadow', field], value: ev.value }]));
+    api.element.title = hint;
+    ui.mark(api, label, `effects.shadow.${field}`);
+  }
+  const offset = { x: fx.shadow.offset[0], y: fx.shadow.offset[1] };
+  for (const [axis, i, hint] of [
+    ['x', 0, 'How far the shadow sits to the right of the layer, in output pixels (negative: to the left)'],
+    ['y', 1, 'How far the shadow sits above the layer, in output pixels (negative: below)'],
+  ] as const) {
+    const label = `offset ${axis}`;
+    const api = shadow.folder.addBinding(offset, axis, { label, min: -100, max: 100, step: 1 }).on('change', () => {
+      if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) return;
+      shadow.send([{ path: ['effects', 'shadow', 'offset'], value: [offset.x, offset.y] }]);
+    });
+    api.element.title = hint;
+    ui.mark(api, label, `effects.shadow.offset.${i}`);
+  }
+
+  section('blur', 'Blur', [['amount', 'amount', 0, 100, 0.5, 'How much the layer is blurred, in output pixels: 0 = sharp']]);
 }
 
 export function addFitButton(ui: LayerUi, f: FolderApi): void {
@@ -555,6 +592,9 @@ export function buildTransform(ui: LayerUi, parent: FolderApi, t: LayerTransform
     const api = f.addBinding(m, key, opts).on('change', (ev) => ui.set(['transform', key], vec3Tuple(ev.value)));
     return { key, api: ui.mark(api, label, ...xyz(`transform.${key}`)) };
   });
+  const fixed = { screenFixed: ui.entry.layer.screenFixed };
+  f.addBinding(fixed, 'screenFixed', { label: 'fixed to screen' }).on('change', (ev) => ui.set(['screenFixed'], ev.value)).element.title =
+    "Draw this layer with the 2D screen camera, so 3D camera moves don't affect it";
   f.addButton({ title: 'Reset transform' }).on('click', () => ui.set(['transform'], identityTransform()));
   f.addButton({ title: 'Pivot to centre' }).on('click', () => ui.set(['transform', 'pivot'], [...FRAME_CENTRE]));
 

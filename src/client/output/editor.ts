@@ -123,7 +123,7 @@ export class PreviewEditor {
     try {
       renderer.autoClear = false;
       renderer.clearDepth();
-      renderer.render(tools.overlay, tools.stage.camera);
+      renderer.render(tools.overlay, tools.gizmo.camera);
     } catch (err) {
       this.warn('overlay', err);
     } finally {
@@ -193,7 +193,9 @@ export class PreviewEditor {
         if (doc) stage.setCamera(doc.project.camera);
       }
     }
-    tools.gizmo.camera = stage.camera;
+    // A layer fixed to the screen is drawn with the screen camera; so are its gizmo and outline.
+    const selected = doc && this.edit.layerId ? findLayer(doc, this.edit.layerId) : null;
+    tools.gizmo.camera = selected?.screenFixed ? stage.orthoCamera : stage.camera;
     tools.orbit.enabled = is3d && !this.dragging;
 
     // The dragged layer keeps its dragged transform until shortly after the final message.
@@ -508,6 +510,7 @@ export class PreviewEditor {
     const stage = tools.stage;
     const renderer = stage.renderer;
     const camera = stage.camera as PerspectiveCamera | OrthographicCamera;
+    const screen = stage.orthoCamera; // for layers fixed to the screen
     const target = tools.pickTarget ?? (tools.pickTarget = new WebGLRenderTarget(PICK_SIZE, PICK_SIZE, { depthBuffer: true }));
     renderer.getClearColor(this.clearColour);
     const clearAlpha = renderer.getClearAlpha();
@@ -515,6 +518,7 @@ export class PreviewEditor {
     let hit: string | null = null;
     try {
       camera.setViewOffset(OUTPUT_WIDTH, OUTPUT_HEIGHT, ox - PICK_SIZE / 2, oy - PICK_SIZE / 2, PICK_SIZE, PICK_SIZE);
+      if (screen !== camera) screen.setViewOffset(OUTPUT_WIDTH, OUTPUT_HEIGHT, ox - PICK_SIZE / 2, oy - PICK_SIZE / 2, PICK_SIZE, PICK_SIZE);
       renderer.setRenderTarget(target);
       renderer.setClearColor(0x000000, 0);
       renderer.autoClear = true;
@@ -523,7 +527,7 @@ export class PreviewEditor {
         const layer = layers[i]!;
         const obj = this.host.getLayerObject(layer.id);
         if (!obj || !obj.visible) continue;
-        renderer.render(obj, camera);
+        renderer.render(obj, layer.screenFixed ? screen : camera);
         renderer.readRenderTargetPixels(target, 0, 0, PICK_SIZE, PICK_SIZE, this.pickBuffer);
         for (let k = 0; k < this.pickBuffer.length; k++) {
           if (this.pickBuffer[k] !== 0) {
@@ -540,6 +544,7 @@ export class PreviewEditor {
       renderer.setClearColor(this.clearColour, clearAlpha);
       renderer.autoClear = autoClear;
       camera.clearViewOffset();
+      screen.clearViewOffset();
     }
     return hit;
   }

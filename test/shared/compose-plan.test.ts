@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  blurShows,
   chooseBlur,
   emptyBlurStep,
   emptyComposeLayer,
@@ -124,6 +125,12 @@ describe('chooseBlur', () => {
       const size = 2 ** s.level;
       const total = Math.sqrt((size * size - 1) / 12 + (s.sigma * size) ** 2);
       expect(total).toBeCloseTo(px / 2, 6);
+    }
+  });
+
+  it('blurShows agrees with chooseBlur', () => {
+    for (const px of [0, 0.5, 0.7, 1, 2, 50, Number.NaN]) {
+      for (const scale of [1, 0.5]) expect(blurShows(px, scale)).toBe(step(px, scale).level > 0);
     }
   });
 
