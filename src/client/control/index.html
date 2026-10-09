@@ -996,6 +996,80 @@
       .tp-lblv:has(.tp-ckbv) > .tp-lblv_l {
         cursor: pointer;
       }
+      /* ---- About box (ABOUT.md) ---------------------------------------------------------------- */
+      .about-btn {
+        margin-left: -6px;
+        color: var(--muted);
+      }
+      .out-btn.primary {
+        color: var(--accent);
+      }
+      .about-dialog {
+        width: min(760px, calc(100vw - 32px));
+        max-height: min(80vh, 900px);
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--card);
+        color: var(--text);
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+      }
+      .about-dialog::backdrop {
+        background: rgba(5, 7, 10, 0.6);
+      }
+      .about-dialog[open] {
+        display: flex;
+        flex-direction: column;
+      }
+      .about-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .about-head h1 {
+        flex: 1;
+        font-size: 16px;
+      }
+      .about-body {
+        overflow: auto;
+        padding: 8px 20px 20px;
+        line-height: 1.6;
+        color: var(--text-2);
+      }
+      .about-body h2,
+      .about-body h3,
+      .about-body h4,
+      .about-body h5 {
+        color: var(--text);
+        margin: 18px 0 6px;
+      }
+      .about-body code {
+        font-family: var(--mono);
+        font-size: 12px;
+        background: var(--field);
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      .about-body pre {
+        background: var(--field);
+        padding: 10px 12px;
+        border-radius: var(--radius-s);
+        overflow: auto;
+      }
+      .about-body pre code {
+        background: none;
+        padding: 0;
+      }
+      .about-body a {
+        color: var(--accent);
+      }
+      .about-body blockquote {
+        margin: 8px 0;
+        padding-left: 12px;
+        border-left: 3px solid var(--line);
+      }
       .problem-row {
         display: flex;
         align-items: center;
@@ -1976,6 +2050,7 @@
   <body>
     <header class="app-header">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span>data-wrangler</div>
+      <button type="button" id="about-button" class="icon-btn about-btn" title="About (ABOUT.md)" aria-label="About" aria-haspopup="dialog"></button>
       <div class="project-bar" role="group" aria-label="Project">
         <select id="project-select" aria-label="Open project"></select>
         <button type="button" id="project-new" class="btn ghost" title="Create an empty project">New…</button>
@@ -1990,15 +2065,22 @@
       <span class="spacer"></span>
       <div class="project-bar" role="group" aria-label="Output window">
         <span class="muted small">Output</span>
-        <button type="button" id="output-projector" class="btn" title="Open the output full screen on the projector, on the NVIDIA GPU (closes and reopens it if it is already open)">On projector</button>
-        <button type="button" id="output-window" class="btn ghost" title="Open the output in a normal window you can move (F11 for full screen)">In a window</button>
-        <button type="button" id="output-close" class="btn ghost" title="Close an output window opened with these buttons">Close</button>
+        <button type="button" id="output-window" class="icon-btn out-btn" title="Output in a window you can move (F11 for full screen)" aria-label="Output in a window"></button>
+        <button type="button" id="output-projector" class="icon-btn out-btn primary" title="Output full screen on the projector, on the NVIDIA GPU (closes and reopens it if it is already open)" aria-label="Output on the projector"></button>
+        <button type="button" id="output-close" class="icon-btn out-btn" title="Close the output window opened with these buttons" aria-label="Close the output window"></button>
       </div>
       <span class="divider" aria-hidden="true"></span>
       <span id="conn" class="pill">server</span>
       <span id="out-pill" class="pill">output</span>
     </header>
     <div id="snapshots-pop" class="popover" popover></div>
+    <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
+      <header class="about-head">
+        <h1 id="about-title">About data-wrangler</h1>
+        <button type="button" id="about-close" class="icon-btn" title="Close (Esc)" aria-label="Close"></button>
+      </header>
+      <div id="about-body" class="about-body"></div>
+    </dialog>
     <div id="banners" role="status" aria-live="polite"></div>
 
     <main class="workspace">

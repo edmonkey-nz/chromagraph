@@ -47,6 +47,12 @@ describe('numbers', () => {
     expect(c.max).toBe(1000);
   });
 
+  it('records the decimals the file writes, ignoring exponent forms', () => {
+    expect(expectType(infer(['12.30', '4', '0.5']).column, 'number').decimals).toBe(2);
+    expect(expectType(infer(['1', '20']).column, 'number').decimals).toBe(0);
+    expect(expectType(infer(['1.5e3', '2.25']).column, 'number').decimals).toBe(2);
+  });
+
   it('keeps a low-cardinality numeric column as number', () => {
     expect(infer(['1', '1', '1', '2', '2', '1']).column.type).toBe('number');
   });

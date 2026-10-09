@@ -2,7 +2,7 @@ import type { FolderApi } from 'tweakpane';
 import { panelCount } from '../../shared/layer-defaults.ts';
 import type { LayerChange } from '../../shared/layer-helpers.ts';
 import { isTimeSplit, levelColumns, splitColumnFor } from '../../shared/level-helpers.ts';
-import { SPLITS, type LayerConfig, type SmallMultiplesLayer } from '../../shared/layer-schema.ts';
+import { type LayerConfig, MULTIPLES_LABEL_PLACEMENTS, type SmallMultiplesLayer, SPLITS } from '../../shared/layer-schema.ts';
 import {
   addChoice,
   addDomain,
@@ -103,6 +103,11 @@ export function buildMultiples(ui: LayerUi, layer: SmallMultiplesLayer, titleOf:
   });
   addPlain(ui, t, layer.labelColour, 'title colour', ['labelColour']);
   addFontCase(ui, t, layer.labelFont, layer.labelUppercase, ['labelFont'], ['labelUppercase']);
+  addChoice(ui, t, layer.labelPlacement, 'title place', ['labelPlacement'], MULTIPLES_LABEL_PLACEMENTS, {
+    outside: 'above the frame',
+    top: 'inside, top',
+    baseline: 'inside, baseline',
+  });
   addPlain(ui, t, layer.frame, 'frame', ['frame']).element.title = 'Faint frame around each panel';
 
   const k = ui.folder(root, 'Look', 'Look', false);

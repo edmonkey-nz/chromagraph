@@ -42,7 +42,7 @@ const keys = (...pairs: [number, number][]) => pairs.map(([at, value]) => ({ at,
 
 function doc(): SyncDoc {
   const p = defaultProject('t');
-  p.timeline = { duration: 100, loop: true, playback: 'forward' };
+  p.timeline = { ...p.timeline, duration: 100, loop: true, playback: 'forward' };
   const a = blankInstancerLayer('ly-a', 'Rain', null);
   const b = blankInstancerLayer('ly-b', 'Own', null);
   b.timeline = { own: true, duration: 20, loop: true, playback: 'pingpong' };

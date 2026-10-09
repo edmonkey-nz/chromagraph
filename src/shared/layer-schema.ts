@@ -443,6 +443,7 @@ export type TextLayer = z.infer<typeof TextLayerSchema>;
 
 /** How rows are split into panels for small multiples. */
 export const SPLITS = ['year', 'month', 'decade', 'category', 'rows'] as const;
+export const MULTIPLES_LABEL_PLACEMENTS = ['outside', 'top', 'baseline'] as const;
 
 /**
  * Small multiples: the rows are split into panels (one per year, month, decade, category
@@ -489,6 +490,11 @@ export const SmallMultiplesLayerSchema = LayerBaseSchema.extend({
   labelColour: hexColour,
   labelFont: z.enum(FONTS),
   labelUppercase: z.boolean(),
+  /**
+   * Panel titles: 'outside' above the panel's frame (the original look), 'top' inside its top
+   * edge, or 'baseline' inside, along the bottom (the bars' baseline).
+   */
+  labelPlacement: z.enum(MULTIPLES_LABEL_PLACEMENTS),
   /** Faint frame around each panel. */
   frame: z.boolean(),
 });
@@ -750,6 +756,7 @@ export function blankMultiplesLayer(id: string, name: string, datasetId: string 
     labelColour: '#9aa0a6',
     labelFont: 'terminal',
     labelUppercase: false,
+    labelPlacement: 'outside',
     frame: false,
   };
 }

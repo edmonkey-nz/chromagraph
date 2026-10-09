@@ -32,21 +32,21 @@ describe('compileTemplate', () => {
     expect(render('{{x}} {{', 0)).toBe('{x} {');
     expect(render('a { b', 0)).toBe('a { b');
     expect(render('a } b', 0)).toBe('a } b');
-    expect(render('{ {Rainfall [mm]}', 0)).toBe('{ 0');
+    expect(render('{ {Rainfall [mm]}', 0)).toBe('{ 0.0'); // as written in the CSV
   });
 });
 
 describe('renderTemplate on the rainfall record', () => {
   it('formats dates in the dataset timezone', () => {
     // 1879-01-01T21:00Z is 08:30 on 2 Jan in NZ Mean Time (+11:30).
-    expect(render(`{${TIME}|date}`, 0)).toBe('2 Jan 1879');
-    expect(render(`{${TIME}|datetime}`, 0)).toBe('2 Jan 1879 08:30');
-    expect(render(`{${TIME}}`, 0)).toBe('2 Jan 1879 08:30');
+    expect(render(`{${TIME}|date}`, 0)).toBe('02 Jan 1879');
+    expect(render(`{${TIME}|datetime}`, 0)).toBe('02 Jan 1879 08:30');
+    expect(render(`{${TIME}}`, 0)).toBe('02 Jan 1879 08:30');
     expect(render(`{${TIME}|time}`, 0)).toBe('08:30');
     expect(render(`{${TIME}|year}`, 0)).toBe('1879');
     expect(render(`{${TIME}|month}`, 0)).toBe('January');
     expect(render(`{${TIME}|month|upper}`, 0)).toBe('JANUARY');
-    expect(render(`{${TIME}|date}`, 0, table, 'UTC')).toBe('1 Jan 1879');
+    expect(render(`{${TIME}|date}`, 0, table, 'UTC')).toBe('01 Jan 1879');
     expect(render(`{${TIME}|time}`, 0, table, 'Not/AZone')).toBe('21:00');
   });
 

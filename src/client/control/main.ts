@@ -21,7 +21,8 @@ import { ScenesPanel } from './scenes-panel.ts';
 import { Tabs } from './tabs.ts';
 import { TimelinePanel } from './timeline-panel.ts';
 import { TimelineView } from './timeline-view.ts';
-import { Card, h, loadSetting, saveSetting } from './ui.ts';
+import { renderMarkdown } from './markdown.ts';
+import { Card, h, icon, loadSetting, saveSetting } from './ui.ts';
 
 /**
  * Control window composition.
@@ -179,7 +180,7 @@ function paneIn(c: Card): Pane {
 // background, and the projector calibration (whose panel is built further down).
 const scenesCard = card(el.panelScene, 'scenes', 'Scenes');
 const scenesPanel = new ScenesPanel(scenesCard.body, { sendPatch, getDoc, showError });
-const timelineCard = card(el.panelScene, 'timeline', 'Timeline');
+const timelineCard = card(el.panelScene, 'timeline', 'Scene timeline');
 const timelinePanel = new TimelinePanel(paneIn(timelineCard), { sendPatch, getDoc });
 const outputCard = card(el.panelScene, 'output', 'Output');
 const outputPanel = new OutputPanel(paneIn(outputCard), { sendPatch, getDoc });
@@ -282,6 +283,35 @@ const outputButtons = {
   window: $<HTMLButtonElement>('output-window'),
   close: $<HTMLButtonElement>('output-close'),
 };
+outputButtons.window.append(icon('window'));
+outputButtons.projector.append(icon('projector'));
+outputButtons.close.append(icon('close'));
+
+// ---- About box: ABOUT.md, fetched fresh each time it opens --------------------------------
+
+const aboutDialog = $<HTMLDialogElement>('about-dialog');
+const aboutBody = $('about-body');
+$('about-button').append(icon('help'));
+$('about-close').append(icon('close'));
+$('about-button').addEventListener('click', () => void openAbout());
+$('about-close').addEventListener('click', () => aboutDialog.close());
+// A click on the backdrop (outside the box) closes it; Escape closes it natively.
+aboutDialog.addEventListener('click', (ev) => {
+  if (ev.target === aboutDialog) aboutDialog.close();
+});
+
+async function openAbout(): Promise<void> {
+  aboutBody.textContent = 'Loading…';
+  aboutDialog.showModal();
+  try {
+    const res = await fetch('/api/about', { cache: 'no-store' });
+    const text = res.ok ? await res.text() : '';
+    if (text.trim()) aboutBody.innerHTML = renderMarkdown(text);
+    else aboutBody.replaceChildren(h('p', { className: 'muted', textContent: 'ABOUT.md (in the project folder) is empty. Write it in Markdown and it shows here.' }));
+  } catch {
+    aboutBody.replaceChildren(h('p', { className: 'muted', textContent: 'The server isn’t reachable, so ABOUT.md can’t be shown.' }));
+  }
+}
 
 async function outputRequest(path: string, body: unknown, failure: string): Promise<void> {
   const all = Object.values(outputButtons);

@@ -288,6 +288,15 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   `preview`, renders at half resolution, and never reports status or logs, nor writes
   the output's state cache.
 
+**Text as written.** Number columns record the decimals the file writes
+(`NumberColumn.decimals`, set in `data/infer.ts`). Text templates and labels show numbers
+with that many decimals, so "12.30" stays "12.30". Dates pad the day ("02 Jan 1879"), so
+text never changes width as the playhead moves.
+
+**About box.** The **?** after the title in the control header opens ABOUT.md (read by
+`GET /api/about` on each open) in a `<dialog>`, rendered by `client/control/markdown.ts`.
+That renderer is small, tested and escapes all HTML.
+
 **Fonts and text case.** In-scene text (text layers and the labels of instancer, hierarchy and
 small-multiples layers) has a font choice. 'terminal' is VT323, a fixed-width 1970s DEC
 face (OFL, bundled in `client/output/fonts/`, precached for offline boots); it is the

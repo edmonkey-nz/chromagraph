@@ -32,6 +32,13 @@ interface ColumnBase {
 export interface NumberColumn extends ColumnBase {
   type: 'number';
   values: Float32Array;
+  /**
+   * Most digits after the decimal point among the column's values as written in the file
+   * ("12.30" counts 2; exponent forms are ignored), capped at 10. Text shows numbers with
+   * this many decimals, so "12.30" never displays as "12.3" (see text-template.ts).
+   * Undefined for columns not made by the parser.
+   */
+  decimals?: number;
 }
 
 export interface TimeColumn extends ColumnBase {

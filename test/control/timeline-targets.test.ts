@@ -10,7 +10,7 @@ const T0 = 1_791_457_234_694; // a real wall-clock time
 
 function doc(): SyncDoc {
   const p = defaultProject('t');
-  p.timeline = { duration: 100, loop: true, playback: 'forward' };
+  p.timeline = { ...p.timeline, duration: 100, loop: true, playback: 'forward' };
   p.layers = [blankInstancerLayer('ly-a', 'A', null), blankInstancerLayer('ly-b', 'B', null)];
   return { project: p, session: defaultSession(T0), profile: defaultProfile('default') };
 }

@@ -35,7 +35,7 @@ describe('labelText', () => {
     expect(labelText({ every: 'year', text: 'date', column: null }, 0, table, 'time', c, dates)).toBe('1879');
     expect(labelText({ every: 'decade', text: 'date', column: null }, 1, table, 'time', c, dates)).toBe('1880s');
     // 21:00 UTC on 1 Jan is 2 Jan in Auckland.
-    expect(labelText({ every: 'rows', text: 'date', column: null }, 0, table, 'time', c, dates)).toBe('2 Jan 1879');
+    expect(labelText({ every: 'rows', text: 'date', column: null }, 0, table, 'time', c, dates)).toBe('02 Jan 1879');
     expect(labelText({ every: 'rows', text: 'value', column: 'rain' }, 0, table, 'time', c, dates)).toBe('12.25');
     expect(labelText({ every: 'rows', text: 'value', column: 'rain' }, 1, table, 'time', c, dates)).toBe('');
   });

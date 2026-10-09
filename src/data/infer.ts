@@ -220,6 +220,7 @@ function inferColumnInner(
   let overflow = 0;
   let min = Infinity;
   let max = -Infinity;
+  let decimals = 0;
   const numExamples: Example[] = [];
   for (let i = 0; i < n; i++) {
     const s = clean(raw[i]);
@@ -233,6 +234,8 @@ function inferColumnInner(
       // Finite check rejects exponents that overflow float64 (e.g. "1e400").
       if (Number.isFinite(x)) {
         nums[i] = x;
+        const dot = s.indexOf('.');
+        if (dot >= 0 && !/[eE]/.test(s)) decimals = Math.max(decimals, Math.min(s.length - dot - 1, 10));
         if (x < min) min = x;
         if (x > max) max = x;
         if (Math.abs(x) > FLOAT32_MAX) overflow++;
@@ -260,7 +263,7 @@ function inferColumnInner(
           `±Infinity (min/max keep the exact values).`,
       });
     }
-    return { column: { ...base, type: 'number', empty: false, min, max, values: nums }, issues };
+    return { column: { ...base, type: 'number', empty: false, min, max, values: nums, decimals }, issues };
   }
 
   const mostlyNumeric = (nonMissing - numBad) / nonMissing >= MOSTLY;

@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 10;
+export const CURRENT_VERSION = 11;
 
 
 export const DatasetSchema = z.object({
@@ -76,6 +76,15 @@ export const ProjectSchema = z.object({
     duration: z.number().positive(),
     loop: z.boolean(),
     playback: z.enum(PLAYBACKS),
+    /**
+     * Softening the jump where the timeline restarts: the whole output fades in from the
+     * background over `fadeLength` s at the start (`fadeIn`) and out to it before the end
+     * (`fadeOut`), and `gap` s of background are held between one pass and the next.
+     */
+    fadeIn: z.boolean(),
+    fadeOut: z.boolean(),
+    fadeLength: z.number().min(0.1).max(10),
+    gap: z.number().min(0).max(5),
   }),
   camera: CameraSchema,
   output: z.object({
@@ -103,7 +112,7 @@ export function defaultProject(name: string): Project {
     datasets: [],
     layers: [],
     parameters: {},
-    timeline: { duration: 600, loop: true, playback: 'forward' },
+    timeline: { duration: 600, loop: true, playback: 'forward', fadeIn: false, fadeOut: false, fadeLength: 1, gap: 0 },
     camera: defaultCamera(),
     output: { background: '#000000' },
     scenes: [],
@@ -254,6 +263,19 @@ export const migrations: Record<number, Migration> = {
     return {
       ...doc,
       timeline: { ...((doc.timeline ?? {}) as Doc), playback: 'forward' },
+      layers: layers(doc.layers),
+      scenes: scenes.map((sc) => ({ ...sc, layers: layers(sc.layers) })),
+    };
+  },
+  // v11: small-multiples panel titles get a placement (outside, as before); the project
+  // timeline can fade in / out and hold a gap where it restarts (all off).
+  10: (doc) => {
+    const layers = (ls: unknown): unknown =>
+      Array.isArray(ls) ? ls.map((l: Doc) => (l.type === 'multiples' ? { ...l, labelPlacement: l.labelPlacement ?? 'outside' } : l)) : ls;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return {
+      ...doc,
+      timeline: { fadeIn: false, fadeOut: false, fadeLength: 1, gap: 0, ...((doc.timeline ?? {}) as Doc) },
       layers: layers(doc.layers),
       scenes: scenes.map((sc) => ({ ...sc, layers: layers(sc.layers) })),
     };

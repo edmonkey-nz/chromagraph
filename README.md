@@ -92,6 +92,11 @@ the NVIDIA GPU.
   - small multiples
   - hierarchy (dendrogram, sunburst, treemap and more)
   - 3D surface
+- **Small multiples** titles sit above the frame, inside along the top, or inside along the
+  baseline (**title place**).
+- **Text keeps the file's formatting:** numbers show the decimals the CSV writes ("0.0",
+  "12.30") and dates pad the day ("02 Jan 1879"), so text doesn't jump as values change.
+- **About:** the **?** after the title shows ABOUT.md.
 - **Labels on instancers:** in an instancer's **Labels** folder, label its points by year,
   decade or every N rows (date or a column's value). They follow the layer's spiral, ring,
   line or calendar, and are revealed by its data playhead. **Hide points** gives a

@@ -8,7 +8,8 @@
  * Formats:
  *   date "2 Jan 1879", datetime "2 Jan 1879 08:30", time "08:30", year "1879",
  *   month "January" (time columns, in the dataset's timezone)
- *   fixed:N (N decimals) and int (number columns)
+ *   numbers show the decimals the file uses ("12.30" stays "12.30"); fixed:N (N decimals)
+ *   and int override that (number columns). Dates pad the day: "02 Jan 1879".
  *   upper (any column; applied to the formatted text)
  *
  * Missing values render as an em dash, never "NaN" or 0. Mistakes stay visible: an unknown
@@ -20,7 +21,7 @@
 
 /** Structural view of a table column (matches src/data/columns.ts without importing it). */
 export type TemplateColumn =
-  | { name: string; type: 'number'; values: ArrayLike<number> }
+  | { name: string; type: 'number'; values: ArrayLike<number>; decimals?: number }
   | { name: string; type: 'time'; values: ArrayLike<number> }
   | { name: string; type: 'category'; codes: ArrayLike<number>; dictionary: readonly string[] }
   | { name: string; type: 'text'; values: ArrayLike<string | null> };
@@ -155,7 +156,7 @@ function valueFormatter(col: TemplateColumn, format: string | null, timeZone: st
         const ms = values[row];
         if (ms === undefined || Number.isNaN(ms)) return null;
         const p = parts(ms);
-        const date = `${p.day} ${MONTHS_SHORT[p.month - 1] ?? '?'} ${p.year}`;
+        const date = `${pad2(p.day)} ${MONTHS_SHORT[p.month - 1] ?? '?'} ${p.year}`;
         const time = `${pad2(p.hour)}:${pad2(p.minute)}`;
         switch (f) {
           case 'date':
@@ -177,9 +178,11 @@ function valueFormatter(col: TemplateColumn, format: string | null, timeZone: st
         const v = values[row];
         return v === undefined || Number.isNaN(v) ? null : v;
       };
+      // As written in the file: the column's decimals (float32 values print exactly at that many).
+      const decimals = col.decimals;
       if (format === null) return (row) => {
         const v = read(row);
-        return v === null ? null : formatNumber(v);
+        return v === null ? null : decimals !== undefined ? v.toFixed(decimals) : formatNumber(v);
       };
       if (format === 'int') return (row) => {
         const v = read(row);

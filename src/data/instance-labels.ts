@@ -48,7 +48,8 @@ export class DateLabels {
   private format: Intl.DateTimeFormat | null = null;
   constructor(private timeZone: string) {}
   text(ms: number): string {
-    this.format ??= new Intl.DateTimeFormat('en-NZ', { timeZone: this.timeZone, day: 'numeric', month: 'short', year: 'numeric' });
+    // Day padded to two digits, so labels keep their width: "02 Jan 1879".
+    this.format ??= new Intl.DateTimeFormat('en-NZ', { timeZone: this.timeZone, day: '2-digit', month: 'short', year: 'numeric' });
     return this.format.format(ms);
   }
 }
@@ -57,7 +58,8 @@ function columnText(c: Column, row: number, dates: DateLabels): string {
   switch (c.type) {
     case 'number': {
       const v = c.values[row]!;
-      return Number.isNaN(v) ? '' : formatNumber(v);
+      if (Number.isNaN(v)) return '';
+      return c.decimals !== undefined ? v.toFixed(c.decimals) : formatNumber(v);
     }
     case 'time': {
       const v = c.values[row]!;

@@ -434,6 +434,10 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
       }
       const scale = next.labelSize / LABEL_BASE_PX;
       const lift = next.labelSize * 0.2;
+      // Placement: above the frame, inside its top edge, or inside along the baseline.
+      const inset = next.labelPlacement === 'outside' ? 0 : next.labelSize * 0.3;
+      const anchorY = next.labelPlacement === 'top' ? 'top' : 'bottom';
+      const dy = next.labelPlacement === 'outside' ? lift : next.labelPlacement === 'top' ? -inset : -next.panelSize[1] + inset;
       for (let p = 0; p < list.length; p++) {
         const t = list[p]!;
         const slot = p - panelStart;
@@ -443,10 +447,11 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
         const col = slot % columns;
         const line = Math.floor(slot / columns);
         t.position.set(
-          next.origin[0] + col * (next.panelSize[0] + next.gap[0]),
-          next.origin[1] - line * (next.panelSize[1] + next.gap[1]) + lift,
+          next.origin[0] + col * (next.panelSize[0] + next.gap[0]) + inset,
+          next.origin[1] - line * (next.panelSize[1] + next.gap[1]) + dy,
           next.origin[2],
         );
+        if (t.anchorY !== anchorY) t.anchorY = anchorY;
         t.scale.setScalar(scale);
         t.color = next.labelColour;
         t.fillOpacity = next.opacity;

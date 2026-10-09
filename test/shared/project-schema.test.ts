@@ -77,6 +77,17 @@ describe('migrate', () => {
     expect(all.map((l) => l.type).sort()).toEqual(['hierarchy', 'hierarchy', 'instancer', 'instancer', 'line', 'multiples', 'multiples', 'text']);
   });
 
+    it('v11 adds panel title placement (outside) and timeline fades (off)', () => {
+    const v10 = JSON.parse(readFileSync(new URL('../fixtures/projects/v10.json', import.meta.url), 'utf8'));
+    const r = migrate(v10);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    if (!r.ok) return;
+    expect(r.project.timeline).toMatchObject({ fadeIn: false, fadeOut: false, fadeLength: 1, gap: 0 });
+    for (const l of [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)]) {
+      if (l.type === 'multiples') expect(l.labelPlacement).toBe('outside');
+    }
+  });
+
     it('rejects missing, newer and invalid versions', () => {
     expect(migrate({ name: 'x' }).ok).toBe(false);
     expect(migrate({ ...defaultProject('x'), version: CURRENT_VERSION + 1 }).ok).toBe(false);

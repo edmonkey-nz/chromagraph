@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
@@ -35,6 +36,12 @@ const launchHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST.incl
 registerLaunchRoutes(app, new OutputLauncher(log, `http://${launchHost}:${PORT}/output/`), log);
 
 app.get('/api/projects', async () => ({ names: await store.list(), current: hub.currentProject.name }));
+
+// The About box (control window header) shows ABOUT.md, read on every request so edits show at once.
+app.get('/api/about', async (_req, reply) => {
+  const text = await readFile(resolve(ROOT, 'ABOUT.md'), 'utf8').catch(() => '');
+  return reply.header('content-type', 'text/markdown; charset=utf-8').header('cache-control', 'no-cache').send(text);
+});
 
 for (const page of ['control', 'output'] as const) {
   app.get(`/${page}`, (_req, reply) => reply.redirect(`/${page}/`));

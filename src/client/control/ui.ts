@@ -39,6 +39,9 @@ const ICON_PATHS = {
   save: '<path d="M3.5 2.5h7l2 2v9h-9z"/><path d="M5.5 2.5v3h4v-3M5.5 13.5v-4h5v4"/>',
   clock: '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/>',
   camera: '<rect x="2.5" y="4.5" width="11" height="8" rx="1.5"/><circle cx="8" cy="8.5" r="2"/>',
+  window: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6h12"/>',
+  projector: '<rect x="1.5" y="5.5" width="13" height="6" rx="1.5"/><circle cx="10.5" cy="8.5" r="1.6"/><path d="M4 11.5v1.5M12 11.5v1.5M4 8h2.5"/>',
+  help: '<circle cx="8" cy="8" r="6"/><path d="M6.3 6.3a1.8 1.8 0 1 1 2.5 1.6c-.5.3-.8.7-.8 1.3v.3"/><circle cx="8" cy="11.6" r=".5" fill="currentColor"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;
