@@ -73,7 +73,9 @@ export type Parameter = z.infer<typeof ParameterSchema>;
 
 /**
  * Timeline transport (live session state, persisted by the server across restarts).
- * Phase at wall time T while playing: anchorPhase + (T - anchorWallMs) / duration.
+ * Phase at wall time T while playing: anchorPhase + (T - anchorWallMs) / duration, where the
+ * duration is the whole transport cycle (see transportSeconds: a timeline with a gap before
+ * restart stores its position through pass and gap, not the playhead's progress).
  */
 export const TransportSchema = z.object({
   playing: z.boolean(),
@@ -145,7 +147,7 @@ export function timelinePhase(t: Transport, durationSec: number, loop: boolean, 
   return p < 0 ? 0 : p > 1 ? 1 : p;
 }
 
-/** Transport that keeps the current phase but starts/stops playing. */
+/** Transport that keeps the current phase but starts/stops playing (`durationSec`: transportSeconds). */
 export function setPlaying(t: Transport, playing: boolean, durationSec: number, loop: boolean, nowMs: number): Transport {
   return { playing, anchorWallMs: nowMs, anchorPhase: timelinePhase(t, durationSec, loop, nowMs) };
 }
@@ -156,22 +158,80 @@ export function setPlaying(t: Transport, playing: boolean, durationSec: number, 
  * the duration. The playhead that modulators see is derived from u:
  *   forward  u      reverse  1 - u      pingpong  0 -> 1 over the first half, 1 -> 0 over the second
  * A finished non-looping timeline therefore rests at 1 (forward) or 0 (reverse, ping-pong).
+ *
+ * Gap before restart (the project timeline only; a layer's own timeline has none). A *pass*
+ * is the active part of a cycle: forward 0 -> 1, reverse 1 -> 0, ping-pong 0 -> 1 -> 0. A
+ * looping timeline with a gap of g seconds holds the playhead at the pass's end value
+ * (1 forward, 0 reverse and ping-pong) for g seconds after each pass, so a cycle lasts
+ * cycleSeconds + g. The transport's anchorPhase is then the *position* c through that whole
+ * cycle, pass and gap; progress is u = min(c / a, 1), where a = cycleSeconds / (cycleSeconds
+ * + g) is the pass's share of the cycle. With no gap c = u exactly, so transports saved
+ * before gaps existed mean the same. A non-looping timeline ignores the gap: its pass ends
+ * and holds.
  */
 export type PlaybackMode = 'forward' | 'reverse' | 'pingpong';
 export interface TimelineSettings {
   duration: number;
   loop: boolean;
   playback: PlaybackMode;
+  /** Seconds held at the end of each pass before a looping timeline restarts (absent = 0). */
+  gap?: number;
 }
 
-/** Seconds per transport cycle: the duration, or twice it for ping-pong. */
+/** Seconds per pass (the active part of a cycle): the duration, or twice it for ping-pong. */
 export function cycleSeconds(tl: TimelineSettings): number {
   return tl.playback === 'pingpong' ? tl.duration * 2 : tl.duration;
 }
 
-/** The transport's progress u through its cycle at `nowMs`. */
+/** Seconds of gap that apply: the gap while looping, otherwise 0. */
+export function gapSeconds(tl: TimelineSettings): number {
+  const g = tl.gap ?? 0;
+  return tl.loop && g > 0 ? g : 0;
+}
+
+/** Seconds per transport cycle, pass plus gap (what setPlaying needs). */
+export function transportSeconds(tl: TimelineSettings): number {
+  return cycleSeconds(tl) + gapSeconds(tl);
+}
+
+/** The pass's share of a cycle, 0..1 (1 with no gap). */
+function passShare(tl: TimelineSettings): number {
+  const g = gapSeconds(tl);
+  if (g === 0) return 1;
+  const pass = Math.max(cycleSeconds(tl), 0.001);
+  return pass / (pass + g);
+}
+
+/** The transport's position c through its whole cycle (pass and gap), 0..1, at `nowMs`. */
+export function cyclePosition(t: Transport, tl: TimelineSettings, nowMs: number): number {
+  return timelinePhase(t, transportSeconds(tl), tl.loop, nowMs);
+}
+
+/** Progress u through the pass at cycle position c; 1 throughout the gap. */
+export function progressAtPosition(c: number, tl: TimelineSettings): number {
+  const a = passShare(tl);
+  if (a === 1) return c;
+  return c >= a ? 1 : c / a;
+}
+
+/**
+ * The cycle position that shows progress u: always in the pass, never in the gap (u = 1 is
+ * the pass's last instant, where the gap begins).
+ */
+export function positionForProgress(u: number, tl: TimelineSettings): number {
+  return Math.min(Math.max(u, 0), 1) * passShare(tl);
+}
+
+/** Seconds into the gap at cycle position c, or -1 while the pass runs (or there is no gap). */
+export function gapElapsed(c: number, tl: TimelineSettings): number {
+  const a = passShare(tl);
+  if (a === 1 || c < a) return -1;
+  return (c - a) * transportSeconds(tl);
+}
+
+/** The transport's progress u through its pass at `nowMs` (held at 1 through the gap). */
 export function cycleProgress(t: Transport, tl: TimelineSettings, nowMs: number): number {
-  return timelinePhase(t, cycleSeconds(tl), tl.loop, nowMs);
+  return progressAtPosition(cyclePosition(t, tl, nowMs), tl);
 }
 
 /** The playhead (what modulators see) for progress u. */
@@ -207,9 +267,14 @@ export function progressFor(phase: number, playback: PlaybackMode, currentU: num
   }
 }
 
-/** Transport moved to `phase` (scrub or restart), keeping play state. */
-export function seek(t: Transport, phase: number, nowMs: number): Transport {
-  return { playing: t.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(phase, 0), 1) };
+/**
+ * Transport moved to progress `u` (scrub or restart), keeping play state. Pass the timeline
+ * whenever it may have a gap, so u lands in the pass (positionForProgress); without it u is
+ * stored as is, which is right only with no gap (and for u = 0, the start, always).
+ */
+export function seek(t: Transport, u: number, nowMs: number, tl?: TimelineSettings): Transport {
+  const c = tl ? positionForProgress(u, tl) : Math.min(Math.max(u, 0), 1);
+  return { playing: t.playing, anchorWallMs: nowMs, anchorPhase: c };
 }
 
 // ---- waveforms ---------------------------------------------------------------------
