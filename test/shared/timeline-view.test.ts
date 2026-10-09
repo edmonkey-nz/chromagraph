@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { layerTimeline, projectTimeline, timelineEdit } from '../../src/client/control/timeline-panel.ts';
 import { blankInstancerLayer, blankTextLayer, type InstancerLayer } from '../../src/shared/layer-schema.ts';
 import { paramPhase } from '../../src/shared/modulation-helpers.ts';
 import type { Modulator, Parameter } from '../../src/shared/modulators.ts';
@@ -14,6 +15,7 @@ import {
   formatSeconds,
   formatTick,
   keyAtPlayheadOps,
+  laneRange,
   laneValue,
   moveKeyOps,
   moveRampOps,
@@ -21,6 +23,7 @@ import {
   rampAsKeyframes,
   reframeLane,
   removeLaneOps,
+  removeLaneQuestion,
   tickStep,
   tidyPhase,
   tidyValue,
@@ -397,5 +400,117 @@ describe('dragging helpers', () => {
     expect([lane.lo, lane.hi]).toEqual([-6000, 3000]);
     expect(denormalise(lane, lane.samples[64]!)).toBeCloseTo(value, 2);
     expect(lane.samples[0]).toBeCloseTo(1000 / 9000, 5);
+  });
+});
+
+describe('lane scale', () => {
+  const X = 'layer.ly-a.transform.position.0'; // move x: slider -2000..2000, no hard limits
+  const fitted = (d: SyncDoc, id: string) => timelineView(d, T0, CURVE_SAMPLES, 'fit').groups[0]!.lanes.find((l) => l.id === id) as CurveLane;
+
+  it('fits a lane to its values with some padding', () => {
+    const d = doc();
+    d.project.parameters[X] = param({ kind: 'ramp', enabled: true, from: 100, to: 900, easing: 'linear' });
+    const lane = fitted(d, X);
+    expect(lane.lo).toBeCloseTo(20);
+    expect(lane.hi).toBeCloseTo(980);
+    expect(lane.samples[0]).toBeCloseTo(80 / 960);
+    expect(lane.samples[CURVE_SAMPLES - 1]).toBeCloseTo(880 / 960);
+    // The slider scale squashes the same ramp into a fifth of the lane.
+    const slider = timelineView(d, T0).groups[0]!.lanes.find((l) => l.id === X) as CurveLane;
+    expect([slider.lo, slider.hi]).toEqual([-2000, 2000]);
+  });
+
+  it('shows small moves on a wide range, but not narrower than 2% of the slider range', () => {
+    const d = doc();
+    d.project.parameters[X] = param({ kind: 'keyframes', enabled: true, keys: keys([0, 0], [1, 50]), interpolation: 'linear' });
+    const lane = fitted(d, X);
+    // 50 apart; the minimum span is 2% of 4000 = 80, centred on the values.
+    expect(lane.lo).toBeCloseTo(-15);
+    expect(lane.hi).toBeCloseTo(65);
+  });
+
+  it('keeps a flat lane flat and centred', () => {
+    const d = doc();
+    d.project.parameters[X] = param({ kind: 'keyframes', enabled: true, keys: keys([0.5, 500]), interpolation: 'linear' });
+    const lane = fitted(d, X);
+    expect([lane.lo, lane.hi]).toEqual([460, 540]);
+    expect(lane.samples[0]).toBeCloseTo(0.5);
+  });
+
+  it('stays inside the valid range, growing the other way when clipped', () => {
+    const d = doc();
+    // opacity: valid 0..1; keys 0, 0.5 and 1 fill it exactly (padding would only go outside).
+    const full = fitted(d, 'layer.ly-a.opacity');
+    expect([full.lo, full.hi]).toEqual([0, 1]);
+    d.project.parameters['layer.ly-a.opacity'] = param({ kind: 'ramp', enabled: true, from: 0, to: 0.5, easing: 'linear' });
+    const half = fitted(d, 'layer.ly-a.opacity');
+    expect(half.lo).toBe(0);
+    expect(half.hi).toBeCloseTo(0.55);
+    d.project.parameters['layer.ly-a.opacity'] = param({ kind: 'ramp', enabled: true, from: 0, to: 0, easing: 'linear' });
+    const flat = fitted(d, 'layer.ly-a.opacity');
+    expect(flat.lo).toBe(0);
+    expect(flat.hi).toBeCloseTo(0.02);
+  });
+
+  it('gives whole-number parameters at least 2 of height, and falls back to the slider range', () => {
+    const def = { id: 'x', label: 'x', group: 'g', min: 0, max: 10, hardMin: 0, hardMax: 10, integer: true };
+    expect(laneRange(def, 5, 5, 'fit')).toEqual({ lo: 4, hi: 6 });
+    expect(laneRange(def, 5, 5, 'slider')).toEqual({ lo: 0, hi: 10 });
+    expect(laneRange(def, 3, 20, 'slider')).toEqual({ lo: 0, hi: 20 });
+    expect(laneRange(def, Infinity, -Infinity, 'fit')).toEqual({ lo: 0, hi: 10 });
+  });
+
+  it('rounds a fitted range outwards to tidy numbers', () => {
+    const def = { id: 'r', label: 'rotate y', group: 'g', min: -360, max: 360, hardMin: -1e9, hardMax: 1e9, integer: false };
+    // -150.3..341.2 padded by 49.15 each side is -199.45..390.35: shown as -200..400.
+    expect(laneRange(def, -150.3, 341.2, 'fit')).toEqual({ lo: -200, hi: 400 });
+    const unit = { ...def, min: 0, max: 1, hardMin: 0, hardMax: 1 };
+    // 0.123..0.4567 padded is 0.0896..0.4901; rounded outwards in steps of 0.01: 0.08..0.5.
+    expect(laneRange(unit, 0.123, 0.4567, 'fit')).toEqual({ lo: 0.08, hi: 0.5 });
+  });
+
+  it('leaves LFO and noise lanes alone (they already show their own band)', () => {
+    const a = timelineView(doc(), T0).groups[0]!.lanes[1]!;
+    const b = timelineView(doc(), T0, CURVE_SAMPLES, 'fit').groups[0]!.lanes[1]!;
+    expect([b.lo, b.hi]).toEqual([a.lo, a.hi]);
+  });
+});
+
+describe('own timeline edits', () => {
+  it('re-anchors the transport so a change of duration or playback does not move the playhead', () => {
+    const d = doc();
+    const now = T0 + 5_000; // ly-b: 5 s into its 20 s ping-pong, playhead 0.25 on the way out
+    const target = layerTimeline('ly-b');
+    const before = paramPhase(d.project, d.session, 'layer.ly-b.opacity', now);
+    expect(before).toBeCloseTo(0.25);
+    const longer = timelineEdit(d, target, target.transport(d), { duration: 60 }, now)!;
+    const d2 = checked(d, longer.ops);
+    expect(d2.project.layers[1]!.timeline).toMatchObject({ own: true, duration: 60 });
+    expect(d2.session.layerTransports['ly-b']).toEqual(longer.next);
+    expect(paramPhase(d2.project, d2.session, 'layer.ly-b.opacity', now)).toBeCloseTo(before);
+    const reverse = timelineEdit(d2, target, target.transport(d2), { playback: 'reverse', loop: false }, now)!;
+    const d3 = checked(d2, reverse.ops);
+    expect(d3.project.layers[1]!.timeline).toMatchObject({ playback: 'reverse', loop: false });
+    expect(paramPhase(d3.project, d3.session, 'layer.ly-b.opacity', now)).toBeCloseTo(before);
+  });
+
+  it('sends nothing when nothing changes or the layer follows the project', () => {
+    const d = doc();
+    const target = layerTimeline('ly-b');
+    expect(timelineEdit(d, target, target.transport(d), { duration: 20, playback: 'pingpong' }, T0)).toBeNull();
+    const a = layerTimeline('ly-a');
+    expect(timelineEdit(d, a, a.transport(d), { duration: 5 }, T0)).toBeNull();
+    // The project timeline goes through the same path.
+    expect(timelineEdit(d, projectTimeline, d.session.transport, { loop: false }, T0)?.ops[0]).toEqual({ op: 'set', path: ['project', 'timeline', 'loop'], value: false });
+  });
+});
+
+describe('removing a lane', () => {
+  it('asks with the parameter, the modulator kind and the owner', () => {
+    const [a, , , cam] = timelineView(doc(), T0).groups;
+    expect(removeLaneQuestion(a!.lanes[0]!, a!.name)).toBe('Remove the 3 keyframes on “opacity” (Rain)? The parameter goes back to its base value.');
+    expect(removeLaneQuestion(a!.lanes[1]!, a!.name)).toMatch(/^Remove the LFO on “rotate z” \(Rain\)\?/);
+    expect(removeLaneQuestion(a!.lanes[2]!, a!.name)).toMatch(/^Remove the ramp on “rows end” \(Rain\)\?/);
+    expect(removeLaneQuestion(cam!.lanes[0]!, cam!.name)).toMatch(/^Remove the noise on “yaw” \(Camera\)\?/);
   });
 });
