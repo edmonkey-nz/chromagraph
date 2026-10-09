@@ -1236,21 +1236,6 @@
       .zone-note {
         color: var(--muted);
       }
-      .layer-columns {
-        display: grid;
-        grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
-        gap: var(--gap);
-        align-items: start;
-      }
-      .layer-columns[data-columns='2'] {
-        --cols: 2;
-      }
-      .layer-col {
-        display: flex;
-        flex-direction: column;
-        gap: var(--gap);
-        min-width: 0;
-      }
       .empty-card {
         padding: 16px;
       }
@@ -1258,9 +1243,124 @@
         margin: 0;
       }
 
-      /* Layer cards: number badge, selection ring, dimmed when off. */
+      /*
+       * Layers tab: a narrow list of layers on the left (Add layer first), the open layer's
+       * settings on the right. Each column scrolls on its own; under 720 px the list sits above
+       * the settings and the two scroll together.
+       */
+      #zone-layers > #panel-layers {
+        container: layers / inline-size;
+        overflow: hidden;
+        padding: 0;
+      }
+      .layers-split {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: var(--gap);
+      }
+      .layers-list-col,
+      .layers-settings-col {
+        min-height: 0;
+        min-width: 0;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        padding: 2px 4px 24px 2px;
+      }
+      .layers-list-col {
+        display: flex;
+        flex-direction: column;
+      }
+      .layers-list-col > .sub-head:first-child {
+        margin-top: 2px;
+      }
+      .layer-add {
+        display: flex;
+        gap: 6px;
+      }
+      .layer-add select {
+        flex: 1;
+        min-width: 0;
+      }
+      .layer-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      @container layers (max-width: 719px) {
+        .layers-split {
+          display: block;
+          overflow-y: auto;
+          padding: 2px 4px 24px 2px;
+        }
+        .layers-list-col,
+        .layers-settings-col {
+          overflow: visible;
+          padding: 0;
+        }
+        .layers-list-col {
+          margin-bottom: var(--gap);
+        }
+      }
+
+      /* A layer's row, drawn like a collapsed card header: number badge, title, icon buttons. */
+      .layer-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 3px 4px 3px 2px;
+        background: var(--card-head);
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        cursor: pointer;
+      }
+      .layer-row:hover {
+        background: #1e232c;
+      }
+      .layer-row .layer-row-open {
+        padding: 5px 6px;
+      }
+      .layer-row .layer-row-open:hover {
+        background: transparent;
+      }
+      .layer-row .card-actions {
+        gap: 0;
+      }
+      .layer-row .icon-btn {
+        width: 24px;
+        height: 24px;
+      }
+      .layer-row.open {
+        border-color: rgba(141, 180, 255, 0.45);
+        background: linear-gradient(90deg, rgba(141, 180, 255, 0.14), rgba(141, 180, 255, 0.04)), var(--card-head);
+        box-shadow:
+          0 0 0 1px rgba(141, 180, 255, 0.35),
+          var(--shadow);
+      }
+      .layer-row.open .card-badge,
+      .layer-settings .card-badge {
+        background: var(--accent-strong);
+        color: var(--on-accent);
+      }
+
+      /* The open layer's settings: a card whose header stays in view while its folders scroll. */
       .layer-card .card-head {
         background: var(--card-head);
+      }
+      .layer-settings > .card-head {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        gap: 8px;
+        padding: 10px 12px;
+      }
+      .layer-settings .card-title {
+        margin: 0;
+      }
+      .layer-pane > .tp-rotv {
+        font-size: 12px;
       }
       .card-badge:empty {
         display: none;
@@ -1278,19 +1378,7 @@
         font-weight: 650;
         font-variant-numeric: tabular-nums;
       }
-      .layer-card.selected {
-        border-color: rgba(141, 180, 255, 0.45);
-        box-shadow:
-          0 0 0 1px rgba(141, 180, 255, 0.35),
-          var(--shadow);
-      }
-      .layer-card.selected .card-head {
-        background: linear-gradient(90deg, rgba(141, 180, 255, 0.14), rgba(141, 180, 255, 0.04));
-      }
-      .layer-card.selected .card-badge {
-        background: var(--accent-strong);
-        color: var(--on-accent);
-      }
+      .layer-row.off .card-title,
       .layer-card.off .card-title {
         color: var(--muted);
         text-decoration: line-through;

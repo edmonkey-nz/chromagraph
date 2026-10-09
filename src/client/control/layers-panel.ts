@@ -17,22 +17,26 @@ import { buildLine } from './line-folders.ts';
 import { buildMultiples } from './multiples-folders.ts';
 import { buildSurface } from './surface-folders.ts';
 import { buildText } from './text-folders.ts';
-import { Card, h, iconButton } from './ui.ts';
+import { h, iconButton } from './ui.ts';
 
 /**
- * "Layers" zone of the control window: a header with Add layer, then one card per layer of
- * any type (each with its own Tweakpane pane), editing the layer config through minimal
- * `set` patches. The GUI never holds authoritative state: every
- * edit is sent to the server and the folder is rebuilt from the synced document when the
- * layer changes structurally or someone else edits it. The per-type folders are built in
- * instancer-folders.ts, line-folders.ts, heatmap-folders.ts, text-folders.ts,
- * multiples-folders.ts, hierarchy-folders.ts and surface-folders.ts.
+ * "Layers" tab of the control window, in two columns:
+ * - left (narrow): Add layer, then one compact row per layer in stack order (number, title,
+ *   move up/down, duplicate, delete). A row is a button that opens the layer.
+ * - right: the open layer's settings in one Tweakpane pane, editing the layer config through
+ *   minimal `set` patches.
+ * Under about 720 px the list sits above the settings.
  *
- * One layer can be selected (for the preview's transform gizmo): pointing anywhere in its
- * card selects it, and its card is highlighted.
+ * The GUI never holds authoritative state: every edit is sent to the server and the pane is
+ * rebuilt from the synced document when the layer changes structurally or someone else edits
+ * it. The per-type folders are built in instancer-folders.ts, line-folders.ts,
+ * heatmap-folders.ts, text-folders.ts, multiples-folders.ts, hierarchy-folders.ts and
+ * surface-folders.ts.
  *
- * Cards are dealt into columns in stack order (layer 1 in the first column, layer 2 in the
- * second, ...), so a card never moves when another one is expanded or collapsed.
+ * Only the open layer has a pane (so `entries` holds at most one layer); the other rows are
+ * plain DOM, retitled as their layers change. Opening a layer selects it (for the preview's
+ * transform gizmo), and selecting one elsewhere (the preview, the Timeline tab) opens it.
+ * With nothing selected, the layer last open stays open (the first layer to begin with).
  */
 
 export interface LayersPanelDeps {
@@ -51,10 +55,19 @@ const LINE_CHART = 'line-chart';
 
 /** Appended to the label of a field whose parameter has a modulator. */
 const MODULATED_SUFFIX = ' ~';
-/** Class on the selected layer's card (styled in index.html). */
-const SELECTED_CLASS = 'selected';
-/** The zone is split into two columns of cards when it is at least this wide. */
-const TWO_COLUMNS_PX = 760;
+
+/** One layer's row in the list. */
+interface Row {
+  root: HTMLElement;
+  /** The row's main button: opens the layer (focusable, Up/Down move between rows). */
+  open: HTMLButtonElement;
+  badge: HTMLElement;
+  title: HTMLElement;
+  up: HTMLButtonElement;
+  down: HTMLButtonElement;
+  /** The layer config the row was last labelled from. */
+  layer: LayerConfig | null;
+}
 
 function randomId(): string {
   return `ly-${Math.random().toString(36).slice(2, 10)}`;
@@ -93,15 +106,23 @@ function titleOf(layer: LayerConfig): string {
 }
 
 export class LayersPanel {
+  /** The open layer's pane (at most one entry). */
   private entries = new Map<string, Entry>();
-  private cards = new Map<string, Card>();
-  private columns: HTMLElement[];
-  private columnHost = h('div', { className: 'layer-columns' });
-  private empty = h('div', { className: 'card empty-card' });
-  private countNote = h('span', { className: 'zone-note' });
+  private rows = new Map<string, Row>();
+  private list = h('div', { className: 'layer-list', role: 'list' });
+  private countNote = h('div', { className: 'sub-head layer-list-head' });
   private typeSelect = h('select');
+  /** The open layer's settings: a card whose body holds the pane. */
+  private settings = h('section', { className: 'card layer-card layer-settings' });
+  private settingsBadge = h('span', { className: 'card-badge' });
+  private settingsTitle = h('h3', { className: 'card-title' });
+  private settingsBody = h('div', { className: 'card-body' });
+  private settingsCol = h('div', { className: 'layers-settings-col' });
+  private empty = h('div', { className: 'card empty-card' });
+  private split = h('div', { className: 'layers-split' });
   private order: string[] = [];
   private datasets: readonly Dataset[] | null = null;
+  /** Expanded state of every folder, by key (`<layer id>/<folder>`), kept while a layer is closed. */
   private expanded = new Map<string, boolean>();
   /** Expanded state inside the layers' Modulation folders (keys start with the parameter prefix). */
   private modulationExpanded = new Map<string, boolean>();
@@ -111,7 +132,11 @@ export class LayersPanel {
   private parameters: SyncDoc['project']['parameters'] | null = null;
   private addModel: { type: LayerType | typeof LINE_CHART } = { type: 'instancer' };
   private selected: string | null = null;
-  /** A layer we just added, to select once it arrives. */
+  /** The open layer (shown on the right), or null with no layers. */
+  private shown: string | null = null;
+  /** Stack position of the open layer, so a deleted one is followed by its neighbour. */
+  private shownIndex = 0;
+  /** A layer we just added or duplicated, to open once it arrives. */
   private pendingSelect: string | null = null;
 
   constructor(zone: HTMLElement, private deps: LayersPanelDeps) {
@@ -123,71 +148,192 @@ export class LayersPanel {
     this.typeSelect.addEventListener('change', () => (this.addModel.type = this.typeSelect.value as LayerType | typeof LINE_CHART));
     const add = h('button', { type: 'button', className: 'btn primary', textContent: 'Add layer' });
     add.addEventListener('click', () => this.addLayer());
-    const collapseAll = h('button', { type: 'button', className: 'btn ghost', textContent: 'Collapse all' });
-    collapseAll.addEventListener('click', () => this.collapseAll());
+    this.list.setAttribute('aria-label', 'Layers in stack order');
     this.empty.append(
-      h('p', { className: 'muted', textContent: 'No layers yet. Import a dataset (Datasets tab), pick a layer type above and press Add layer.' }),
+      h('p', { className: 'muted', textContent: 'No layers yet. Import a dataset (Datasets tab), then choose a layer type and press Add layer.' }),
     );
-    zone.append(
-      h('div', { className: 'zone-head' }, h('h2', { className: 'zone-title', textContent: 'Layers' }), this.countNote, h('span', { className: 'spacer' }), collapseAll, this.typeSelect, add),
-      this.empty,
-      this.columnHost,
+    this.settings.append(h('header', { className: 'card-head' }, this.settingsBadge, this.settingsTitle), this.settingsBody);
+    this.settings.setAttribute('aria-label', 'Layer settings');
+    // Pointing anywhere in the settings, or tabbing into them, selects the open layer (the
+    // pane is never rebuilt by this: the open layer stays the same).
+    const select = () => {
+      if (this.shown !== null && this.selected !== this.shown) this.deps.select(this.shown);
+    };
+    this.settings.addEventListener('pointerdown', select);
+    this.settings.addEventListener('focusin', select);
+    this.settings.hidden = true;
+    this.settingsCol.append(this.empty, this.settings);
+    const addRow = h('div', { className: 'layer-add' }, this.typeSelect, add);
+    addRow.setAttribute('role', 'group');
+    addRow.setAttribute('aria-label', 'Add layer');
+    this.split.append(
+      h('div', { className: 'layers-list-col' }, h('div', { className: 'sub-head', textContent: 'Add layer' }), addRow, this.countNote, this.list),
+      this.settingsCol,
     );
-    this.columns = [h('div', { className: 'layer-col' }), h('div', { className: 'layer-col' })];
-    // Two columns when there is room; re-deal the cards when that changes.
-    let count = 0;
-    new ResizeObserver(() => {
-      const n = zone.clientWidth >= TWO_COLUMNS_PX ? 2 : 1;
-      if (n === count) return;
-      count = n;
-      this.columnHost.replaceChildren(...this.columns.slice(0, n));
-      this.columnHost.dataset.columns = String(n);
-      this.layout();
-    }).observe(zone);
+    zone.append(this.split);
   }
 
-  /** Put the cards into the visible columns in stack order (layer i into column i mod n). */
-  private layout(): void {
-    const n = Math.max(1, this.columnHost.childElementCount);
-    const want: HTMLElement[][] = this.columns.map(() => []);
-    this.order.forEach((id, i) => {
-      const card = this.cards.get(id);
-      if (card) want[i % n]!.push(card.root);
+  // ---- the list ------------------------------------------------------------------------
+
+  private makeRow(id: string): Row {
+    const badge = h('span', { className: 'card-badge' });
+    const title = h('span', { className: 'card-title' });
+    const open = h('button', { type: 'button', className: 'card-toggle layer-row-open' }, badge, title);
+    open.addEventListener('keydown', (ev) => this.rowKey(ev, id));
+    const up = iconButton('up', 'Move up (drawn earlier)', () => this.move(id, -1));
+    const down = iconButton('down', 'Move down (drawn later)', () => this.move(id, 1));
+    const actions = h('div', { className: 'card-actions' }, up, down, iconButton('copy', 'Duplicate', () => this.duplicate(id)), iconButton('trash', 'Delete…', () => this.remove(id), 'danger'));
+    const root = h('div', { className: 'layer-row', role: 'listitem' }, open, actions);
+    // A click anywhere on the row but its icon buttons (which stop it) opens the layer.
+    root.addEventListener('click', () => {
+      this.deps.select(id);
+      // Stacked (narrow zone), the settings are under the list: bring their top into view.
+      if (getComputedStyle(this.split).display === 'block') {
+        const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        this.settings.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
+      }
     });
-    this.columns.forEach((col, c) => {
-      const list = want[c]!;
-      // Only touch a column whose contents changed: moving a card would drop keyboard focus.
-      const same = list.length === col.childElementCount && list.every((el, i) => col.children[i] === el);
-      if (!same) col.replaceChildren(...list);
-    });
-    this.cards.forEach((card, id) => card.setBadge(String(this.order.indexOf(id) + 1)));
-    this.empty.hidden = this.order.length > 0;
-    this.countNote.textContent = this.order.length === 0 ? '' : `${this.order.length} layer${this.order.length === 1 ? '' : 's'}`;
+    return { root, open, badge, title, up, down, layer: null };
   }
 
-  private collapseAll(): void {
-    for (const [id, card] of this.cards) {
-      card.setCollapsed(true);
-      this.expanded.set(`${id}/`, false);
+  /** Up/Down (and Home/End) move between rows; Enter/Space open one (it is a button). */
+  private rowKey(ev: KeyboardEvent, id: string): void {
+    const i = this.order.indexOf(id);
+    let j: number;
+    if (ev.key === 'ArrowUp') j = i - 1;
+    else if (ev.key === 'ArrowDown') j = i + 1;
+    else if (ev.key === 'Home') j = 0;
+    else if (ev.key === 'End') j = this.order.length - 1;
+    else return;
+    ev.preventDefault();
+    const next = this.rows.get(this.order[j] ?? '');
+    next?.open.focus();
+  }
+
+  private labelRow(row: Row, layer: LayerConfig): void {
+    row.layer = layer;
+    this.retitleRow(row, titleOf(layer));
+    row.root.dataset.type = layer.type;
+  }
+
+  private retitleRow(row: Row, title: string): void {
+    row.title.textContent = title;
+    // The full title as a tooltip, as the narrow column may cut it short.
+    row.open.title = title;
+    row.root.classList.toggle('off', title.endsWith('(off)'));
+  }
+
+  /** Bring the rows into line with the layer list (new, removed and moved layers). */
+  private syncRows(layers: readonly LayerConfig[]): void {
+    const active = document.activeElement;
+    const focused = active instanceof HTMLElement && this.list.contains(active) ? active : null;
+    const focusedAt = focused ? [...this.list.children].findIndex((el) => el.contains(focused)) : -1;
+    const ids = new Set(layers.map((l) => l.id));
+    for (const [id, row] of this.rows) {
+      if (ids.has(id)) continue;
+      row.root.remove();
+      this.rows.delete(id);
+    }
+    const want = layers.map((layer, i) => {
+      let row = this.rows.get(layer.id);
+      if (!row) {
+        row = this.makeRow(layer.id);
+        this.rows.set(layer.id, row);
+      }
+      if (row.layer !== layer) this.labelRow(row, layer);
+      row.badge.textContent = String(i + 1);
+      row.up.disabled = i <= 0;
+      row.down.disabled = i >= layers.length - 1;
+      return row.root;
+    });
+    const same = want.length === this.list.childElementCount && want.every((el, i) => this.list.children[i] === el);
+    if (!same) this.list.replaceChildren(...want);
+    // Moving a row drops keyboard focus: put it back (on the row itself if its button is now
+    // disabled). After a delete, focus goes to the row that took the deleted one's place.
+    if (focused && document.activeElement !== focused) {
+      if (focused.isConnected) {
+        const row = [...this.rows.values()].find((r) => r.root.contains(focused));
+        (focused instanceof HTMLButtonElement && focused.disabled ? row?.open : focused)?.focus({ preventScroll: true });
+      } else if (focusedAt >= 0) {
+        this.rows.get(layers[Math.min(focusedAt, layers.length - 1)]?.id ?? '')?.open.focus({ preventScroll: true });
+      }
+    }
+    this.countNote.textContent = layers.length === 0 ? '' : `${layers.length} layer${layers.length === 1 ? '' : 's'}`;
+    this.countNote.hidden = layers.length === 0;
+  }
+
+  /** Highlight the open layer's row (and mark it selected when it is also the gizmo's layer). */
+  private markRows(): void {
+    for (const [id, row] of this.rows) {
+      const open = id === this.shown;
+      row.root.classList.toggle('open', open);
+      row.root.classList.toggle('selected', open && id === this.selected);
+      if (open) row.open.setAttribute('aria-current', 'true');
+      else row.open.removeAttribute('aria-current');
     }
   }
 
   // ---- selection -----------------------------------------------------------------------
 
   /**
-   * Highlight `id`'s folder (null clears). With `reveal`, also expand and scroll to it (for a
-   * selection made in the preview).
+   * Select `id` (null clears) and open it on the right; with nothing selected, the open layer
+   * stays open. With `reveal` (a selection made in the preview), also scroll its row into view.
    */
   setSelected(id: string | null, reveal = false): void {
     this.selected = id;
-    for (const [lid, card] of this.cards) card.root.classList.toggle(SELECTED_CLASS, lid === id);
-    const card = id === null ? undefined : this.cards.get(id);
-    if (card && id !== null && reveal) {
-      card.setCollapsed(false);
-      this.expanded.set(`${id}/`, true);
+    const doc = this.deps.getDoc();
+    if (doc) this.showLayer(doc);
+    this.markRows();
+    const row = id === null ? undefined : this.rows.get(id);
+    if (row && reveal) {
       const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      card.root.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
+      row.root.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
     }
+  }
+
+  /** The layer to show: the selected one, else the one already open, else its stack neighbour. */
+  private pickShown(layers: readonly LayerConfig[]): string | null {
+    if (this.selected !== null && layers.some((l) => l.id === this.selected)) return this.selected;
+    if (this.shown !== null && layers.some((l) => l.id === this.shown)) return this.shown;
+    return layers[Math.min(this.shownIndex, layers.length - 1)]?.id ?? null;
+  }
+
+  /** Open the layer `pickShown` names, building its pane if it isn't the open one. True if built. */
+  private showLayer(doc: SyncDoc): boolean {
+    const layers = doc.project.layers;
+    const id = this.pickShown(layers);
+    const at = layers.findIndex((l) => l.id === id);
+    if (at >= 0) this.shownIndex = at;
+    const open = this.entries.keys().next().value ?? null;
+    const changed = id !== this.shown;
+    this.shown = id;
+    this.empty.hidden = layers.length > 0;
+    this.settings.hidden = id === null;
+    if (open === id) return false;
+    if (open !== null) {
+      const entry = this.entries.get(open);
+      if (entry) this.disposeEntry(open, entry);
+    }
+    this.settingsBody.replaceChildren();
+    const layer = layers[at];
+    if (!layer) return false;
+    this.settingsBody.append(this.build(doc, layer));
+    this.settingsHead(layer, at);
+    // A different layer starts at the top of its settings.
+    if (changed) this.settingsCol.scrollTop = 0;
+    return true;
+  }
+
+  private settingsHead(layer: LayerConfig, position: number): void {
+    this.settingsBadge.textContent = String(position + 1);
+    this.retitleSettings(titleOf(layer));
+    this.settings.dataset.type = layer.type;
+  }
+
+  private retitleSettings(title: string): void {
+    this.settingsTitle.textContent = title;
+    this.settings.setAttribute('aria-label', `${title}: settings`);
+    this.settings.classList.toggle('off', title.endsWith('(off)'));
   }
 
   // ---- reconciling with the synced document ------------------------------------------
@@ -202,41 +348,55 @@ export class LayersPanel {
     const layers = doc.project.layers;
     const structural =
       layers.length !== this.order.length || layers.some((l, i) => l.id !== this.order[i]) || doc.project.datasets !== this.datasets;
+    let arrived: string | null = null;
     if (structural) {
-      this.rebuildAll(doc);
-      this.parameters = doc.project.parameters;
-      if (this.pendingSelect !== null && this.entries.has(this.pendingSelect)) {
-        const id = this.pendingSelect;
+      // New datasets change every layer's column lists: the open pane is rebuilt.
+      if (doc.project.datasets !== this.datasets) this.closeSettings();
+      this.order = layers.map((l) => l.id);
+      this.datasets = doc.project.datasets;
+      const ids = new Set(this.order);
+      for (const key of [...this.expanded.keys()]) if (!ids.has(key.slice(0, key.indexOf('/')))) this.expanded.delete(key);
+      this.syncRows(layers);
+      if (this.pendingSelect !== null && ids.has(this.pendingSelect)) {
+        // Open the new layer here, so selecting it below finds it already open.
+        arrived = this.selected = this.pendingSelect;
         this.pendingSelect = null;
-        this.deps.select(id);
       }
-      return;
+    } else {
+      layers.forEach((layer) => {
+        const row = this.rows.get(layer.id);
+        if (row && row.layer !== layer) this.labelRow(row, layer);
+      });
     }
-    for (const layer of layers) {
-      const entry = this.entries.get(layer.id);
-      if (!entry) continue;
-      const summary = this.summaryFor(layer);
-      const prev = entry.layer;
-      if (layer === prev && summary === entry.summary) continue;
+    const built = this.showLayer(doc);
+    this.markRows();
+    if (arrived !== null) this.deps.select(arrived);
+    const at = layers.findIndex((l) => l.id === this.shown);
+    const layer = layers[at];
+    const entry = this.shown === null ? undefined : this.entries.get(this.shown);
+    if (!layer || !entry) return;
+    this.settingsHead(layer, at);
+    const summary = this.summaryFor(layer);
+    const prev = entry.layer;
+    if (!built && (layer !== prev || summary !== entry.summary)) {
       const rebuild =
         entry.forceRebuild || summary !== entry.summary || layer.datasetId !== prev.datasetId || shapeKey(layer) !== shapeKey(prev);
       if (rebuild || (external && !onlyTransformChanged(prev, layer))) {
         this.rebuildOne(doc, layer);
-        continue;
+        this.parameters = doc.project.parameters;
+        return;
       }
       entry.layer = layer;
-      entry.retitle(titleOf(layer));
       if (layer.transform !== prev.transform) entry.showTransform?.(layer.transform);
     }
     if (doc.project.parameters !== this.parameters) {
       this.parameters = doc.project.parameters;
-      for (const entry of this.entries.values()) this.applyMarks(entry, doc);
+      this.applyMarks(entry, doc);
     }
-    for (const entry of this.entries.values()) {
-      entry.refreshReadout?.();
-      this.updateTimeline(entry, doc);
-      this.updateModulation(entry, doc, external);
-    }
+    if (built) return;
+    entry.refreshReadout?.();
+    this.updateTimeline(entry, doc);
+    this.updateModulation(entry, doc, external);
   }
 
   private updateTimeline(entry: Entry, doc: SyncDoc): void {
@@ -251,7 +411,7 @@ export class LayersPanel {
     }
   }
 
-  /** Refresh the live values in the layers' Modulation folders (about 10 times a second). */
+  /** Refresh the live values in the open layer's Modulation and Timeline folders (about 10 times a second). */
   tick(nowMs: number): void {
     for (const entry of this.entries.values()) {
       if (entry.modulationFolder?.expanded) entry.modulation?.tick(nowMs);
@@ -290,35 +450,29 @@ export class LayersPanel {
     for (const f of entry.folders) this.expanded.set(f.key, f.api.expanded);
   }
 
-  /** Dispose a layer's pane and forget its card (the caller removes or replaces the element). */
+  /** Dispose a layer's pane and forget its entry (the caller removes or replaces the element). */
   private disposeEntry(id: string, entry: Entry): void {
     this.saveExpanded(entry);
     entry.folder.dispose();
     this.entries.delete(id);
-    this.cards.delete(id);
   }
 
-  private rebuildAll(doc: SyncDoc): void {
+  /** Close the open pane, so the next `showLayer` builds it afresh. */
+  private closeSettings(): void {
     for (const [id, entry] of [...this.entries]) this.disposeEntry(id, entry);
-    for (const col of this.columns) col.replaceChildren();
-    const layers = doc.project.layers;
-    this.order = layers.map((l) => l.id);
-    this.datasets = doc.project.datasets;
-    const ids = new Set(this.order);
-    for (const key of [...this.expanded.keys()]) if (!ids.has(key.slice(0, key.indexOf('/')))) this.expanded.delete(key);
-    layers.forEach((layer, i) => this.build(doc, layer, i, layers.length));
-    this.layout();
+    this.settingsBody.replaceChildren();
   }
 
   private rebuildOne(doc: SyncDoc, layer: LayerConfig): void {
     const entry = this.entries.get(layer.id);
     if (!entry) return;
-    const old = this.cards.get(layer.id);
-    const at = doc.project.layers.findIndex((l) => l.id === layer.id);
-    this.disposeEntry(layer.id, entry);
-    const card = this.build(doc, layer, at, doc.project.layers.length);
-    // Swap in place, so no other card moves.
-    if (old) old.root.replaceWith(card.root);
+    // Build the new pane before dropping the old one and swap them in one go, so the settings
+    // column keeps its scroll position.
+    this.saveExpanded(entry);
+    this.entries.delete(layer.id);
+    const pane = this.build(doc, layer);
+    entry.folder.dispose();
+    this.settingsBody.replaceChildren(pane);
   }
 
   /** Run `fn` with change events suppressed (used when the panel writes to its own bindings). */
@@ -412,7 +566,6 @@ export class LayersPanel {
     if (chosen === LINE_CHART && layer.type === 'line') {
       layer = { ...layer, aggregate: { by: layer.timeColumn ? 'month' : 'rows', rows: 30, fn: 'mean' } };
     }
-    this.expanded.set(`${id}/`, true);
     this.pendingSelect = id;
     this.deps.sendPatch([{ op: 'set', path: ['project', 'layers', layers.length], value: layer }]);
   }
@@ -446,8 +599,11 @@ export class LayersPanel {
     ops.push(...layerParamCopyOps(cur.doc.project.parameters, id, newId));
     const transport = cur.doc.session.layerTransports[id];
     if (transport) ops.push({ op: 'set', path: ['session', 'layerTransports', newId], value: transport });
-    for (const f of this.entries.get(id)?.folders ?? []) this.expanded.set(`${newId}${f.key.slice(id.length)}`, f.api.expanded);
-    this.expanded.set(`${newId}/`, !(this.cards.get(id)?.collapsed ?? true));
+    // The copy opens with the original's folders expanded as they are now.
+    const open = this.entries.get(id);
+    if (open) this.saveExpanded(open);
+    for (const [key, expanded] of [...this.expanded]) if (key.startsWith(`${id}/`)) this.expanded.set(`${newId}${key.slice(id.length)}`, expanded);
+    this.pendingSelect = newId;
     this.deps.sendPatch(ops);
   }
 
@@ -502,34 +658,13 @@ export class LayersPanel {
     return api;
   }
 
-  /** Build a layer's card (not yet placed in a column) and its pane. */
-  private build(doc: SyncDoc, layer: LayerConfig, position: number, count: number): Card {
+  /** Build the settings pane of a layer, returning its element (not yet placed). */
+  private build(doc: SyncDoc, layer: LayerConfig): HTMLElement {
     const id = layer.id;
     const summary = this.summaryFor(layer);
     const dataset = doc.project.datasets.find((d) => d.id === layer.datasetId);
-    const rootKey = `${id}/`;
-    const card = new Card({
-      title: titleOf(layer),
-      className: 'layer-card',
-      collapsed: !(this.expanded.get(rootKey) ?? false),
-      onToggle: (collapsed) => this.expanded.set(rootKey, !collapsed),
-    });
-    card.root.classList.toggle(SELECTED_CLASS, id === this.selected);
-    card.root.classList.toggle('off', !layer.enabled);
-    card.setBadge(String(position + 1));
-    card.root.dataset.type = layer.type;
-    // Pointing anywhere in the layer's card (its header included), or tabbing into it, selects the layer.
-    const select = () => {
-      if (this.selected !== id) this.deps.select(id);
-    };
-    card.root.addEventListener('pointerdown', select);
-    card.root.addEventListener('focusin', select);
-    const up = iconButton('up', 'Move up (drawn earlier)', () => this.move(id, -1));
-    const down = iconButton('down', 'Move down (drawn later)', () => this.move(id, 1));
-    up.disabled = position <= 0;
-    down.disabled = position >= count - 1;
-    card.actions.append(up, down, iconButton('copy', 'Duplicate', () => this.duplicate(id)), iconButton('trash', 'Delete…', () => this.remove(id), 'danger'));
-    const pane = new Pane({ container: card.body });
+    const container = h('div', { className: 'layer-pane' });
+    const pane = new Pane({ container });
     const entry: Entry = {
       layer,
       summary,
@@ -539,16 +674,17 @@ export class LayersPanel {
       marks: [],
       showTransform: null,
       refreshReadout: null,
+      // Name and on/off edits show at once, before their echo.
       retitle: (title) => {
-        card.setTitle(title);
-        card.root.classList.toggle('off', title.endsWith('(off)'));
+        if (this.shown === id) this.retitleSettings(title);
+        const row = this.rows.get(id);
+        if (row) this.retitleRow(row, title);
       },
       modulation: null,
       modulationFolder: null,
       timeline: null,
     };
     this.entries.set(id, entry);
-    this.cards.set(id, card);
 
     const ui: LayerUi = {
       id,
@@ -618,6 +754,6 @@ export class LayersPanel {
       this.modulationExpanded,
     );
     this.updateModulation(entry, doc, true);
-    return card;
+    return container;
   }
 }
