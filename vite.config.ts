@@ -23,7 +23,7 @@ export default defineConfig({
   // which would interrupt a running output window in dev.
   optimizeDeps: {
     entries: ['control/index.html', 'output/index.html', '../data/parse.worker.ts', '../data/hierarchy.worker.ts'],
-    include: ['three', 'tweakpane', 'papaparse', 'zod', 'd3-hierarchy', 'd3-scale-chromatic', 'troika-three-text'],
+    include: ['three', 'tweakpane', 'papaparse', 'zod', 'd3-hierarchy', 'd3-scale-chromatic', 'troika-three-text', 'qrcode-generator'],
   },
   test: {
     root: import.meta.dirname,
