@@ -5,9 +5,9 @@ import { z } from 'zod';
  * frame, the control window evaluates them to show live values.
  *
  * Time model (frame-rate independent, no drift, no float precision loss):
- *  - Every value is a function of absolute wall-clock time (`performance.timeOrigin +
- *    performance.now()`, in ms), never of accumulated frame deltas. All windows on the
- *    machine therefore agree, and a dropped frame changes nothing.
+ *  - Every value is a function of absolute wall-clock time (`wallMs()`, epoch ms), never of
+ *    accumulated frame deltas. All windows on the machine therefore agree, and a dropped
+ *    frame changes nothing. See WallClock for how that time is kept in step across windows.
  *  - Periodic maths reduces time modulo the period in float64 before anything reaches
  *    float32, so hours or days of running lose no precision.
  *
@@ -82,9 +82,60 @@ export const TransportSchema = z.object({
 });
 export type Transport = z.infer<typeof TransportSchema>;
 
-/** Wall-clock milliseconds with sub-millisecond resolution, monotonic within a page. */
+/**
+ * Wall-clock ms for a high-resolution `performance.now()` reading: perfNow + an offset kept
+ * in step with the system clock (`Date.now()`).
+ *
+ * Why not just `performance.timeOrigin + performance.now()`: on Linux, Chrome's
+ * performance.now() is a monotonic clock that stops while the machine sleeps, and
+ * timeOrigin is fixed when the page loads. A window that was open across a suspend then runs
+ * behind windows opened later by the whole sleep, so the output, the preview and the control
+ * window disagree about the timeline (seen after the laptop slept for hours). The system
+ * clock is shared by every window, so all of them agree again.
+ *
+ * The offset is re-measured at most once a second. A small difference (Date.now()'s coarse
+ * resolution, slow clock drift) is eased in, so motion never jerks; a large one (waking from
+ * sleep, the clock being set) is taken at once.
+ */
+export class WallClock {
+  private offset = Number.NaN;
+  private checkedAt = Number.NEGATIVE_INFINITY;
+
+  constructor(
+    private readonly now: () => number = () => performance.now(),
+    private readonly systemNow: () => number = () => Date.now(),
+  ) {}
+
+  /** Wall-clock ms at high-resolution time `perfNow` (from the same clock as `now`). */
+  at(perfNow: number): number {
+    if (perfNow - this.checkedAt >= WallClock.CHECK_MS || Number.isNaN(this.offset)) {
+      const now = this.now();
+      this.checkedAt = now;
+      const measured = this.systemNow() - now;
+      const diff = measured - this.offset;
+      if (Number.isNaN(this.offset) || Math.abs(diff) > WallClock.SNAP_MS) this.offset = measured;
+      else this.offset += diff * WallClock.EASE;
+    }
+    return perfNow + this.offset;
+  }
+
+  /** Wall-clock ms now. */
+  read(): number {
+    return this.at(this.now());
+  }
+
+  static readonly CHECK_MS = 1000;
+  /** Differences beyond this are a jump (resume, clock change), not drift. */
+  static readonly SNAP_MS = 250;
+  static readonly EASE = 0.2;
+}
+
+/** The page's clock (shared by everything in the page that needs wall-clock time). */
+export const wallClock = new WallClock();
+
+/** Wall-clock milliseconds with sub-millisecond resolution (see WallClock). */
 export function wallMs(): number {
-  return performance.timeOrigin + performance.now();
+  return wallClock.read();
 }
 
 export function timelinePhase(t: Transport, durationSec: number, loop: boolean, nowMs: number): number {

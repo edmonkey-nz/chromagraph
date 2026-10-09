@@ -4,6 +4,7 @@ import { makeClientId, ReconnectingSocket, wsUrl, type ConnectionState } from '.
 import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { HIERARCHY_WORKER_URL } from '../../data/hierarchy-client.ts';
+import { wallClock } from '../../shared/modulators.ts';
 import { DatasetStore } from './datasets.ts';
 import { TERMINAL_FONT_URL } from './fonts.ts';
 import { PreviewEditor } from './editor.ts';
@@ -230,7 +231,8 @@ function tick(now: number): void {
     ctx.frame++;
     lastFrame = now;
     if (stage && layers && !stage.contextLost) {
-      const wall = performance.timeOrigin + now;
+      // rAF's timestamp is a performance.now() reading; see WallClock for why not timeOrigin.
+      const wall = wallClock.at(now);
       modulation.frame(wall);
       morph.frame(wall, ctx);
       layers.update(ctx);
