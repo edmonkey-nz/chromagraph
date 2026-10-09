@@ -26,6 +26,7 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { FRAME_CENTRE, type ReflectorLayer } from '../../../shared/layer-schema.ts';
+import { SCREEN_FIXED_TAG } from '../stage.ts';
 import { SHOWN_TAG, type FrameContext, type LayerInstance } from './layer.ts';
 
 /**
@@ -58,8 +59,6 @@ export interface ReflectorInstance extends LayerInstance {
 
 /** Marks a reflector's root object: reflections never include reflection planes. */
 export const REFLECTOR_TAG = 'reflector';
-/** userData flag of a layer drawn with the 2D pixel camera whatever the 3D camera does. */
-export const SCREEN_FIXED_TAG = 'screenFixed';
 
 const TAPS = 12;
 /** Blur radius at blur = 1, in reflection-target texels. */

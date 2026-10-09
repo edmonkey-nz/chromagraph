@@ -243,6 +243,9 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   dispose, and compiles every new layer's shaders immediately via `Stage.verify`, so a
   shader error fails the layer instead of the frame.
 - `client/output/layers/test-pattern.ts` is the simplest example of a layer.
+- `camera.projection: 'isometric'` (schema v12) uses `Stage.isometricCamera`: orthographic,
+  with the same orbit as the perspective camera, and distance scales the view
+  (`isometricHalfSize`). The Camera card's "Isometric view" sets yaw 45 and pitch 35.26.
 
 **Instancer layers (phase 3).**
 - The config contract is `shared/layer-schema.ts`. Its comments define the units and the
@@ -269,6 +272,11 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   `LayerManager`. Editing it from the preview gizmo uses the postMessage protocol in
   `shared/editor-protocol.ts`. The preview reports drags, and the control window sends
   the patches.
+- **Box edges** (`layer.edges`, schema v12): the `EDGES` block is compiled into every box
+  layer and switched by uniforms. Edge width is in screen pixels, from `fwidth` of the face
+  UVs. Face opacity below 1 makes the layer translucent. Edge glow brightens the edge and adds
+  an inward halo, because the 8-bit scene target clamps above 1.0. Presets are `edgePreset`
+  in `layer-helpers.ts`.
 - `normalise()` in the same file is the tested twin of the GLSL scale maths in
   `client/output/layers/instancer.ts`. Change both together.
 - **Labels** (`InstancerLabelsSchema`, schema v9). An instancer can draw text at points of its
@@ -326,6 +334,15 @@ Notes by type:
 - **Text** uses troika-three-text; its template syntax is in `shared/text-template.ts`.
 - **Lines** are screen-space quads. The line cloner draws far to near, with a fill, so
   nearer ridges hide farther ones.
+- **Reflection plane** (`reflector`, `layers/reflector.ts`): a mirror placed by the layer
+  transform, with no dataset. It renders the scene from the mirrored camera into a
+  half-resolution target with mipmaps and a depth texture, at most once a frame (on its first
+  whole-scene draw, keyed by the frame number from `update`). It reflects every layer that is
+  switched on (`userData.shown`, set by `LayerHost.place`), never reflection planes or
+  screen-fixed layers. The target is cleared to transparent, so its alpha is coverage;
+  translucent layers write depth for that render only, so the fade works. With the 2D camera
+  it draws its colour alone. Cost: one extra scene render, about 3 ms at 200k boxes on the
+  GTX 1650.
 
 Gap: layers can only report problems by throwing (which flags the layer). Non-fatal notes,
 such as the hierarchy label cap or ungrouped rows, only reach the browser console.

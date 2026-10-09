@@ -143,6 +143,10 @@ the NVIDIA GPU.
   its own trails costs about one more draw of that layer.
 - **Shadow and blur:** each layer's **Shadow** folder adds a drop shadow (colour, opacity,
   spread for softness, and offset in px, y up). **Blur** blurs the layer by an amount in px.
+- **Isometric and 3D looks:** Camera → **Isometric view** gives a flat-shaded isometric
+  angle. Box instancers have an **Edges** folder (width in px, face opacity, edge glow) with
+  **Red outline** and **Neon** presets. Add a **reflection plane** layer for a mirror floor;
+  place it with the gizmo or **Lay flat as floor**. It costs one extra scene render.
 - **Fixed to screen:** tick it in a layer's **Transform** folder to draw that layer with
   the 2D screen camera, so 3D camera moves don't affect it, as for titles.
 - **Camera moves:** in the Camera card under Motion, pick a preset (orbit, swing, zoom, pan,
