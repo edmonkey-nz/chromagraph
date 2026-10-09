@@ -301,8 +301,6 @@ export const migrations: Record<number, Migration> = {
       scenes: scenes.map((sc) => ({ ...sc, layers: layers(sc.layers) })),
     };
   },
-  // v12: per-layer drop shadow and blur, "fixed to screen", camera projection, instancer
-  // edge style (all off / perspective).
   // v14: datasets get source, url and attribution (empty).
   13: (doc) => {
     const datasets = Array.isArray(doc.datasets)
@@ -317,6 +315,8 @@ export const migrations: Record<number, Migration> = {
     const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
     return { ...doc, camera: camera(doc.camera), scenes: scenes.map((sc) => ({ ...sc, camera: camera(sc.camera) })) };
   },
+  // v12: per-layer drop shadow and blur, "fixed to screen", camera projection, instancer
+  // edge style (all off / perspective).
   11: (doc) => {
     const layer = (l: Doc): Doc => {
       const fx = (l.effects ?? {}) as Doc;

@@ -349,6 +349,13 @@ Notes by type:
 - **Text** uses troika-three-text; its template syntax is in `shared/text-template.ts`.
 - **Lines** are screen-space quads. The line cloner draws far to near, with a fill, so
   nearer ridges hide farther ones.
+- **QR code** (`qr`, `layers/qr.ts`; pure encoding in `data/qr-data.ts`, tested by decoding
+  with jsQR): text, or the dataset's `url` from its credits, encoded as UTF-8 bytes with
+  `qrcode-generator`. Drawn as one quad with a nearest-filtered texture of one texel per
+  module (margin included). The encoded text and level are its structure key (`keyOf` passes
+  the credits to `structureKey`), so a new link rebuilds it, and a text too long, which fails
+  the layer, recovers on the next edit. It never needs the table. Glow and blur can make the
+  code unreadable; the control folder warns but doesn't prevent it.
 - **Reflection plane** (`reflector`, `layers/reflector.ts`): a mirror placed by the layer
   transform, with no dataset. It renders the scene from the mirrored camera into a
   half-resolution target with mipmaps and a depth texture, at most once a frame (on its first

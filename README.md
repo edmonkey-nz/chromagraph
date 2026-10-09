@@ -100,6 +100,9 @@ npm run build && npm start
   in the Datasets tab, then press **Insert credit** on a text layer (or type `{@credit}`,
   `{@source}`, `{@url}` or `{@attribution}`) to show them.
 - **Reflection plane:** a mirror floor for 3D scenes.
+- **QR code:** a scannable "more info" link, typed in or taken from the dataset's link.
+  Dark on light scans best; keep the margin at 4 and, on a wall, make it at least about
+  20 cm wide. Glow and blur can stop it scanning.
 
 **Mapping:** any column to position, size, colour, opacity or rotation, through linear,
 log, sqrt or stepped scales and colour ramps.
