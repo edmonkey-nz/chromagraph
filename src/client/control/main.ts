@@ -95,7 +95,10 @@ const state = new SyncedState(
   (doc, prev, info) => {
     // Our own patches are already reflected in the GUI; refreshing mid-drag would fight the
     // user. Going to a scene replaces whole branches, though, so its echo counts as external.
-    const external = info.full || info.origin !== clientId || replacesProjectBranch(info.ops ?? []);
+    let refresh = false;
+    if (info.full) ownEchoes.length = 0;
+    else if (info.origin === clientId) refresh = ownEchoes.shift() ?? false;
+    const external = info.full || info.origin !== clientId || refresh || replacesProjectBranch(info.ops ?? []);
     projectBar.setCurrent(state.projectName);
     if (info.full) projectBar.tracker.resynced();
     else if (prev && doc.project !== prev.project && touchesProject(info.ops ?? [])) projectBar.tracker.changed(info.origin === clientId, Date.now());
@@ -122,11 +125,20 @@ const state = new SyncedState(
   (message) => addLog({ time: Date.now(), level: 'warn', source: 'control', message }),
 );
 
-function sendPatch(ops: PatchOp[]): void {
+/**
+ * For each of our patches whose echo is still to come (in order): whether the panels should
+ * treat that echo as external. The Timeline tab edits modulators that the layer cards'
+ * Modulation folders also show, so its settled edits ask them to refresh. A rejected patch
+ * gets no echo but a full resync, which clears the queue.
+ */
+const ownEchoes: boolean[] = [];
+
+function sendPatch(ops: PatchOp[], refresh = false): void {
   if (!socket.send({ t: 'patch', ops })) {
     addLog({ time: Date.now(), level: 'warn', source: 'control', message: 'not connected; change not sent' });
     return;
   }
+  ownEchoes.push(refresh);
   if (touchesProject(ops)) {
     projectBar.tracker.sent(Date.now());
     projectBar.renderState(Date.now());

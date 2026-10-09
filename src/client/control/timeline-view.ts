@@ -56,7 +56,12 @@ import { h, icon, iconButton, loadSetting, saveSetting } from './ui.ts';
  */
 
 export interface TimelineViewDeps {
-  sendPatch(ops: PatchOp[]): void;
+  /**
+   * Send a patch. `refresh` asks the other panels to treat its echo as external and refresh
+   * from it (their bindings would otherwise keep showing the old modulator); intermediate
+   * drag steps pass false, and the final step of a drag is always sent with true.
+   */
+  sendPatch(ops: PatchOp[], refresh?: boolean): void;
   getDoc(): SyncDoc | null;
   showError(message: string): void;
   /** The user selected a layer (clicked its group name). */
@@ -166,6 +171,8 @@ interface Drag {
   axis: 'x' | 'y' | null;
   last: { at: number; value: number };
   pending: PatchOp[] | null;
+  /** The latest ops (sent or not), resent as the final step when the key is let go. */
+  latest: PatchOp[] | null;
   lastSendMs: number;
 }
 
@@ -984,8 +991,11 @@ export class TimelineView {
     return doc;
   }
 
-  /** Validate ops against the project schema, then send. Returns the patched doc, or null if refused. */
-  private send(ops: PatchOp[], what: string): SyncDoc | null {
+  /**
+   * Validate ops against the project schema, then send (`refresh`: see TimelineViewDeps).
+   * Returns the patched doc, or null if refused.
+   */
+  private send(ops: PatchOp[], what: string, refresh = true): SyncDoc | null {
     const doc = this.editDoc();
     const synced = this.deps.getDoc();
     if (!doc || !synced || ops.length === 0) return null;
@@ -1002,7 +1012,7 @@ export class TimelineView {
       this.deps.showError(`${what} not sent (${String(err)}).`);
       return null;
     }
-    this.deps.sendPatch(ops);
+    this.deps.sendPatch(ops, refresh);
     this.optimistic = { base: synced, doc: next };
     return next;
   }
@@ -1127,6 +1137,7 @@ export class TimelineView {
         axis: null,
         last: { at: key.at, value: key.value },
         pending: null,
+        latest: null,
         lastSendMs: 0,
       };
       c.classList.add('dragging');
@@ -1146,8 +1157,11 @@ export class TimelineView {
       if (ev.type === 'pointerup') this.dragTo(d, local(ev).x, local(ev).y, ev.shiftKey);
       this.drag = null;
       c.classList.remove('dragging');
-      // Always send where the key was let go.
-      if (d.pending) this.flush(d);
+      // Always send where the key was let go, as a settled edit the other panels refresh from.
+      if (d.latest) {
+        d.pending = d.latest;
+        this.flush(d, true);
+      }
     };
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
@@ -1187,16 +1201,17 @@ export class TimelineView {
     if (!ops) return;
     this.showLocal(d.lu, ops, index, d);
     d.pending = ops;
+    d.latest = ops;
     const now = wallMs();
-    if (now - d.lastSendMs >= SCRUB_INTERVAL_MS) this.flush(d);
+    if (now - d.lastSendMs >= SCRUB_INTERVAL_MS) this.flush(d, false);
   }
 
-  private flush(d: Drag): void {
+  private flush(d: Drag, final: boolean): void {
     const ops = d.pending;
     if (!ops) return;
     d.pending = null;
     d.lastSendMs = wallMs();
-    if (!this.send(ops, 'Key change')) {
+    if (!this.send(ops, 'Key change', final)) {
       // Refused: stop the drag and show the synced state again.
       this.drag = null;
       d.lu.canvas.classList.remove('dragging');
