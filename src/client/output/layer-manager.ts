@@ -1,12 +1,13 @@
-import { Group, type Object3D } from 'three';
+import type { Object3D } from 'three';
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
 import { multiplesStructureKey } from '../../data/multiples-data.ts';
+import { qrText } from '../../data/qr-data.ts';
 import { surfaceStructureKey } from '../../data/surface-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
-import type { SyncDoc } from '../../shared/project-schema.ts';
+import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
 import { createHeatmap } from './layers/heatmap.ts';
 import { createHierarchy } from './layers/hierarchy.ts';
@@ -14,6 +15,7 @@ import { createInstancer, instancerCalendarReady } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
 import { createLine } from './layers/line.ts';
 import { createMultiples } from './layers/multiples.ts';
+import { createQr } from './layers/qr.ts';
 import { createReflector } from './layers/reflector.ts';
 import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
@@ -32,14 +34,25 @@ export interface ApplicableLayer<L> extends LayerInstance {
 }
 
 /**
+ * The project around a layer, for kinds that read more than their own config and table (a QR
+ * layer encodes its dataset entry's `url`). Taken from the synced doc on each sync.
+ */
+interface ProjectContext {
+  datasets: readonly Dataset[];
+}
+
+/**
  * How one layer type is built. `structureKey` lists the fields whose change needs a rebuild
  * (new buffers or textures); every other change goes through the instance's apply().
  * `needsData` false means the type builds without a dataset when datasetId is null.
+ * `ignoresTable` means it never reads the dataset's parsed table: it builds at once whether
+ * or not the table has loaded (or failed), and a reload doesn't rebuild it.
  */
 interface LayerKind<L extends LayerConfig> {
-  structureKey(layer: L, timeZone: string, data: LoadedDataset | null): string;
+  structureKey(layer: L, timeZone: string, data: LoadedDataset | null, project: ProjectContext): string;
   needsData: boolean;
-  create(layer: L, data: LoadedDataset | null, cameraMode: CameraMode): ApplicableLayer<L>;
+  ignoresTable?: true;
+  create(layer: L, data: LoadedDataset | null, cameraMode: CameraMode, project: ProjectContext): ApplicableLayer<L>;
 }
 
 function required(data: LoadedDataset | null): LoadedDataset {
@@ -98,13 +111,13 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     create: (layer, _data, mode) => createReflector(layer, mode),
   },
   qr: {
-    // CONTRACT STUB (replaced by the QR renderer): draws nothing.
-    structureKey: () => '',
+    // The encoded text (its own text, or its dataset's url from the project) and the level
+    // are the structure: changing either rebuilds (a fresh code; a scene morph crossfades),
+    // which also retries a layer whose text was too long. Margin, size and colours apply in place.
+    structureKey: (layer, _timeZone, _data, project) => JSON.stringify([qrText(layer, project.datasets), layer.level]),
     needsData: false,
-    create: () => {
-      const object = new Group();
-      return { object, update: () => {}, dispose: () => {}, apply: () => {} };
-    },
+    ignoresTable: true,
+    create: (layer, _data, mode, project) => createQr(layer, qrText(layer, project.datasets), mode),
   },
 };
 
@@ -133,7 +146,8 @@ function kindOf(layer: LayerConfig): LayerKind<LayerConfig> {
  * when its type, its structure (see each kind's structureKey) or its dataset's version
  * changes; everything else is a uniform update through apply(). Layers whose dataset has
  * not loaded yet are simply not built (waiting is not an error); a text layer with no
- * dataset builds straight away and shows its static text.
+ * dataset builds straight away and shows its static text, and a QR layer never waits (it
+ * reads only its dataset's entry in the project, not the table).
  */
 export class LayerManager {
   private keys = new Map<string, string>();
@@ -160,14 +174,15 @@ export class LayerManager {
     const cameraChanged = cameraMode !== this._cameraMode;
     this._cameraMode = cameraMode;
     const timeZones = timeZonesOf(doc);
+    const project = projectOf(doc);
     const seen = new Set<string>();
 
     doc.project.layers.forEach((layer, index) => {
       const kind = kindOf(layer);
       if (!kind) return;
       seen.add(layer.id);
-      const data = layer.datasetId ? this.datasets.get(layer.datasetId) : null;
-      const key = this.keyOf(layer, timeZones);
+      const data = this.dataFor(layer, kind);
+      const key = this.keyOf(layer, timeZones, project);
       if (key === null) {
         this.drop(layer.id);
         return;
@@ -176,7 +191,7 @@ export class LayerManager {
         this.keys.set(layer.id, key);
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
-        this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode)));
+        this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode), project));
       } else if (layer !== this.applied.get(layer.id) || cameraChanged) {
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
@@ -199,7 +214,7 @@ export class LayerManager {
    * when it cannot be built yet (its dataset has not loaded).
    */
   keyFor(layer: LayerConfig, doc: SyncDoc): string | null {
-    return this.keyOf(layer, timeZonesOf(doc));
+    return this.keyOf(layer, timeZonesOf(doc), projectOf(doc));
   }
 
   /** The current key of a built layer, or undefined. */
@@ -256,13 +271,18 @@ export class LayerManager {
     if (this.keys.has(id)) this.host.call<ApplicableLayer<LayerConfig>>(id, fn);
   }
 
-  private keyOf(layer: LayerConfig, timeZones: Map<string, string>): string | null {
+  private keyOf(layer: LayerConfig, timeZones: Map<string, string>, project: ProjectContext): string | null {
     const kind = kindOf(layer);
     if (!kind) return null;
-    const data = layer.datasetId ? this.datasets.get(layer.datasetId) : null;
-    if (!data && (kind.needsData || layer.datasetId)) return null;
+    const data = this.dataFor(layer, kind);
+    if (!data && !kind.ignoresTable && (kind.needsData || layer.datasetId)) return null;
     const timeZone = (layer.datasetId && timeZones.get(layer.datasetId)) || 'UTC';
-    return `${layer.type}|${kind.structureKey(layer, timeZone, data)}|${data?.version ?? '-'}`;
+    return `${layer.type}|${kind.structureKey(layer, timeZone, data, project)}|${data?.version ?? '-'}`;
+  }
+
+  /** The layer's loaded table, or null (not loaded yet, none, or a kind that ignores it). */
+  private dataFor(layer: LayerConfig, kind: LayerKind<LayerConfig>): LoadedDataset | null {
+    return layer.datasetId && !kind.ignoresTable ? this.datasets.get(layer.datasetId) : null;
   }
 
   /** Push modulated (effective) values for one layer; called every frame by the modulation engine. */
@@ -305,6 +325,10 @@ export class LayerManager {
     this.displayed.delete(id);
     this.host.remove(id);
   }
+}
+
+function projectOf(doc: SyncDoc): ProjectContext {
+  return { datasets: doc.project.datasets };
 }
 
 function timeZonesOf(doc: SyncDoc): Map<string, string> {
