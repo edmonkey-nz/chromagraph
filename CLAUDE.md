@@ -344,6 +344,17 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   is there and back, so it lasts twice the duration. `playhead()` in `shared/modulators.ts`
   maps u to the phase that modulators see. `progressFor()` maps a scrub back, staying on the
   current ping-pong leg. `reanchor()` keeps the playhead still when the settings change.
+- **Fades and gap (project timeline only).** `project.timeline.gap` holds the playhead at the
+  end of each looping pass for `gap` s before restarting.
+  - The transport's `anchorPhase` is then the position through pass plus gap
+    (`cyclePosition`), and progress is held at 1 in the gap. Pass `transportSeconds(tl)` to
+    `setPlaying`, and pass the timeline to `seek`.
+  - `outputFade` (modulation-helpers) gives a whole-output brightness from the transport:
+    an eased fade in and out over `fadeLength` (at most half a pass), and 0 in the gap when
+    fading out.
+  - `Stage.setFade` applies it in the warp pass, mixing towards the background colour after
+    bloom and trails.
+  - A layer's own timeline has no fades or gap.
 - **Per-layer timelines.** `layer.timeline = { own, duration, loop }` (schema v8). With
   `own` on, the layer's ramps, keyframes and data playhead run on its own timeline, played
   by `session.layerTransports[layerId]`. Without a transport yet, it falls back to the
@@ -405,8 +416,12 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
     - **Scene** (`#panel-scene`): Scenes, Timeline, Output (background) and Calibration
       cards, flowing down CSS columns at least 400 px wide.
     - **Datasets** (`#panel-data`): the import button and `DatasetsPanel`.
-    - **Layers** (`LayersPanel` in `#panel-layers`): one card per layer, two columns when
-      wide.
+    - **Layers** (`LayersPanel` in `#panel-layers`): a narrow list on the left (Add layer,
+      then one row per layer: badge, title, move, duplicate, delete) and the open layer's
+      settings on the right. Only the open layer has a Tweakpane pane (`entries` holds at
+      most one); rows are plain DOM. Clicking a row selects and opens that layer, and
+      selecting one elsewhere (the preview, the Timeline tab) opens it too. Under 720 px wide
+      the list stacks above the settings.
     - **Timeline** (`TimelineView` in `#panel-timeline`).
     The zone itself doesn't scroll; each panel does.
   - The drawer keeps Output windows, Diagnostics, Problems and Log.

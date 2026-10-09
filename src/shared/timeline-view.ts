@@ -65,9 +65,10 @@ export function formatSeconds(sec: number): string {
   return `${formatValue(sec)} s`;
 }
 
-/** "0:20 · ping-pong" (with "· once" when it does not loop). */
+/** "0:20 · ping-pong" (with "· once" when it does not loop, "· gap 2 s" when it holds between passes). */
 export function timelineSummary(tl: TimelineSettings): string {
-  return `${formatClock(tl.duration)} · ${playbackTitle(tl.playback)}${tl.loop ? '' : ' · once'}`;
+  const gap = tl.loop && tl.gap ? ` · gap ${formatSeconds(tl.gap)}` : '';
+  return `${formatClock(tl.duration)} · ${playbackTitle(tl.playback)}${tl.loop ? '' : ' · once'}${gap}`;
 }
 
 // ---- lanes and groups -----------------------------------------------------------------------

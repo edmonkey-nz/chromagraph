@@ -97,6 +97,11 @@ the NVIDIA GPU.
 - **Text keeps the file's formatting:** numbers show the decimals the CSV writes ("0.0",
   "12.30") and dates pad the day ("02 Jan 1879"), so text doesn't jump as values change.
 - **About:** the **?** after the title shows ABOUT.md.
+- **Layers tab:** a list of layers with **Add layer** on top; click a layer to open its
+  settings beside the list (or click it in the preview).
+- **Fades and gap:** Scene tab → **Scene timeline** → fade in, fade out, fade length and gap
+  before restart (0–5 s). The whole output fades to the background colour at the end of each
+  pass and back in at the start. Only the project timeline has these.
 - **Timeline strip:** under the preview, it shows where playback is. Click or drag its ruler
   to move the playhead; play/pause and restart are there too.
 - **Labels on instancers:** in an instancer's **Labels** folder, label its points by year,
@@ -106,7 +111,7 @@ the NVIDIA GPU.
 - **Mappings:** any column to position, size, colour, opacity or rotation, through
   linear, log, sqrt or quantise scales and colour ramps.
 - **Animation:** LFO, noise, ramp or keyframe modulators on almost any number, on a looping
-  timeline of up to 24 h. Each layer card has its own **Modulation** folder (with the data
+  timeline of up to 24 h. Each layer's settings have their own **Modulation** folder (with the data
   playhead, which reveals the record over time); the camera's is in the Camera card.
 - **Playback:** a timeline plays forward, in reverse, or ping-pong (there and back; each way
   takes the duration). This applies to the project timeline and to each layer's own.
@@ -116,7 +121,7 @@ the NVIDIA GPU.
 - **Line charts:** a line layer's **Aggregate** folder draws one point per week, month, year
   or N rows (mean, sum, min, max or last), so daily data reads as a line chart. **Add layer
   → line chart (aggregated)** starts with monthly means.
-- **Per-layer timelines:** in a layer card's **Timeline** folder, tick **own timeline** to
+- **Per-layer timelines:** in a layer's **Timeline** folder, tick **own timeline** to
   give that layer its own duration, loop, play/pause and scrub. The project Timeline
   card's Play/Pause and Restart still drive every layer.
 - **Timeline tab:** the last tab on the right (after **Layers**) shows the project
@@ -133,7 +138,7 @@ the NVIDIA GPU.
   and **Timeline**. Output windows, diagnostics, problems and the log are in the drawer
   along the bottom: click a drawer tab to open it, and click it again to close it.
 - **Scenes:** capture looks, then morph between them (0.1–10 s).
-- **Effects:** glow and motion trails, set per layer in each layer card's **Glow** and
+- **Effects:** glow and motion trails, set per layer in each layer's **Glow** and
   **Trails** folders. Layers with the same settings cost nothing extra; each layer with
   its own trails costs about one more draw of that layer.
 - **Camera moves:** in the Camera card under Motion, pick a preset (orbit, swing, zoom, pan,

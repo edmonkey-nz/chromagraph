@@ -1,7 +1,7 @@
 import { LAYER_TYPE_TITLES } from '../../shared/layer-helpers.ts';
 import { PLAYBACKS, type Playback } from '../../shared/layer-schema.ts';
 import { clampDuration, formatClock, formatValue, MAX_DURATION, MIN_DURATION, paramTitle } from '../../shared/modulation-helpers.ts';
-import { wallMs, type Parameter, type TimelineSettings, type Transport } from '../../shared/modulators.ts';
+import { cyclePosition, gapElapsed, type Parameter, type TimelineSettings, type Transport, wallMs } from '../../shared/modulators.ts';
 import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { ProjectSchema, type SyncDoc } from '../../shared/project-schema.ts';
 import {
@@ -1119,7 +1119,9 @@ export class TimelineView {
     clockState(pt, settings, now, this.masterClock);
     this.moveHead(this.masterRuler, this.masterClock.playhead, this.trackWidth);
     if (readouts) {
-      const pos = `${formatClock(this.masterClock.playhead * settings.duration, settings.duration)} / ${formatClock(settings.duration)}${arrow(settings, this.masterClock)}`;
+      // " · gap" while the project timeline holds between passes (see gapElapsed).
+      const inGap = gapElapsed(cyclePosition(pt, settings, now), settings) >= 0;
+      const pos = `${formatClock(this.masterClock.playhead * settings.duration, settings.duration)} / ${formatClock(settings.duration)}${arrow(settings, this.masterClock)}${inGap ? ' · gap' : ''}`;
       if (pos !== this.lastMasterPos) {
         this.lastMasterPos = pos;
         this.masterPos.textContent = pos;

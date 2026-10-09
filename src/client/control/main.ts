@@ -34,9 +34,10 @@ import { Card, h, icon, loadSetting, saveSetting } from './ui.ts';
  *                  left    live preview (with edit-mode tools) and the project timeline
  *                          strip under it, Camera
  *                  right   tabs, full height: Scene (Scenes, Timeline, Output, Calibration),
- *                          Datasets, Layers (one card per layer, two columns when wide; each
- *                          card has the layer's own Modulation folder) and Timeline (the
- *                          project, layer and camera timelines with their lanes)
+ *                          Datasets, Layers (a narrow list of layers with Add layer on top;
+ *                          the open layer's settings, with its own Modulation folder, beside
+ *                          it) and Timeline (the project, layer and camera timelines with
+ *                          their lanes)
  *   drawer       tabs along the bottom: Output windows, Diagnostics, Problems, Log. Closed
  *                it is just the tab strip; a tab opens it upwards.
  *
