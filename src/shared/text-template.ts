@@ -12,11 +12,22 @@
  *   and int override that (number columns). Dates pad the day: "02 Jan 1879".
  *   upper (any column; applied to the formatted text)
  *
+ * Dataset credits (the layer's dataset's `source`, `url` and `attribution` in project.json):
+ *   {@source}  {@url}  {@attribution}   that field as typed (trimmed)
+ *   {@credit}   one line from the non-empty parts: "Source: NIWA CliFlo · © NIWA, CC BY 4.0";
+ *               with only one part, just that part ("Source: NIWA CliFlo" or "© NIWA, CC BY 4.0").
+ *               The link is left out: put {@url} on its own line if it should show.
+ *   Credits accept the upper format only. An empty field, or no dataset, renders as '' (not
+ *   the missing-value dash). They are static: they never depend on the row.
+ *   Unknown {@names} are looked up as columns, so a column whose name starts with "@" still
+ *   works, except one named exactly "@source", "@url", "@attribution" or "@credit".
+ *
  * Missing values render as an em dash, never "NaN" or 0. Mistakes stay visible: an unknown
  * column renders as {?Column name}, an unknown or unsuitable format as {Column name|?format}.
+ * While the layer's dataset is still loading, column fields render as the dash.
  *
- * Cost: compileTemplate runs once per text change, bindTemplate once per text or dataset
- * change, and renderTemplate only when the current row index changes.
+ * Cost: compileTemplate runs once per text change, bindTemplate once per text, dataset or
+ * credits change, and renderTemplate only when the current row index changes.
  */
 
 /** Structural view of a table column (matches src/data/columns.ts without importing it). */
@@ -32,6 +43,60 @@ export interface TemplateTable {
 }
 
 export const MISSING_TEXT = '—';
+
+/** A dataset's credits (structurally the Dataset entry of project.json; '' when unknown). */
+export interface TemplateCredits {
+  readonly source: string;
+  readonly url: string;
+  readonly attribution: string;
+}
+
+/** The credit placeholders, as typed in a template. */
+export const CREDIT_TOKENS = ['{@source}', '{@url}', '{@attribution}', '{@credit}'] as const;
+
+const CREDIT_SEPARATOR = ' · ';
+
+/** The {@credit} line: "Source: <source> · <attribution>", empty parts (and their separator) left out. */
+export function creditLine(credits: TemplateCredits | null): string {
+  if (!credits) return '';
+  const source = credits.source.trim();
+  const attribution = credits.attribution.trim();
+  const parts: string[] = [];
+  if (source) parts.push(`Source: ${source}`);
+  if (attribution) parts.push(attribution);
+  return parts.join(CREDIT_SEPARATOR);
+}
+
+/** The text of a credit placeholder name (without the "@"), or null when it is not one. */
+function creditText(name: string, credits: TemplateCredits | null): string | null {
+  switch (name) {
+    case 'source':
+      return credits?.source.trim() ?? '';
+    case 'url':
+      return credits?.url.trim() ?? '';
+    case 'attribution':
+      return credits?.attribution.trim() ?? '';
+    case 'credit':
+      return creditLine(credits);
+    default:
+      return null;
+  }
+}
+
+/** True when the credits show the same text (so a bound template need not change). */
+export function sameCredits(a: TemplateCredits | null, b: TemplateCredits | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.source === b.source && a.url === b.url && a.attribution === b.attribution;
+}
+
+/** What bindTemplate resolves fields against besides the table. */
+export interface BindOptions {
+  /** The layer's dataset's credits; null (the default) when it has none. */
+  credits?: TemplateCredits | null;
+  /** The layer has a dataset whose table has not loaded yet: column fields show the dash. */
+  loading?: boolean;
+}
 
 export type TemplatePart = { kind: 'text'; text: string } | { kind: 'field'; column: string; formats: string[] };
 
@@ -218,9 +283,18 @@ function fieldSource(column: string, formats: readonly string[]): string {
   return [column, ...formats].join('|');
 }
 
-function bindField(column: string, formats: readonly string[], table: TemplateTable | null, timeZone: string): Piece {
+function bindCredit(column: string, text: string, formats: readonly string[]): Piece {
+  for (const raw of formats) if (raw.toLowerCase() !== 'upper') return `{${column}|?${raw}}`;
+  return formats.length > 0 ? text.toUpperCase() : text;
+}
+
+function bindField(column: string, formats: readonly string[], table: TemplateTable | null, timeZone: string, options: BindOptions): Piece {
+  if (column.startsWith('@')) {
+    const credit = creditText(column.slice(1), options.credits ?? null);
+    if (credit !== null) return bindCredit(column, credit, formats);
+  }
   const col = table?.columns.find((c) => c.name === column);
-  if (!col) return `{?${fieldSource(column, formats)}}`;
+  if (!col) return !table && options.loading ? MISSING_TEXT : `{?${fieldSource(column, formats)}}`;
   let valueFormat: string | null = null;
   let upper = false;
   for (const raw of formats) {
@@ -242,12 +316,15 @@ function bindField(column: string, formats: readonly string[], table: TemplateTa
   };
 }
 
-/** Resolve a template's columns against a table (null = no dataset: placeholders show as {?name}). */
-export function bindTemplate(tpl: Template, table: TemplateTable | null, timeZone: string): BoundTemplate {
+/**
+ * Resolve a template's columns against a table (null = no dataset: placeholders show as
+ * {?name}, or as the dash while `options.loading`) and its credits against `options.credits`.
+ */
+export function bindTemplate(tpl: Template, table: TemplateTable | null, timeZone: string, options: BindOptions = {}): BoundTemplate {
   const pieces: Piece[] = [];
   let dynamic = false;
   for (const part of tpl.parts) {
-    const piece = part.kind === 'text' ? part.text : bindField(part.column, part.formats, table, timeZone);
+    const piece = part.kind === 'text' ? part.text : bindField(part.column, part.formats, table, timeZone, options);
     if (typeof piece !== 'string') dynamic = true;
     // Merge adjacent literals so rendering does less work.
     const prev = pieces[pieces.length - 1];
