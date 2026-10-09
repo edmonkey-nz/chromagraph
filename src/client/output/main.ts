@@ -5,6 +5,7 @@ import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { HIERARCHY_WORKER_URL } from '../../data/hierarchy-client.ts';
 import { wallClock } from '../../shared/modulators.ts';
+import { outputFade } from '../../shared/modulation-helpers.ts';
 import { DatasetStore } from './datasets.ts';
 import { TERMINAL_FONT_URL } from './fonts.ts';
 import { PreviewEditor } from './editor.ts';
@@ -234,6 +235,9 @@ function tick(now: number): void {
       // rAF's timestamp is a performance.now() reading; see WallClock for why not timeOrigin.
       const wall = wallClock.at(now);
       modulation.frame(wall);
+      // The project timeline's fade in / out and gap: the whole image towards the background.
+      const doc = state.doc;
+      stage.setFade(doc ? outputFade(doc.project.timeline, doc.session.transport, wall) : 1);
       morph.frame(wall, ctx);
       layers.update(ctx);
       editor?.frame();
