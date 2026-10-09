@@ -31,7 +31,7 @@ import {
 import type { Dataset } from '../../src/shared/project-schema.ts';
 
 const DAY = 86_400_000;
-const DATASET: Dataset = { id: 'ds-rain', file: '3384__Rain__daily.csv', label: 'Rainfall', timeZone: 'Pacific/Auckland' };
+const DATASET: Dataset = { id: 'ds-rain', file: '3384__Rain__daily.csv', label: 'Rainfall', timeZone: 'Pacific/Auckland', source: '', url: '', attribution: '' };
 
 /** Summary of the rainfall fixture, as the control window builds it. */
 function fixtureSummary(): DatasetSummary {

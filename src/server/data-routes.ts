@@ -89,7 +89,7 @@ export async function registerDataRoutes(app: FastifyInstance, store: ProjectSto
     await writeFileAtomic(join(dir, file), bytes);
 
     const datasets = hub.currentProject.project.datasets;
-    const dataset = { id: randomId(), file, label: file.replace(/\.[^.]+$/, ''), timeZone: DEFAULT_TIME_ZONE };
+    const dataset = { id: randomId(), file, label: file.replace(/\.[^.]+$/, ''), timeZone: DEFAULT_TIME_ZONE, source: '', url: '', attribution: '' };
     const error = hub.applyPatch([{ op: 'set', path: ['project', 'datasets', datasets.length], value: dataset }], 'server');
     if (error) {
       log.error(`import of ${file} saved the file but could not add the dataset: ${error}`);

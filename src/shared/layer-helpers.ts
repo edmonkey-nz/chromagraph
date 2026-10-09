@@ -33,6 +33,7 @@ export const LAYER_TYPE_TITLES: Record<LayerType, string> = {
   hierarchy: 'hierarchy',
   surface: '3D surface',
   reflector: 'reflection plane',
+  qr: 'QR code',
 };
 
 /** Instances the output can draw at 60 fps across all layers on the target laptop. */
@@ -200,7 +201,7 @@ export function diffChanges(before: unknown, after: unknown, path: Path = []): L
  */
 export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | null, summary: DatasetSummary | null): LayerChange[] {
   const changes: LayerChange[] = [{ path: ['datasetId'], value: datasetId }];
-  if (!summary || layer.type === 'text' || layer.type === 'reflector') return changes;
+  if (!summary || layer.type === 'text' || layer.type === 'reflector' || layer.type === 'qr') return changes;
   const times = timeColumns(summary);
   const timeNames = times.map((c) => c.name);
   const names = new Set(summary.columns.filter((c) => !c.empty).map((c) => c.name));

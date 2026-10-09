@@ -190,6 +190,11 @@ const TEXT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   outlineWidth: { label: 'outline width', min: 0, max: 20, hardMin: 0, hardMax: 20 },
 };
 
+const QR_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  size: { label: 'size', min: 64, max: 1080, hardMin: 16, hardMax: 2160 },
+  position: AXES.map((a) => ({ label: `centre ${a}`, min: a === 'z' ? -2000 : 0, max: a === 'z' ? 2000 : a === 'x' ? 1920 : 1080 })),
+};
+
 const REFLECTOR_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   size: [
     { label: 'width', min: 0, max: 6000, hardMin: 0 },
@@ -303,6 +308,9 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
       break;
     case 'reflector':
       addFields(out, prefix, group, REFLECTOR_FIELDS);
+      break;
+    case 'qr':
+      addFields(out, prefix, group, QR_FIELDS);
       break;
   }
   return out;

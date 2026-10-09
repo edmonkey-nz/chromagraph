@@ -1,4 +1,4 @@
-import type { Object3D } from 'three';
+import { Group, type Object3D } from 'three';
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
@@ -96,6 +96,15 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     structureKey: () => '',
     needsData: false,
     create: (layer, _data, mode) => createReflector(layer, mode),
+  },
+  qr: {
+    // CONTRACT STUB (replaced by the QR renderer): draws nothing.
+    structureKey: () => '',
+    needsData: false,
+    create: () => {
+      const object = new Group();
+      return { object, update: () => {}, dispose: () => {}, apply: () => {} };
+    },
   },
 };
 

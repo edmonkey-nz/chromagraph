@@ -297,6 +297,7 @@ export function playheadKind(layer: LayerConfig): 'rows' | 'row' | null {
     case 'surface':
       return 'rows';
     case 'reflector':
+    case 'qr':
       return null;
   }
 }

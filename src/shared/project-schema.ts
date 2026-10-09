@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 13;
+export const CURRENT_VERSION = 14;
 
 
 export const DatasetSchema = z.object({
@@ -19,6 +19,16 @@ export const DatasetSchema = z.object({
   label: z.string(),
   /** Display timezone. Timestamps are always held in UTC. */
   timeZone: z.string().min(1),
+  /**
+   * Credits, typed by the user ('' when unknown). Text layers show them with {@source},
+   * {@url} and {@attribution} (shared/text-template.ts); a QR layer can encode `url`.
+   *   source       where the data comes from ("NIWA CliFlo")
+   *   url          a link to it (shown as typed; not checked)
+   *   attribution  the credit or licence line the source asks for ("© NIWA, CC BY 4.0")
+   */
+  source: z.string().max(500),
+  url: z.string().max(2000),
+  attribution: z.string().max(500),
 });
 
 /**
@@ -293,6 +303,13 @@ export const migrations: Record<number, Migration> = {
   },
   // v12: per-layer drop shadow and blur, "fixed to screen", camera projection, instancer
   // edge style (all off / perspective).
+  // v14: datasets get source, url and attribution (empty).
+  13: (doc) => {
+    const datasets = Array.isArray(doc.datasets)
+      ? (doc.datasets as Doc[]).map((d) => ({ source: '', url: '', attribution: '', ...d }))
+      : doc.datasets;
+    return { ...doc, datasets };
+  },
   // v13: the camera (and each scene's) gets depth of field (off).
   12: (doc) => {
     const camera = (c: unknown): unknown =>

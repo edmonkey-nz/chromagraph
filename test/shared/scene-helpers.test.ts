@@ -34,7 +34,7 @@ import {
 
 function project(): Project {
   const p = defaultProject('t');
-  p.datasets = [{ id: 'ds', file: 'rain.csv', label: 'Rain', timeZone: 'Pacific/Auckland' }];
+  p.datasets = [{ id: 'ds', file: 'rain.csv', label: 'Rain', timeZone: 'Pacific/Auckland', source: '', url: '', attribution: '' }];
   p.layers = [blankInstancerLayer('ly-a', 'Points', 'ds'), blankLineLayer('ly-b', 'Line', 'ds')];
   p.parameters = { 'camera.yaw': { modulator: { kind: 'ramp', enabled: true, from: 0, to: 90, easing: 'linear' } } };
   p.output.background = '#101010';

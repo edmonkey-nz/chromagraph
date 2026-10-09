@@ -650,7 +650,37 @@ export const ReflectorLayerSchema = LayerBaseSchema.extend({
 });
 export type ReflectorLayer = z.infer<typeof ReflectorLayerSchema>;
 
-export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector'] as const;
+export const QR_LEVELS = ['L', 'M', 'Q', 'H'] as const;
+export const QR_CONTENTS = ['text', 'dataset'] as const;
+
+/**
+ * QR code (a "more info" link for the audience). Before the layer transform it is a square
+ * `size` px wide (margin included) centred on `position`, in the frame plane; drawn with
+ * hard pixel edges so phones can read it off a projection.
+ *   content  'text': encode `text`; 'dataset': encode the layer's dataset's `url`
+ *            (DatasetSchema), so the code follows the dataset's credits
+ *   level    error correction: L 7 %, M 15 %, Q 25 %, H 30 % of the code can be lost
+ *   margin   the light quiet zone around the code, in modules (4 is the standard)
+ *   dark / light  module colours; dark on light scans most reliably
+ * Nothing is drawn while there is nothing to encode (empty text, no dataset or no url); text
+ * too long for a QR code fails the layer (flagged in the control window).
+ */
+export const QrLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('qr'),
+  content: z.enum(QR_CONTENTS),
+  text: z.string().max(2000),
+  level: z.enum(QR_LEVELS),
+  /** Centre, px. */
+  position: vec3,
+  /** Width and height in px at 1080p, margin included. */
+  size: z.number().min(16).max(2160),
+  margin: z.number().int().min(0).max(10),
+  dark: hexColour,
+  light: hexColour,
+});
+export type QrLayer = z.infer<typeof QrLayerSchema>;
+
+export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector', 'qr'] as const;
 export type LayerType = (typeof LAYER_TYPES)[number];
 
 /** Union of all layer types. */
@@ -663,6 +693,7 @@ export const LayerSchema = z.discriminatedUnion('type', [
   HierarchyLayerSchema,
   SurfaceLayerSchema,
   ReflectorLayerSchema,
+  QrLayerSchema,
 ]);
 export type LayerConfig = z.infer<typeof LayerSchema>;
 
@@ -885,6 +916,21 @@ export function blankSurfaceLayer(id: string, name: string, datasetId: string | 
 /** The default reflector's transform: lying flat (rotated -90 about x) along the bottom of the frame. */
 export function floorTransform(): LayerTransform {
   return { position: [0, -FRAME_CENTRE[1], 0], rotation: [-90, 0, 0], scale: [1, 1, 1], pivot: [...FRAME_CENTRE] };
+}
+
+export function blankQrLayer(id: string, name: string, datasetId: string | null): QrLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'qr',
+    content: 'text',
+    text: 'https://example.org',
+    level: 'M',
+    position: [1720, 200, 0],
+    size: 280,
+    margin: 4,
+    dark: '#000000',
+    light: '#ffffff',
+  };
 }
 
 export function blankReflectorLayer(id: string, name: string): ReflectorLayer {

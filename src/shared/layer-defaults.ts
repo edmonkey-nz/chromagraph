@@ -17,6 +17,7 @@ import {
   blankInstancerLayer,
   blankLineLayer,
   blankMultiplesLayer,
+  blankQrLayer,
   blankReflectorLayer,
   blankSurfaceLayer,
   blankTextLayer,
@@ -741,6 +742,7 @@ export function defaultLayerOfType(
 ): LayerConfig {
   if (type === 'text') return defaultTextLayerFor(id, name, dataset, summary);
   if (type === 'reflector') return blankReflectorLayer(id, name);
+  if (type === 'qr') return blankQrLayer(id, name, dataset?.id ?? null);
   if (!dataset || !summary) {
     const datasetId = dataset?.id ?? null;
     if (type === 'line') return blankLineLayer(id, name, datasetId);
@@ -765,6 +767,7 @@ export function defaultLayerOfType(
 export function fitAnyLayer(layer: LayerConfig, summary: DatasetSummary | null, timeZone: string): LayerConfig {
   if (layer.type === 'text') return fitTextLayer(layer);
   if (layer.type === 'reflector') return fitReflectorLayer(layer);
+  if (layer.type === 'qr') return structuredClone(layer);
   if (!summary) return structuredClone(layer);
   switch (layer.type) {
     case 'instancer':
