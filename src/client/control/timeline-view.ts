@@ -1,5 +1,6 @@
 import { LAYER_TYPE_TITLES } from '../../shared/layer-helpers.ts';
-import { formatClock, formatValue, paramTitle } from '../../shared/modulation-helpers.ts';
+import { PLAYBACKS, type Playback } from '../../shared/layer-schema.ts';
+import { clampDuration, formatClock, formatValue, MAX_DURATION, MIN_DURATION, paramTitle } from '../../shared/modulation-helpers.ts';
 import { wallMs, type Parameter, type TimelineSettings, type Transport } from '../../shared/modulators.ts';
 import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { ProjectSchema, type SyncDoc } from '../../shared/project-schema.ts';
@@ -7,6 +8,7 @@ import {
   addKeyOps,
   buildLane,
   clockState,
+  CURVE_SAMPLES,
   deleteKeyOps,
   denormalise,
   emptyClock,
@@ -21,15 +23,27 @@ import {
   playbackTitle,
   reframeLane,
   removeLaneOps,
+  removeLaneQuestion,
   tickStep,
   timelineSummary,
   timelineView,
   type ClockState,
   type CurveLane,
   type Lane,
+  type LaneScale,
   type TimelineGroup,
 } from '../../shared/timeline-view.ts';
-import { layerTimeline, playPauseEdit, projectTimeline, SCRUB_INTERVAL_MS, seekEdit, type TimelineTarget } from './timeline-panel.ts';
+import {
+  layerTimeline,
+  ownTimelineOps,
+  playPauseEdit,
+  projectTimeline,
+  QUICK_SET,
+  SCRUB_INTERVAL_MS,
+  seekEdit,
+  timelineEdit,
+  type TimelineTarget,
+} from './timeline-panel.ts';
 import { h, icon, iconButton, loadSetting, saveSetting } from './ui.ts';
 
 /**
@@ -45,10 +59,16 @@ import { h, icon, iconButton, loadSetting, saveSetting } from './ui.ts';
  * and show a scope of their last few seconds with "now" at the right edge.
  *
  * Editing: drag a key (Shift locks it to one axis), double-click a lane to add a key, select
- * one and press Delete; "key at playhead" per lane, and "Keyframe…" per group to animate any
- * other parameter. Edits are validated locally and sent as whole-modulator patches (throttled
- * while dragging, with the final value always sent). While a key is dragged, that lane
- * ignores incoming documents, so our own echoes never pull it back.
+ * one and press Delete; "key at playhead" per lane, "×" (after a confirm) to remove a lane,
+ * and "Keyframe…" per group to animate any other parameter. Edits are validated locally and
+ * sent as whole-modulator patches (throttled while dragging, with the final value always
+ * sent). While a key is dragged, that lane ignores incoming documents, so our own echoes
+ * never pull it back, and keeps its vertical scale.
+ *
+ * Lanes are scaled to their parameter's slider range or fitted to their own values (the
+ * "range" switch in the header, remembered per viewer). A layer group's timeline tag opens
+ * an editor under its header: follow the project or run on its own timeline, and that
+ * timeline's duration, loop and playback (re-anchored so the playhead does not jump).
  *
  * Playheads move with requestAnimationFrame only while the tab is visible. Lanes are canvases
  * redrawn when their data changes; per frame only the playhead lines, live value dots,
@@ -81,6 +101,7 @@ const AXIS_PX = 4;
 const READOUT_MS = 100;
 const SCOPE_POINTS = 160;
 const COLLAPSED_KEY = 'timeline-collapsed';
+const SCALE_KEY = 'timeline-scale';
 
 const KIND_CHIPS: Record<Lane['kind'], string> = { keyframes: 'keys', ramp: 'ramp', lfo: 'LFO', noise: 'noise' };
 const KIND_TITLES: Record<Lane['kind'], string> = { keyframes: 'Keyframes', ramp: 'Ramp', lfo: 'LFO (free-running)', noise: 'Noise (free-running)' };
@@ -137,10 +158,19 @@ interface LaneUi {
   lastDotY: number;
 }
 
+/** A layer group's timeline editor (under its header), refreshed from each new document. */
+interface EditorUi {
+  root: HTMLElement;
+  update(g: TimelineGroup, project: TimelineSettings): void;
+}
+
 interface GroupUi {
   g: TimelineGroup;
   root: HTMLElement;
   body: HTMLElement;
+  /** "follows project" / "own timeline · …": opens the editor on a layer. */
+  tag: HTMLElement;
+  editor: EditorUi | null;
   /** The playhead line over the group's lanes. */
   line: HTMLElement;
   lanes: LaneUi[];
@@ -218,6 +248,39 @@ function isCurve(lane: Lane): lane is CurveLane {
   return lane.kind === 'ramp' || lane.kind === 'keyframes';
 }
 
+/** A segmented switch (`.seg`): one pressed button among `options`. */
+interface Seg<T extends string> {
+  el: HTMLElement;
+  set(value: T): void;
+}
+
+function seg<T extends string>(label: string, options: { value: T; text: string; title: string }[], pick: (value: T) => void): Seg<T> {
+  const el = h('span', { className: 'seg', role: 'group' });
+  el.setAttribute('aria-label', label);
+  const buttons = options.map((o) => {
+    const b = h('button', { type: 'button', textContent: o.text, title: o.title });
+    b.dataset.value = o.value;
+    b.addEventListener('click', () => pick(o.value));
+    return b;
+  });
+  el.append(...buttons);
+  return {
+    el,
+    set(value) {
+      for (const b of buttons) {
+        const on = b.dataset.value === value;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', String(on));
+      }
+    },
+  };
+}
+
+/** The text on a layer group's timeline tag. */
+function tagText(g: TimelineGroup): string {
+  return g.own ? `own timeline · ${timelineSummary(g.settings)}` : 'follows project';
+}
+
 /** A key time for display: "7.5 s" on short timelines, "3:25" on long ones. */
 function keyTime(phase: number, durationSec: number): string {
   const s = phase * durationSec;
@@ -247,6 +310,10 @@ export class TimelineView {
   private tracks = new Map<string, TransportTrack>();
   private colours: Colours;
   private collapsed: Set<string>;
+  private scale: LaneScale = loadSetting(SCALE_KEY) === 'fit' ? 'fit' : 'slider';
+  private scaleSeg: Seg<LaneScale>;
+  /** The layer whose timeline editor is open. */
+  private editing: string | null = null;
   private selectedLayer: string | null = null;
   private selection: Selection | null = null;
   private drag: Drag | null = null;
@@ -279,6 +346,16 @@ export class TimelineView {
     this.masterPlay = iconButton('play', 'Play', () => this.playPause(projectTimeline, this.track('project')), 'tl-play');
     const restart = iconButton('restart', 'Restart (also restarts layers with their own timeline)', () => this.seek(projectTimeline, this.track('project'), 'restart'));
     const hint = h('span', { className: 'tl-hint', textContent: 'Drag keys (Shift: one axis) · double-click a lane to add a key · Delete removes it' });
+    this.scaleSeg = seg<LaneScale>(
+      'Lane range',
+      [
+        { value: 'slider', text: 'slider', title: 'Scale each lane to its parameter’s slider range' },
+        { value: 'fit', text: 'fit to values', title: 'Scale each lane to its own keys and curve, so small moves show' },
+      ],
+      (v) => this.setScale(v),
+    );
+    this.scaleSeg.set(this.scale);
+    const scale = h('span', { className: 'tl-scale' }, h('span', { className: 'tl-sub', textContent: 'range' }), this.scaleSeg.el);
     const masterCanvas = h('canvas');
     const masterHead = h('div', { className: 'tl-head-mark' });
     this.masterTrack.append(masterCanvas, masterHead);
@@ -296,7 +373,7 @@ export class TimelineView {
     const head = h(
       'div',
       { className: 'tl-header' },
-      h('div', { className: 'tl-transport' }, this.masterPlay, restart, this.masterPos, this.masterMode, h('span', { className: 'spacer' }), hint),
+      h('div', { className: 'tl-transport' }, this.masterPlay, restart, this.masterPos, this.masterMode, scale, h('span', { className: 'spacer' }), hint),
       h(
         'div',
         { className: 'tl-row tl-master' },
@@ -374,7 +451,7 @@ export class TimelineView {
     };
   }
 
-  /** Identity of everything that needs the DOM rebuilt (not key positions or values). */
+  /** Identity of everything that needs the DOM rebuilt (not key positions, values or timeline settings). */
   private structureKey(groups: readonly TimelineGroup[]): string {
     return groups
       .map((g) =>
@@ -383,7 +460,7 @@ export class TimelineView {
           g.name,
           g.position,
           g.enabled,
-          g.own ? timelineSummary(g.settings) : '',
+          g.own,
           g.layerType ?? '',
           g.lanes.map((l) => `${l.id}:${l.kind}:${l.enabled}`).join(','),
           g.free.map((d) => d.id).join(','),
@@ -395,7 +472,7 @@ export class TimelineView {
   private render(doc: SyncDoc): void {
     this.dirty = false;
     const now = wallMs();
-    const view = timelineView(doc, now);
+    const view = timelineView(doc, now, CURVE_SAMPLES, this.scale);
     this.track('project').sync(doc.session.transport);
     this.masterRuler.settings = view.project.settings;
     const key = this.structureKey(view.groups);
@@ -408,10 +485,13 @@ export class TimelineView {
   }
 
   private build(doc: SyncDoc, groups: readonly TimelineGroup[], key: string): void {
-    const hadFocus = this.root.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.param : undefined;
+    const active = this.root.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
+    const hadFocus = active?.dataset.param;
+    const hadFocusKey = active?.dataset.focus;
     this.drag = null;
     this.builtKey = key;
     this.waveObserver.disconnect();
+    if (this.editing && !groups.some((g) => g.kind === 'layer' && g.key === this.editing)) this.editing = null;
     this.groups = groups.map((g) => this.buildGroup(doc, g));
     this.lanesById.clear();
     for (const gu of this.groups) for (const lu of gu.lanes) this.lanesById.set(lu.lane.id, lu);
@@ -422,6 +502,7 @@ export class TimelineView {
     this.setSelected(this.selectedLayer);
     this.layout();
     if (hadFocus) this.lanesById.get(hadFocus)?.canvas.focus({ preventScroll: true });
+    else if (hadFocusKey) this.root.querySelector<HTMLElement>(`[data-focus="${CSS.escape(hadFocusKey)}"]`)?.focus({ preventScroll: true });
   }
 
   private buildGroup(doc: SyncDoc, g: TimelineGroup): GroupUi {
@@ -432,10 +513,24 @@ export class TimelineView {
     const line = h('div', { className: 'tl-line' });
     const track = g.own ? this.track(g.key) : this.track('project');
     track.sync(g.transport);
+    // Which timeline drives it; on a layer, a button that opens the timeline editor.
+    const tag = isLayer ? h('button', { type: 'button', className: `tl-tag edit${g.own ? ' own' : ''}`, textContent: tagText(g) }) : h('span', { className: 'tl-tag', textContent: tagText(g) });
+    tag.title = g.own
+      ? 'This layer’s ramps, keyframes and data playhead run on its own timeline. Click to change it.'
+      : isLayer
+        ? 'This layer’s ramps, keyframes and data playhead run on the project timeline. Click to give it its own.'
+        : 'The camera’s ramps and keyframes run on the project timeline';
+    if (isLayer) {
+      tag.dataset.focus = `tag:${g.key}`;
+      tag.setAttribute('aria-expanded', String(this.editing === g.key));
+      tag.addEventListener('click', () => this.toggleEditor(g.key));
+    }
     const gu: GroupUi = {
       g,
       root,
       body,
+      tag,
+      editor: null,
       line,
       lanes: [],
       ruler: null,
@@ -463,13 +558,6 @@ export class TimelineView {
     const badge = h('span', { className: 'card-badge', textContent: isLayer ? String(g.position) : '' });
     if (!isLayer) badge.append(icon('camera'));
     const type = h('span', { className: 'tl-type', textContent: g.layerType && g.layerType !== 'instancer' ? LAYER_TYPE_TITLES[g.layerType] : '' });
-    const tag = h('span', {
-      className: `tl-tag${g.own ? ' own' : ''}`,
-      textContent: g.own ? `own timeline · ${timelineSummary(g.settings)}` : 'follows project',
-      title: g.own
-        ? 'This layer’s ramps, keyframes and data playhead run on its own timeline (set in its card’s Timeline folder)'
-        : 'This layer’s ramps, keyframes and data playhead run on the project timeline',
-    });
     const headEl = h('header', { className: 'tl-ghead' }, chevron, badge, name, type, tag, h('span', { className: 'spacer' }));
     if (g.own) {
       const target = layerTimeline(g.key);
@@ -478,7 +566,13 @@ export class TimelineView {
       headEl.append(gu.playBtn, iconButton('restart', 'Restart this layer’s timeline', () => this.seek(target, track, 'restart')), gu.posEl);
     }
     headEl.append(this.addLaneSelect(g));
-    root.append(headEl, body);
+    root.append(headEl);
+    if (isLayer && this.editing === g.key) {
+      gu.editor = this.buildEditor(gu);
+      gu.editor.update(g, doc.project.timeline);
+      root.append(gu.editor.root);
+    }
+    root.append(body);
 
     if (g.own) {
       const t = h('div', { className: 'tl-track tl-ruler' });
@@ -513,6 +607,173 @@ export class TimelineView {
     return select;
   }
 
+  /**
+   * The timeline editor under a layer group's header: follow the project or run on its own
+   * timeline, and (when it has one) that timeline's duration, loop and playback. Like the
+   * layer card's Timeline folder, which shows the same settings.
+   */
+  private buildEditor(gu: GroupUi): EditorUi {
+    const id = gu.g.key;
+    const root = h('div', { className: 'tl-ed' });
+    root.setAttribute('role', 'group');
+    root.setAttribute('aria-label', `Timeline of ${gu.g.name}`);
+    root.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      this.toggleEditor(id);
+      this.root.querySelector<HTMLElement>(`[data-focus="${CSS.escape(`tag:${id}`)}"]`)?.focus({ preventScroll: true });
+    });
+    const label = (text: string) => h('span', { className: 'tl-ed-label', textContent: text });
+    const source = seg<'project' | 'own'>(
+      'Timeline',
+      [
+        { value: 'project', text: 'follow project', title: 'Its ramps, keyframes and data playhead run on the project timeline' },
+        { value: 'own', text: 'own timeline', title: 'Its own duration, loop, playback and Play/Pause. It starts where the project’s playhead is, so nothing jumps.' },
+      ],
+      (v) => this.setOwn(id, v === 'own'),
+    );
+    for (const b of source.el.querySelectorAll<HTMLElement>('button')) b.dataset.focus = `ed:${id}:${b.dataset.value}`;
+    const close = iconButton('close', 'Close (Escape)', () => this.toggleEditor(id), 'tl-mini tl-ed-close');
+    root.append(label('timeline'), h('div', { className: 'tl-ed-ctl' }, source.el, h('span', { className: 'spacer' }), close));
+
+    if (!gu.g.own) {
+      const note = h('p', { className: 'tl-ed-note' });
+      root.append(note);
+      return {
+        root,
+        update: (_g, project) => {
+          source.set('project');
+          note.textContent = `Runs on the project timeline (${timelineSummary(project)}). Its own timeline would start where the project’s playhead is now, so nothing jumps.`;
+        },
+      };
+    }
+
+    // Duration: seconds, typed (sent on Enter or leaving the field) or one of the quick set.
+    const dur = h('input', { type: 'number', className: 'tl-ed-dur', min: String(MIN_DURATION), max: String(MAX_DURATION), step: '1' });
+    dur.setAttribute('aria-label', 'Duration in seconds');
+    dur.title = `Seconds, ${MIN_DURATION} s to 24 h`;
+    const clock = h('span', { className: 'tl-sub' });
+    let shown = gu.g.settings.duration;
+    const showDuration = (sec: number) => {
+      shown = sec;
+      dur.value = String(sec);
+      clock.textContent = sec >= 60 ? `s · ${formatClock(sec)}` : 's';
+    };
+    dur.addEventListener('change', () => {
+      const raw = dur.valueAsNumber;
+      const v = Number.isFinite(raw) ? clampDuration(Math.round(raw * 1000) / 1000) : shown;
+      showDuration(v);
+      this.setLayerTimeline(id, { duration: v });
+    });
+    dur.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape' || dur.value === String(shown)) return;
+      ev.stopPropagation();
+      showDuration(shown);
+    });
+    const quick = QUICK_SET.map(({ title, seconds }) => {
+      const b = h('button', { type: 'button', className: 'btn small', textContent: title, title: `Duration ${title}` });
+      b.dataset.seconds = String(seconds);
+      b.addEventListener('click', () => this.setLayerTimeline(id, { duration: seconds }));
+      return b;
+    });
+    root.append(label('duration'), h('div', { className: 'tl-ed-ctl' }, dur, clock, h('span', { className: 'tl-ed-quick' }, ...quick)));
+
+    const playback = seg<Playback>(
+      'Playback',
+      PLAYBACKS.map((p) => ({
+        value: p,
+        text: playbackTitle(p),
+        title: p === 'forward' ? 'Play 0 → 1' : p === 'reverse' ? 'Play 1 → 0' : 'Play 0 → 1 → 0 (each way takes the duration)',
+      })),
+      (v) => this.setLayerTimeline(id, { playback: v }),
+    );
+    const loop = h('input', { type: 'checkbox' });
+    loop.addEventListener('change', () => this.setLayerTimeline(id, { loop: loop.checked }));
+    const loopLabel = h('label', { className: 'tl-ed-check', title: 'Off: it plays once and stops at the end' }, loop, 'loop');
+    root.append(label('playback'), h('div', { className: 'tl-ed-ctl' }, playback.el, loopLabel));
+
+    return {
+      root,
+      update: (g) => {
+        source.set(g.own ? 'own' : 'project');
+        const tl = g.settings;
+        // Leave the field alone while it is being typed in.
+        if (document.activeElement !== dur) showDuration(tl.duration);
+        else shown = tl.duration;
+        for (const b of quick) b.classList.toggle('active', Number(b.dataset.seconds) === tl.duration);
+        playback.set(tl.playback);
+        loop.checked = tl.loop;
+      },
+    };
+  }
+
+  /** Open or close a layer's timeline editor. */
+  private toggleEditor(layerId: string): void {
+    const open = this.editing !== layerId;
+    for (const gu of this.groups) {
+      if (gu.g.kind !== 'layer') continue;
+      const want = open && gu.g.key === layerId;
+      gu.tag.setAttribute('aria-expanded', String(want));
+      if (want && !gu.editor) {
+        gu.editor = this.buildEditor(gu);
+        const doc = this.doc ?? this.deps.getDoc();
+        if (doc) gu.editor.update(gu.g, doc.project.timeline);
+        gu.root.insertBefore(gu.editor.root, gu.body);
+      } else if (!want && gu.editor) {
+        gu.editor.root.remove();
+        gu.editor = null;
+      }
+    }
+    this.editing = open ? layerId : null;
+    this.layout();
+  }
+
+  /** Send timeline ops (validated) and show their result straight away. */
+  private commitTimeline(ops: PatchOp[], what: string): boolean {
+    const next = this.send(ops, what, false);
+    if (!next) return false;
+    this.doc = next;
+    this.render(next);
+    return true;
+  }
+
+  /** Switch a layer between the project timeline and its own (which starts at the project's position). */
+  private setOwn(layerId: string, own: boolean): void {
+    const doc = this.editDoc();
+    const layer = doc?.project.layers.find((l) => l.id === layerId);
+    if (!doc || !layer || layer.timeline.own === own) return;
+    this.commitTimeline(ownTimelineOps(doc, layerId, own, wallMs()), own ? 'Own timeline' : 'Follow project');
+  }
+
+  /** Change a layer's own duration, loop or playback, re-anchoring its transport so the playhead does not jump. */
+  private setLayerTimeline(layerId: string, change: Partial<TimelineSettings>): void {
+    const doc = this.editDoc();
+    if (!doc) return;
+    const target = layerTimeline(layerId);
+    const track = this.track(layerId);
+    const edit = timelineEdit(doc, target, track.local ?? target.transport(doc), change, wallMs());
+    if (!edit) return;
+    const before = track.local;
+    track.local = edit.next;
+    if (!this.commitTimeline(edit.ops, 'Timeline change')) track.local = before;
+  }
+
+  /** Scale lanes to the slider range or to their own values (remembered per viewer). */
+  private setScale(scale: LaneScale): void {
+    if (scale === this.scale) return;
+    this.scale = scale;
+    this.scaleSeg.set(scale);
+    saveSetting(SCALE_KEY, scale);
+    const doc = this.doc ?? this.deps.getDoc();
+    if (!doc || !this.visible) {
+      this.dirty = true;
+      return;
+    }
+    // Rebuild every lane at the new scale.
+    this.builtKey = '';
+    this.render(doc);
+  }
+
   private buildLane(doc: SyncDoc, gu: GroupUi, lane: Lane): LaneUi {
     const wave = lane.kind === 'lfo' || lane.kind === 'noise';
     const canvas = h('canvas', { tabIndex: 0 });
@@ -538,7 +799,7 @@ export class TimelineView {
     });
     const keyBtn = iconButton('key', wave ? 'LFO and noise do not run on the timeline' : 'Key at playhead', () => this.keyAtPlayhead(lane.id), 'tl-mini');
     keyBtn.disabled = wave;
-    const removeBtn = iconButton('close', 'Remove this modulator', () => this.send(removeLaneOps(lane.id), 'Remove'), 'tl-mini danger');
+    const removeBtn = iconButton('close', 'Remove this modulator', () => this.removeLane(lane.id), 'tl-mini danger');
     const label = h(
       'div',
       { className: 'tl-label' },
@@ -586,6 +847,8 @@ export class TimelineView {
       const settingsChanged = gu.g.settings !== g.settings;
       gu.g = g;
       gu.track.sync(g.transport);
+      if (settingsChanged) gu.tag.textContent = tagText(g);
+      gu.editor?.update(g, doc.project.timeline);
       if (gu.ruler) {
         gu.ruler.settings = g.settings;
         if (settingsChanged) this.drawRuler(gu.ruler, gu.width);
@@ -1047,6 +1310,13 @@ export class TimelineView {
     this.commit(edit.ops, 'Key', { id, index: edit.index });
   }
 
+  /** Remove a lane's modulator, after asking (naming the parameter and the modulator kind). */
+  private removeLane(id: string): void {
+    const lu = this.lanesById.get(id);
+    if (!lu || !window.confirm(removeLaneQuestion(lu.lane, lu.group.g.name))) return;
+    this.send(removeLaneOps(id), 'Remove');
+  }
+
   private clampSelection(lu: LaneUi): void {
     const s = this.selection;
     if (!s || s.id !== lu.lane.id) return;
@@ -1225,7 +1495,7 @@ export class TimelineView {
     const op = ops[0];
     const value = op?.op === 'set' ? (op.value as Parameter | undefined) : undefined;
     if (!value) return;
-    const lane = buildLane(lu.lane.def, value.modulator, lu.lane.base, wallMs(), lu.group.clock.playhead);
+    const lane = buildLane(lu.lane.def, value.modulator, lu.lane.base, wallMs(), lu.group.clock.playhead, CURVE_SAMPLES, this.scale);
     if (lane.kind !== 'ramp' && lane.kind !== 'keyframes') return;
     if (frame) reframeLane(lane, frame.lo, frame.hi);
     lu.lane = lane;

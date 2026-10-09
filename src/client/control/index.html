@@ -1466,6 +1466,110 @@
         background: var(--accent-weak);
         box-shadow: inset 0 0 0 1px rgba(141, 180, 255, 0.3);
       }
+      /* On a layer the tag opens its timeline editor. */
+      button.tl-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 0;
+        font-size: 11.5px;
+        line-height: 18px;
+        cursor: pointer;
+      }
+      button.tl-tag::after {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: translateY(-2px) rotate(45deg);
+        opacity: 0.75;
+      }
+      button.tl-tag[aria-expanded='true']::after {
+        transform: translateY(1px) rotate(-135deg);
+      }
+      button.tl-tag:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.08);
+      }
+      button.tl-tag.own:hover {
+        color: #e3edff;
+        background: rgba(141, 180, 255, 0.22);
+      }
+      button.tl-tag[aria-expanded='true'] {
+        box-shadow: inset 0 0 0 1px var(--accent-ring);
+      }
+      /* A layer's timeline editor, under its header: label column, then controls. */
+      .tl-ed {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        align-items: center;
+        gap: 8px 14px;
+        padding: 10px 10px 12px 40px;
+        border-top: 1px solid var(--line-soft);
+        background: rgba(141, 180, 255, 0.035);
+        font-size: 12px;
+      }
+      .tl-ed-label {
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .tl-ed-ctl {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 8px;
+        min-width: 0;
+      }
+      .tl-ed .seg button {
+        padding: 3px 10px;
+      }
+      .tl-ed-note {
+        grid-column: 2;
+        margin: 0;
+        max-width: 64ch;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .tl-ed-dur {
+        width: 92px;
+        min-height: 26px;
+        padding: 2px 6px;
+        background: var(--field);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-s);
+        font-variant-numeric: tabular-nums;
+      }
+      .tl-ed-quick {
+        display: inline-flex;
+        gap: 4px;
+        margin-left: 6px;
+      }
+      .tl-ed-quick .btn.active {
+        color: var(--accent);
+        background: var(--accent-weak);
+        border-color: rgba(141, 180, 255, 0.35);
+      }
+      .tl-ed-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 8px;
+        color: var(--text-2);
+        cursor: pointer;
+      }
+      .tl-ed-close.icon-btn:hover,
+      .tl-ed-close.icon-btn:focus-visible {
+        opacity: 1;
+      }
+      /* Lane range switch in the transport row. */
+      .tl-scale {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 8px;
+      }
       .tl-ghead .icon-btn {
         width: 26px;
         height: 26px;
@@ -1646,6 +1750,14 @@
         }
         .tl-lrow {
           gap: 4px;
+        }
+        .tl-ed {
+          padding-left: 12px;
+          column-gap: 10px;
+        }
+        .tl-ed-quick,
+        .tl-ed-check {
+          margin-left: 0;
         }
       }
 
