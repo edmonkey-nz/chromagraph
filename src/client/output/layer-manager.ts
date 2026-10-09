@@ -1,3 +1,4 @@
+import type { Object3D } from 'three';
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
@@ -16,7 +17,7 @@ import { createMultiples } from './layers/multiples.ts';
 import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
-import { EFFECTS_TAG } from './stage.ts';
+import { BLEND_TAG, EFFECTS_TAG, SCREEN_FIXED_TAG } from './stage.ts';
 
 /** Layers draw above anything with a lower order; the test pattern stays on top of all. */
 const LAYER_ORDER_BASE = 100;
@@ -91,6 +92,22 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
   },
 };
 
+/**
+ * The camera mode a layer's materials are set up for: a layer fixed to the screen is drawn
+ * with the 2D pixel camera (see Stage), so it is set up as in 2D whatever the project camera.
+ */
+function modeFor(layer: LayerConfig, projectMode: CameraMode): CameraMode {
+  return layer.screenFixed ? '2d' : projectMode;
+}
+
+/** What the Stage reads from a layer's root object each frame (see the tags in stage.ts). */
+function tag(object: Object3D, layer: LayerConfig): void {
+  const data = object.userData;
+  data[EFFECTS_TAG] = layer.effects;
+  data[SCREEN_FIXED_TAG] = layer.screenFixed;
+  data[BLEND_TAG] = layer.blend;
+}
+
 function kindOf(layer: LayerConfig): LayerKind<LayerConfig> {
   return KINDS[layer.type] as unknown as LayerKind<LayerConfig>;
 }
@@ -143,18 +160,18 @@ export class LayerManager {
         this.keys.set(layer.id, key);
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
-        this.host.set(layer.id, () => kind.create(layer, data, cameraMode));
+        this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode)));
       } else if (layer !== this.applied.get(layer.id) || cameraChanged) {
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
-        this.host.call<ApplicableLayer<LayerConfig>>(layer.id, (inst) => inst.apply(layer, cameraMode));
+        this.host.call<ApplicableLayer<LayerConfig>>(layer.id, (inst) => inst.apply(layer, modeFor(layer, cameraMode)));
       }
       this.orders.set(layer.id, LAYER_ORDER_BASE + index);
       this.enabled.set(layer.id, layer.enabled);
       this.host.place(layer.id, LAYER_ORDER_BASE + index, layer.enabled || this.forcedVisible.has(layer.id));
       this.host.call(layer.id, (inst) => {
         applyLayerTransform(inst.object, layer.transform);
-        inst.object.userData[EFFECTS_TAG] = layer.effects;
+        tag(inst.object, layer);
       });
     });
 
@@ -243,9 +260,9 @@ export class LayerManager {
   }
 
   private readonly applyConfig = (inst: ApplicableLayer<LayerConfig>, config: LayerConfig): void => {
-    inst.apply(config, this._cameraMode);
+    inst.apply(config, modeFor(config, this._cameraMode));
     applyLayerTransform(inst.object, config.transform);
-    inst.object.userData[EFFECTS_TAG] = config.effects;
+    tag(inst.object, config);
   };
 
   /** Re-apply every layer's base config (e.g. after its modulators were removed). */
@@ -253,9 +270,9 @@ export class LayerManager {
     for (const [id, layer] of this.applied) {
       this.displayed.set(id, layer);
       this.host.call<ApplicableLayer<LayerConfig>>(id, (inst) => {
-        inst.apply(layer, this._cameraMode);
+        inst.apply(layer, modeFor(layer, this._cameraMode));
         applyLayerTransform(inst.object, layer.transform);
-        inst.object.userData[EFFECTS_TAG] = layer.effects;
+        tag(inst.object, layer);
       });
     }
   }

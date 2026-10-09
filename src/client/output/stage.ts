@@ -13,11 +13,21 @@ import {
   type Camera as ThreeCamera,
   type Object3D,
 } from 'three';
+import {
+  blurShows,
+  emptyComposeLayer,
+  emptyComposePlan,
+  needsCompose,
+  planCompose,
+  type ComposeLayer,
+  type ComposePlan,
+} from '../../shared/compose-plan.ts';
 import { emptyFxLayer, type FxLayer } from '../../shared/effects-plan.ts';
 import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
 import type { LayerEffects } from '../../shared/layer-schema.ts';
 import { defaultCamera, type Camera } from '../../shared/project-schema.ts';
 import { PostEffects } from './effects.ts';
+import { LayerImages } from './layer-image.ts';
 
 /** Full-screen quad; the fragment shader does the keystone mapping per pixel. */
 const WARP_VERTEX = /* glsl */ `
@@ -60,8 +70,12 @@ const WARP_FRAGMENT = /* glsl */ `
   }
 `;
 
-/** Set by LayerManager on each layer's root object: the layer's glow and trails settings. */
+/** Set by LayerManager on each layer's root object: the layer's effects (glow, trails, shadow, blur). */
 export const EFFECTS_TAG = 'effects';
+/** Set by LayerManager: true when the layer is fixed to the screen (drawn with `orthoCamera`). */
+export const SCREEN_FIXED_TAG = 'screenFixed';
+/** Set by LayerManager: the layer's blend mode (its blurred image is laid in the same way). */
+export const BLEND_TAG = 'blend';
 
 /** A top-level scene object's effects; untagged objects (the test pattern) have none. */
 function effectsOf(object: Object3D): LayerEffects | undefined {
@@ -76,6 +90,12 @@ export const OUTPUT_HEIGHT = 1080;
  * then through the output effects (effects.ts: bloom, trails; skipped entirely when both
  * are off), then to the screen through the keystone warp (an inverse homography per pixel),
  * which also applies the timeline's fade towards the background (setFade).
+ *
+ * The scene is one render, unless a visible layer has a drop shadow or a blur, or is fixed
+ * to the screen while the project camera is 3D. Then it is drawn in segments, in stack order,
+ * into the same target (shared/compose-plan.ts; shadows and blur in layer-image.ts). Only the
+ * first segment clears; the target keeps its multisampled image between renders (three only
+ * invalidates it after resolving in the Oculus browser).
  */
 export class Stage {
   readonly renderer: WebGLRenderer;
@@ -109,6 +129,16 @@ export class Stage {
   private readonly fx: FxLayer[] = [];
   private fxCount = 0;
   private readonly hidden: Object3D[] = [];
+  private readonly hiddenInner: Object3D[] = [];
+  private images: LayerImages;
+  /** Per frame: visible scene objects as the compositor sees them (a reused pool), and the plan. */
+  private readonly compose: ComposeLayer[] = [];
+  private composeCount = 0;
+  private readonly composePlan: ComposePlan = emptyComposePlan();
+  /** The same for a drawOnly() subset that mixes cameras. */
+  private readonly subset: ComposeLayer[] = [];
+  private readonly subsetPlan: ComposePlan = emptyComposePlan();
+  private readonly savedClear = new Color();
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -154,6 +184,14 @@ export class Stage {
       (scene) => this.verifyObject(scene),
       (target, objects, count) => this.drawOnly(target, objects, count),
       this.target.samples,
+    );
+    this.images = new LayerImages(
+      this.renderer,
+      this.target.width,
+      this.target.height,
+      this.targetScale,
+      (message) => this.events.report?.(message),
+      (scene) => this.verifyObject(scene),
     );
     const quad = new Mesh(this.warpGeometry, this.warpMaterial);
     quad.frustumCulled = false;
@@ -271,12 +309,17 @@ export class Stage {
   /** Draw one frame. `dt` is the frame clock's step in seconds (frame-rate independent trails). */
   render(dt: number): void {
     if (this.contextLost) return;
-    this.renderer.setRenderTarget(this.target);
-    this.renderer.render(this.scene, this.camera);
+    const now = performance.now();
+    if (this.collectCompose()) this.renderComposed(now);
+    else {
+      this.renderer.setRenderTarget(this.target);
+      this.renderer.render(this.scene, this.camera);
+    }
+    this.images.release(now);
     const warp = this.warpMaterial.uniforms;
     this.collectEffects();
     if (this.post.active(this.fx, this.fxCount)) {
-      this.post.process(this.target.texture, dt, performance.now(), this.fx, this.fxCount);
+      this.post.process(this.target.texture, dt, now, this.fx, this.fxCount);
       warp.uImage!.value = this.post.image ?? this.target.texture;
       warp.uBloom!.value = this.post.bloomTexture;
       warp.uBloomOn!.value = this.post.bloomTexture ? 1 : 0;
@@ -290,6 +333,122 @@ export class Stage {
     if (this.fade < 1) this.background.getRGB(this.fadeColour, SRGBColorSpace);
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.warpScene, this.warpCamera);
+  }
+
+  /** True when a top-level object is fixed to the screen and the project camera is not the screen camera. */
+  private screenFixed(object: Object3D): boolean {
+    return this.camera !== this.orthoCamera && object.userData[SCREEN_FIXED_TAG] === true;
+  }
+
+  /**
+   * Each visible object's shadow, blur and camera; true when the scene needs segmented
+   * drawing. With none of those anywhere this loop is the only extra work.
+   */
+  private collectCompose(): boolean {
+    const children = this.scene.children;
+    const scale = this.targetScale;
+    let n = 0;
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]!;
+      if (!child.visible) continue;
+      const e = effectsOf(child);
+      const c = (this.compose[n] ??= emptyComposeLayer());
+      n++;
+      c.object = child;
+      c.order = child.renderOrder;
+      c.screen = this.screenFixed(child);
+      const usable = !!e && (e.shadow?.enabled || e.blur?.enabled) && this.images.usable(child);
+      c.shadow = !!usable && e.shadow.enabled && e.shadow.opacity > 0;
+      c.blur = !!usable && e.blur.enabled && blurShows(e.blur.amount, scale);
+    }
+    for (let i = n; i < this.composeCount; i++) this.compose[i]!.object = null; // keep nothing alive
+    this.composeCount = n;
+    return needsCompose(this.compose, n);
+  }
+
+  /** The scene in segments (see shared/compose-plan.ts), into the scene target. */
+  private renderComposed(now: number): void {
+    const r = this.renderer;
+    const plan = planCompose(this.compose, this.composeCount, this.composePlan);
+    const autoClear = r.autoClear;
+    r.getClearColor(this.savedClear);
+    const clearAlpha = r.getClearAlpha();
+    // A colour background makes three clear on every render; the one clear here is ours.
+    this.scene.background = null;
+    try {
+      r.autoClear = false;
+      r.setRenderTarget(this.target);
+      r.setClearColor(this.background, 1);
+      r.clear(true, true, true);
+      r.setClearColor(this.savedClear, clearAlpha);
+      for (let s = 0; s < plan.segmentCount; s++) {
+        const seg = plan.segments[s]!;
+        const camera = seg.screen ? this.orthoCamera : this.camera;
+        if (seg.image) this.drawImageSegment(plan, seg.start, camera, now, clearAlpha);
+        else this.drawRange(this.target, this.compose, plan, seg.start, seg.end, camera, this.hidden);
+      }
+    } finally {
+      this.scene.background = this.background;
+      r.autoClear = autoClear;
+      r.setClearColor(this.savedClear, clearAlpha);
+    }
+  }
+
+  /**
+   * One layer with a shadow and/or a blur: drawn alone into the layer image, its shadow laid
+   * down, then the layer itself (blurred, or plainly). Any failure draws it plainly.
+   */
+  private drawImageSegment(plan: ComposePlan, position: number, camera: ThreeCamera, now: number, clearAlpha: number): void {
+    const c = this.compose[plan.sorted[position]!]!;
+    const object = c.object as Object3D;
+    const e = effectsOf(object)!;
+    let drawn = false;
+    const source = this.images.begin(now);
+    if (source) {
+      const r = this.renderer;
+      try {
+        r.setRenderTarget(source);
+        r.setClearColor(0x000000, 0);
+        r.clear(true, true, false);
+        r.setClearColor(this.savedClear, clearAlpha);
+        this.drawRange(source, this.compose, plan, position, position + 1, camera, this.hidden);
+        if (c.shadow) this.images.drawShadow(this.target, e.shadow, now);
+        if (c.blur) drawn = this.images.drawBlurred(this.target, e.blur.amount, object.userData[BLEND_TAG] === 'additive', now);
+      } catch (err) {
+        this.images.failLayer(object, err);
+      }
+    }
+    if (!drawn) this.drawRange(this.target, this.compose, plan, position, position + 1, camera, this.hidden);
+  }
+
+  /**
+   * Render only the objects at plan positions [start, end) of `layers`: every other entry is
+   * hidden for the render, then shown again. Clears only as the renderer's state says.
+   */
+  private drawRange(
+    target: WebGLRenderTarget,
+    layers: readonly ComposeLayer[],
+    plan: ComposePlan,
+    start: number,
+    end: number,
+    camera: ThreeCamera,
+    hidden: Object3D[],
+  ): void {
+    const base = hidden.length;
+    try {
+      for (let p = 0; p < plan.count; p++) {
+        if (p >= start && p < end) continue;
+        const object = layers[plan.sorted[p]!]!.object as Object3D;
+        if (!object.visible) continue;
+        object.visible = false;
+        hidden.push(object);
+      }
+      this.renderer.setRenderTarget(target);
+      this.renderer.render(this.scene, camera);
+    } finally {
+      for (let i = base; i < hidden.length; i++) hidden[i]!.visible = true;
+      hidden.length = base;
+    }
   }
 
   /** Each visible layer's effective glow and trails (the layers are the scene's children). */
@@ -314,10 +473,15 @@ export class Stage {
     this.fxCount = n;
   }
 
-  /** Draw only `objects[0..count)` into `target` (per-layer effects), then restore visibility. */
+  /**
+   * Draw only `objects[0..count)` into `target`, cleared to the background (per-layer
+   * effects), then restore visibility. Screen-fixed objects among them are drawn with the
+   * screen camera, in stack order with the rest.
+   */
   private drawOnly(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number): void {
     const hidden = this.hidden;
     hidden.length = 0;
+    let mixed = false;
     try {
       const children = this.scene.children;
       for (let i = 0; i < children.length; i++) {
@@ -325,15 +489,55 @@ export class Stage {
         if (!child.visible) continue;
         let keep = false;
         for (let k = 0; k < count && !keep; k++) keep = objects[k] === child;
-        if (keep) continue;
+        if (keep) {
+          mixed ||= this.screenFixed(child);
+          continue;
+        }
         child.visible = false;
         hidden.push(child);
       }
-      this.renderer.setRenderTarget(target);
-      this.renderer.render(this.scene, this.camera);
+      if (mixed) this.drawSubset(target, objects, count);
+      else {
+        this.renderer.setRenderTarget(target);
+        this.renderer.render(this.scene, this.camera);
+      }
     } finally {
       for (let i = 0; i < hidden.length; i++) hidden[i]!.visible = true;
       hidden.length = 0;
+    }
+  }
+
+  /** drawOnly's objects (the only ones visible now) in camera runs, in stack order. */
+  private drawSubset(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number): void {
+    let n = 0;
+    for (let k = 0; k < count; k++) {
+      const object = objects[k];
+      if (!object || !object.visible) continue;
+      const c = (this.subset[n] ??= emptyComposeLayer());
+      n++;
+      c.object = object;
+      c.order = object.renderOrder;
+      c.screen = this.screenFixed(object);
+      c.shadow = false;
+      c.blur = false;
+    }
+    const plan = planCompose(this.subset, n, this.subsetPlan);
+    const r = this.renderer;
+    const autoClear = r.autoClear;
+    try {
+      for (let s = 0; s < plan.segmentCount; s++) {
+        // The first render clears to the background as usual; later ones add to it.
+        if (s === 1) {
+          this.scene.background = null;
+          r.autoClear = false;
+        }
+        const seg = plan.segments[s]!;
+        this.drawRange(target, this.subset, plan, seg.start, seg.end, seg.screen ? this.orthoCamera : this.camera, this.hiddenInner);
+      }
+    } finally {
+      this.scene.background = this.background;
+      r.autoClear = autoClear;
+      for (let i = 0; i < n; i++) this.subset[i]!.object = null;
     }
   }
 
@@ -357,6 +561,7 @@ export class Stage {
     this.warpMaterial.uniforms.uImage!.value = this.target.texture;
     this.warpMaterial.uniforms.uBloom!.value = null;
     this.post.contextRestored();
+    this.images.contextRestored();
     this.contextLost = false;
     this.events.restored();
   };

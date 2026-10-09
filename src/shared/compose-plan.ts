@@ -158,6 +158,11 @@ export function chooseBlur(px: number, scale: number, out: BlurStep): BlurStep {
   return out;
 }
 
+/** True when a blur of `px` output pixels is visible at `scale` (otherwise it is drawn sharp). */
+export function blurShows(px: number, scale: number): boolean {
+  return px * SIGMA_PER_PX * scale >= MIN_SIGMA;
+}
+
 /** A shadow offset in output pixels (x right, y up) as an image uv offset, into `out`. */
 export function offsetToUv(offset: readonly [number, number], out: { x: number; y: number }): { x: number; y: number } {
   out.x = Number.isFinite(offset[0]) ? offset[0] / OUTPUT_W : 0;
