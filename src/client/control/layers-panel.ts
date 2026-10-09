@@ -119,6 +119,7 @@ export class LayersPanel {
   private settingsBody = h('div', { className: 'card-body' });
   private settingsCol = h('div', { className: 'layers-settings-col' });
   private empty = h('div', { className: 'card empty-card' });
+  private split = h('div', { className: 'layers-split' });
   private order: string[] = [];
   private datasets: readonly Dataset[] | null = null;
   /** Expanded state of every folder, by key (`<layer id>/<folder>`), kept while a layer is closed. */
@@ -149,7 +150,7 @@ export class LayersPanel {
     add.addEventListener('click', () => this.addLayer());
     this.list.setAttribute('aria-label', 'Layers in stack order');
     this.empty.append(
-      h('p', { className: 'muted', textContent: 'No layers yet. Import a dataset (Datasets tab), pick a layer type under Add layer and press Add layer.' }),
+      h('p', { className: 'muted', textContent: 'No layers yet. Import a dataset (Datasets tab), then choose a layer type and press Add layer.' }),
     );
     this.settings.append(h('header', { className: 'card-head' }, this.settingsBadge, this.settingsTitle), this.settingsBody);
     this.settings.setAttribute('aria-label', 'Layer settings');
@@ -165,14 +166,11 @@ export class LayersPanel {
     const addRow = h('div', { className: 'layer-add' }, this.typeSelect, add);
     addRow.setAttribute('role', 'group');
     addRow.setAttribute('aria-label', 'Add layer');
-    zone.append(
-      h(
-        'div',
-        { className: 'layers-split' },
-        h('div', { className: 'layers-list-col' }, h('div', { className: 'sub-head', textContent: 'Add layer' }), addRow, this.countNote, this.list),
-        this.settingsCol,
-      ),
+    this.split.append(
+      h('div', { className: 'layers-list-col' }, h('div', { className: 'sub-head', textContent: 'Add layer' }), addRow, this.countNote, this.list),
+      this.settingsCol,
     );
+    zone.append(this.split);
   }
 
   // ---- the list ------------------------------------------------------------------------
@@ -187,7 +185,14 @@ export class LayersPanel {
     const actions = h('div', { className: 'card-actions' }, up, down, iconButton('copy', 'Duplicate', () => this.duplicate(id)), iconButton('trash', 'Delete…', () => this.remove(id), 'danger'));
     const root = h('div', { className: 'layer-row', role: 'listitem' }, open, actions);
     // A click anywhere on the row but its icon buttons (which stop it) opens the layer.
-    root.addEventListener('click', () => this.deps.select(id));
+    root.addEventListener('click', () => {
+      this.deps.select(id);
+      // Stacked (narrow zone), the settings are under the list: bring their top into view.
+      if (getComputedStyle(this.split).display === 'block') {
+        const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        this.settings.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
+      }
+    });
     return { root, open, badge, title, up, down, layer: null };
   }
 
