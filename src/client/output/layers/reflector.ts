@@ -20,6 +20,7 @@ import {
   Vector4,
   WebGLRenderTarget,
   type Camera,
+  type Material,
   type Object3D,
   type Scene,
   type WebGLRenderer,
@@ -31,12 +32,15 @@ import { SHOWN_TAG, type FrameContext, type LayerInstance } from './layer.ts';
  * Reflection plane: a flat mirror placed by the layer transform. Before its first draw in a
  * frame, the scene is rendered from the camera mirrored in the plane into a half-resolution
  * target (with a depth texture), with the plane's own side of space clipped away by an
- * oblique near plane (as three's Reflector does). The plane then samples that image through
- * its projective texture coordinates:
+ * oblique near plane (as three's Reflector does). The target is cleared to transparent, so
+ * its alpha is how much was reflected there (premultiplied colour), and translucent layers
+ * write depth for this render only, so they fade like solid ones. The plane then samples that
+ * image through its projective texture coordinates:
  *   blur          a 12-tap disc over the mipmapped reflection (roughness)
  *   fade          each tap's depth gives the reflected point's distance from the plane, so the
- *                 reflection fades out with height above the floor (and empty taps add nothing)
- *   reflectivity  how far the plane colour mixes towards the reflection
+ *                 reflection fades out with height above the floor
+ *   reflectivity  how far the plane colour mixes towards the reflection, where something is
+ *                 reflected (empty sky leaves the plane colour)
  *
  * Cost: one extra scene render per frame at half the target's resolution, however many
  * passes draw the scene afterwards (the effects draw it again for glow and trails; they reuse
@@ -84,11 +88,12 @@ const fragmentShader = /* glsl */ `
   uniform float uFade;
   varying vec4 vProj;
 
-  // Weight of one tap: 0 where nothing was reflected, fading with distance from the plane.
+  // Weight of one tap, fading with the reflected point's distance from the plane (taps with no
+  // depth, e.g. additive layers, are not faded).
   float tapWeight(vec2 uv) {
-    float d = texture2D(uDepth, uv).r;
-    if (d >= 1.0) return 0.0;
     if (uFade <= 0.0) return 1.0;
+    float d = texture2D(uDepth, uv).r;
+    if (d >= 1.0) return 1.0;
     vec4 v = uInverseProjection * vec4(vec3(uv, d) * 2.0 - 1.0, 1.0);
     float dist = abs(dot(uPlane.xyz, v.xyz / v.w) + uPlane.w);
     float f = 1.0 - clamp(dist / uFade, 0.0, 1.0);
@@ -110,12 +115,12 @@ const fragmentShader = /* glsl */ `
         float r = taps == 1 ? 0.0 : sqrt((float(i) + 0.5) / float(taps)) * radius;
         float a = float(i) * 2.39996;
         vec2 q = clamp(uv + vec2(cos(a), sin(a)) * r * uTexel, vec2(0.0), vec2(1.0));
-        float w = tapWeight(q);
-        sum += w * textureLod(uReflection, q, lod).rgb;
-        cover += w;
+        vec4 c = textureLod(uReflection, q, lod) * tapWeight(q);
+        sum += c.rgb;
+        cover += c.a;
       }
-      // Mix towards the covered taps' average by reflectivity x coverage: empty or faded taps
-      // leave the plane colour.
+      // Premultiplied: mix towards the reflection by reflectivity x coverage, so empty or
+      // faded taps leave the plane colour.
       float n = float(taps);
       col = col * (1.0 - uReflectivity * cover / n) + uReflectivity * sum / n;
     }
@@ -178,6 +183,24 @@ export function createReflector(layer: ReflectorLayer, cameraMode: '2d' | '3d'):
   /** Scene children whose visibility the reflection render changed, and what it was. */
   const changed: Object3D[] = [];
   const was: boolean[] = [];
+  /** Translucent materials made to write depth for the reflection render (restored after). */
+  const forced: Material[] = [];
+  const clearColour = new Color();
+  let clearAlpha = 1;
+  let background: Scene['background'] | undefined;
+  const forceOne = (m: Material) => {
+    if (m.transparent && !m.depthWrite && m.depthTest) {
+      m.depthWrite = true;
+      forced.push(m);
+    }
+  };
+  /** Pre-bound for traverseVisible (no per-frame closures). */
+  const forceDepth = (o: Object3D) => {
+    const m = (o as Mesh).material as Material | Material[] | undefined;
+    if (!m) return;
+    if (Array.isArray(m)) for (let i = 0; i < m.length; i++) forceOne(m[i]!);
+    else forceOne(m);
+  };
   /** Reflect only with the 3D camera, and not when the plane itself is fixed to the screen. */
   let reflecting = false;
   let wantedFrame = 0;
@@ -276,13 +299,26 @@ export function createReflector(layer: ReflectorLayer, cameraMode: '2d' | '3d'):
         was.push(child.visible);
         child.visible = want;
       }
-      const autoClear = renderer.autoClear;
+      for (let i = 0; i < children.length; i++) if (children[i]!.visible) children[i]!.traverseVisible(forceDepth);
+      // Cleared to transparent black (alpha = reflected coverage), not the background.
+      background = scene.background;
+      scene.background = null;
+      renderer.getClearColor(clearColour);
+      clearAlpha = renderer.getClearAlpha();
+      renderer.setClearColor(0x000000, 0);
       renderer.setRenderTarget(target);
       renderer.state.buffers.depth.setMask(true);
-      if (!autoClear) renderer.clear();
+      renderer.clear();
       renderer.render(scene, mirror);
-      renderer.setRenderTarget(current);
     } finally {
+      renderer.setRenderTarget(current);
+      if (background !== undefined) {
+        scene.background = background;
+        renderer.setClearColor(clearColour, clearAlpha);
+        background = undefined;
+      }
+      for (let i = 0; i < forced.length; i++) forced[i]!.depthWrite = false;
+      forced.length = 0;
       for (let i = 0; i < changed.length; i++) changed[i]!.visible = was[i]!;
       changed.length = 0;
       was.length = 0;
