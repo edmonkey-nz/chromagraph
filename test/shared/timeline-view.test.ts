@@ -460,6 +460,15 @@ describe('lane scale', () => {
     expect(laneRange(def, Infinity, -Infinity, 'fit')).toEqual({ lo: 0, hi: 10 });
   });
 
+  it('rounds a fitted range outwards to tidy numbers', () => {
+    const def = { id: 'r', label: 'rotate y', group: 'g', min: -360, max: 360, hardMin: -1e9, hardMax: 1e9, integer: false };
+    // -150.3..341.2 padded by 49.15 each side is -199.45..390.35: shown as -200..400.
+    expect(laneRange(def, -150.3, 341.2, 'fit')).toEqual({ lo: -200, hi: 400 });
+    const unit = { ...def, min: 0, max: 1, hardMin: 0, hardMax: 1 };
+    // 0.123..0.4567 padded is 0.0896..0.4901; rounded outwards in steps of 0.01: 0.08..0.5.
+    expect(laneRange(unit, 0.123, 0.4567, 'fit')).toEqual({ lo: 0.08, hi: 0.5 });
+  });
+
   it('leaves LFO and noise lanes alone (they already show their own band)', () => {
     const a = timelineView(doc(), T0).groups[0]!.lanes[1]!;
     const b = timelineView(doc(), T0, CURVE_SAMPLES, 'fit').groups[0]!.lanes[1]!;

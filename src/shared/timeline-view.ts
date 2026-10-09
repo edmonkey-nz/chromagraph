@@ -186,7 +186,7 @@ export const FIT_MIN_SPAN = 0.02;
  * The value range a curve lane draws, given the lowest and highest value its keys and curve
  * reach. `slider`: the slider range, widened to the values. `fit`: the values with FIT_PAD
  * padding, at least FIT_MIN_SPAN of the slider range tall (2 for whole-number parameters),
- * kept inside the valid range where it can be.
+ * kept inside the valid range where it can be, and rounded outwards to tidy numbers.
  */
 export function laneRange(def: ParamDef, lo: number, hi: number, scale: LaneScale): { lo: number; hi: number } {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return span(def.min, def.max, def);
@@ -200,6 +200,13 @@ export function laneRange(def: ParamDef, lo: number, hi: number, scale: LaneScal
   if (b - a < minSpan) {
     if (a <= def.hardMin) b = Math.min(a + minSpan, def.hardMax);
     else a = Math.max(b - minSpan, def.hardMin);
+  }
+  // Round outwards to two significant figures of the span, so the range reads "-200 – 410".
+  if (b - a > 0) {
+    const step = 10 ** (Math.floor(Math.log10(b - a)) - 1);
+    const decimals = Math.min(Math.max(-Math.floor(Math.log10(step)), 0), 20);
+    a = Math.max(Number((Math.floor(a / step) * step).toFixed(decimals)), def.hardMin);
+    b = Math.min(Number((Math.ceil(b / step) * step).toFixed(decimals)), def.hardMax);
   }
   return span(a, b, def);
 }

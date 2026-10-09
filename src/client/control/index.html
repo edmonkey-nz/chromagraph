@@ -1565,10 +1565,18 @@
       }
       /* Lane range switch in the transport row. */
       .tl-scale {
+        flex: none;
         display: inline-flex;
         align-items: center;
         gap: 6px;
         margin-left: 8px;
+      }
+      .tl-scale .tl-sub {
+        overflow: visible;
+      }
+      .tl-scale .seg button,
+      .tl-ed .seg button {
+        white-space: nowrap;
       }
       .tl-ghead .icon-btn {
         width: 26px;
