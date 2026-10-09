@@ -283,7 +283,7 @@ function ramp(from: number, to: number): Parameter {
  * How the data playhead drives a layer: `rows` (a row range to reveal or window through) for
  * every layer type with a row range (instancer, line, heat map, small multiples, hierarchy,
  * 3D surface); `row` (one current row to follow) for text layers. Null for a layer with
- * neither (none yet), which the data playhead does not offer.
+ * neither (a reflection plane), which the data playhead does not offer.
  */
 export function playheadKind(layer: LayerConfig): 'rows' | 'row' | null {
   switch (layer.type) {
@@ -296,6 +296,8 @@ export function playheadKind(layer: LayerConfig): 'rows' | 'row' | null {
     case 'hierarchy':
     case 'surface':
       return 'rows';
+    case 'reflector':
+      return null;
   }
 }
 

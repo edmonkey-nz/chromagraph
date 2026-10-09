@@ -1,9 +1,11 @@
-import { Euler, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from 'three';
+import { Euler, Matrix4, OrthographicCamera, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   cameraFromOrbit,
   fitDistance,
   gizmoSnap,
+  ISOMETRIC_DEPTH,
+  isometricHalfSize,
   orbitFromCamera,
   proxyFromTransform,
   Throttle,
@@ -68,9 +70,71 @@ describe('camera orbit maths', () => {
     expect(cfg.pitch).toBe(0);
   });
 
+  it('keeps the projection while orbiting', () => {
+    const cfg: Camera = { mode: '3d', fov: 45, yaw: 45, pitch: 35.26, distance: 1.5, target: [0, 0, 0], projection: 'isometric' };
+    const { position, target } = orbitFromCamera(cfg);
+    const back = cameraFromOrbit(position, target, cfg.fov, cfg.yaw, cfg.projection)!;
+    expect(back.projection).toBe('isometric');
+    expectCameraClose(back, cfg);
+    expect(cameraFromOrbit(position, target, cfg.fov)!.projection).toBe('perspective');
+  });
+
   it('clamps pitch to the schema and rejects a degenerate eye', () => {
     expect(cameraFromOrbit([960, 5000, 0.0001], [960, 540, 0], 45)!.pitch).toBe(89);
     expect(cameraFromOrbit([960, 540, 0], [960, 540, 0], 45)).toBeNull();
+  });
+});
+
+describe('isometric camera', () => {
+  const stageWith = () => ({ perspectiveCamera: new PerspectiveCamera(), isometricCamera: new OrthographicCamera(), camera: null as unknown });
+  const ndc = (cam: OrthographicCamera, x: number, y: number, z: number) => new Vector3(x, y, z).project(cam);
+
+  it('scales the view with distance', () => {
+    expect(isometricHalfSize(1)).toEqual([960, 540]);
+    expect(isometricHalfSize(2)).toEqual([1920, 1080]);
+    expect(isometricHalfSize(0)).toEqual([960, 540]); // invalid distances fall back to 1
+  });
+
+  it('fills the frame with the z = 0 plane at yaw = pitch = 0, distance 1', () => {
+    const fake = stageWith();
+    Stage.prototype.setCamera.call(fake as unknown as Stage, { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'isometric' });
+    expect(fake.camera).toBe(fake.isometricCamera);
+    const cam = fake.isometricCamera;
+    cam.updateMatrixWorld();
+    const a = ndc(cam, 0, 0, 0);
+    const b = ndc(cam, 1920, 1080, 0);
+    expect(a.x).toBeCloseTo(-1, 9);
+    expect(a.y).toBeCloseTo(-1, 9);
+    expect(b.x).toBeCloseTo(1, 9);
+    expect(b.y).toBeCloseTo(1, 9);
+    // Orthographic: depth does not move a point on screen.
+    const c = ndc(cam, 0, 0, 800);
+    expect(c.x).toBeCloseTo(-1, 9);
+    expect(c.y).toBeCloseTo(-1, 9);
+  });
+
+  it('orbits like the perspective camera and keeps the scene inside near/far', () => {
+    for (const base of cams) {
+      const cfg: Camera = { ...base, projection: 'isometric' };
+      const fake = stageWith();
+      Stage.prototype.setCamera.call(fake as unknown as Stage, cfg);
+      const { position, target } = orbitFromCamera(cfg);
+      const p = fake.isometricCamera.position;
+      expect(p.x).toBeCloseTo(position[0], 6);
+      expect(p.y).toBeCloseTo(position[1], 6);
+      expect(p.z).toBeCloseTo(position[2], 6);
+      const cam = fake.isometricCamera;
+      cam.updateMatrixWorld();
+      // The target sits mid-screen, and points far either side of it stay within the depth range.
+      const t = ndc(cam, target[0], target[1], target[2]);
+      expect(t.x).toBeCloseTo(0, 6);
+      expect(t.y).toBeCloseTo(0, 6);
+      for (const [dx, dy, dz] of [[0, 0, 5000], [0, 0, -5000], [5000, 0, 0], [0, 5000, 0]] as const) {
+        const z = ndc(cam, target[0] + dx, target[1] + dy, target[2] + dz).z;
+        expect(Math.abs(z)).toBeLessThan(1);
+      }
+      expect(cam.far - cam.near).toBeCloseTo(2 * ISOMETRIC_DEPTH, 6);
+    }
   });
 });
 

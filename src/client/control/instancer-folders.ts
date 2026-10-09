@@ -1,5 +1,5 @@
 import type { BladeApi, FolderApi } from 'tweakpane';
-import { budgetReadout, ridgelineCloner, visibleRowCount } from '../../shared/layer-helpers.ts';
+import { budgetReadout, diffChanges, edgePreset, ridgelineCloner, visibleRowCount } from '../../shared/layer-helpers.ts';
 import {
   ARRANGEMENTS,
   LABEL_ORIENTATIONS,
@@ -31,7 +31,7 @@ import {
   xyz,
 } from './layer-ui.ts';
 
-/** Instancer folders: General, Layout, Look, Channels, Cloner, Labels, Glow, Trails, Transform. */
+/** Instancer folders: General, Layout, Look, Edges, Channels, Cloner, Labels, Glow, Trails, Transform. */
 
 const CHANNEL_TITLES: Record<NumericChannel | 'colour', string> = {
   y: 'y offset',
@@ -48,6 +48,7 @@ export function buildInstancer(ui: LayerUi, layer: InstancerLayer, titleOf: (l: 
   buildGeneral(ui, root, layer, titleOf);
   buildLayout(ui, root, layer);
   buildLook(ui, root, layer);
+  buildEdges(ui, root, layer);
   buildChannels(ui, root, layer);
   buildCloner(ui, root, layer);
   buildLabels(ui, root, layer);
@@ -130,6 +131,46 @@ function buildLook(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void 
   }).on('change', (ev) => ui.set(['heightAxis'], ev.value));
   f.addBinding(m, 'colour').on('change', (ev) => ui.set(['colour'], ev.value));
   addOpacityBlend(ui, f, layer);
+}
+
+/**
+ * "Edges": outlined 3D boxes (box primitive only; other primitives show a hint). Width is in
+ * screen px at any distance; face opacity 0 leaves the outlines alone; edge glow brightens the
+ * edges for the layer's glow to spread (the Neon preset switches that glow on too).
+ */
+function buildEdges(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void {
+  const E = layer.edges;
+  const f = ui.folder(parent, 'Edges', 'Edges', E.enabled && layer.primitive === 'box');
+  if (layer.primitive !== 'box') {
+    f.addBlade({ view: 'text', label: '', parse: (v: string) => v, value: 'Edges are for the box primitive (General).', disabled: true });
+    return;
+  }
+  const m = { ...E };
+  f.addBinding(m, 'enabled', { label: 'on' }).on('change', (ev) => ui.set(['edges', 'enabled'], ev.value));
+  f.addBinding(m, 'colour').on('change', (ev) => ui.set(['edges', 'colour'], ev.value));
+  ui.mark(
+    f.addBinding(m, 'width', { label: 'width (px)', min: 0.5, max: 20, step: 0.5 }).on('change', (ev) => ui.set(['edges', 'width'], Math.min(20, Math.max(0.5, ev.value)))),
+    'width (px)',
+    'edges.width',
+  ).element.title = 'Screen px, the same at any distance; 2 px is the projection minimum';
+  ui.mark(
+    f.addBinding(m, 'faceOpacity', { label: 'face opacity', min: 0, max: 1, step: 0.01 }).on('change', (ev) => ui.set(['edges', 'faceOpacity'], ev.value)),
+    'face opacity',
+    'edges.faceOpacity',
+  ).element.title = 'The box faces under the edges: 1 = solid, 0 = outlines only (the boxes become see-through)';
+  ui.mark(
+    f.addBinding(m, 'glow', { label: 'edge glow', min: 0, max: 1, step: 0.01 }).on('change', (ev) => ui.set(['edges', 'glow'], ev.value)),
+    'edge glow',
+    'edges.glow',
+  ).element.title = 'Brightens the edges towards white with a soft halo; switch on the layer’s Glow to make them bloom (neon)';
+  const preset = (which: 'outline' | 'neon') => {
+    const current = ui.entry.layer;
+    if (current.type === 'instancer') ui.entry.forceRebuild = ui.send(diffChanges(current, edgePreset(current, which)));
+  };
+  f.addButton({ title: 'Red outline', label: 'preset' }).on('click', () => preset('outline')).element.title =
+    'Dark solid boxes with 2 px red edges';
+  f.addButton({ title: 'Neon', label: '' }).on('click', () => preset('neon')).element.title =
+    'Glassy blue boxes with glowing 3 px cyan edges; switches the layer’s Glow on';
 }
 
 function buildChannels(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void {

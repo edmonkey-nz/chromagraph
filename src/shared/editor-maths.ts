@@ -9,6 +9,7 @@ import type { Camera } from './project-schema.ts';
 export type V3 = [number, number, number];
 
 const DEG = Math.PI / 180;
+const OUTPUT_WIDTH = 1920;
 const OUTPUT_HEIGHT = 1080;
 
 /** Pitch limits of the camera schema, degrees. */
@@ -18,6 +19,24 @@ export const PITCH_LIMIT = 89;
 export function fitDistance(fovDeg: number): number {
   return OUTPUT_HEIGHT / 2 / Math.tan((fovDeg * DEG) / 2);
 }
+
+/**
+ * Half the width and height (px) of the isometric (orthographic) camera's view: at distance 1
+ * the target's plane fills the 1920x1080 frame exactly, as the perspective camera's z = 0
+ * plane does at yaw = pitch = 0, and the view grows with distance (zooming out shows more).
+ */
+export function isometricHalfSize(distance: number): [number, number] {
+  const d = Number.isFinite(distance) && distance > 0 ? distance : 1;
+  return [(OUTPUT_WIDTH / 2) * d, (OUTPUT_HEIGHT / 2) * d];
+}
+
+/**
+ * How far the isometric camera reaches either side of its eye (px). The eye sits where the
+ * perspective camera's would (so orbiting and the gizmo behave alike) and the near plane lies
+ * behind it, so a scene up to this far from the target is never clipped however far the
+ * view is zoomed in.
+ */
+export const ISOMETRIC_DEPTH = 40_000;
 
 /**
  * World-space eye and look-at point of a 3D camera config. Mirrors `Stage.setCamera`
@@ -42,10 +61,17 @@ export function orbitFromCamera(cfg: Camera): { position: V3; target: V3 } {
  * Inverse of `orbitFromCamera`: a 3D camera config from an eye and look-at point. Yaw is
  * unwrapped to the turn nearest `refYaw`, so dragging past ±180° keeps counting rather
  * than jumping; pitch is clamped to the schema's ±89°. Values are rounded (0.001°,
- * 1e-5 distance, 0.01 px) so patches stay readable. Returns null for a degenerate camera
- * (eye on the target).
+ * 1e-5 distance, 0.01 px) so patches stay readable. `projection` is passed through (an
+ * isometric view stays isometric while orbiting; its distance is the zoom). Returns null for
+ * a degenerate camera (eye on the target).
  */
-export function cameraFromOrbit(position: readonly number[], target: readonly number[], fov: number, refYaw = 0): Camera | null {
+export function cameraFromOrbit(
+  position: readonly number[],
+  target: readonly number[],
+  fov: number,
+  refYaw = 0,
+  projection: Camera['projection'] = 'perspective',
+): Camera | null {
   const dx = (position[0] ?? 0) - (target[0] ?? 0);
   const dy = (position[1] ?? 0) - (target[1] ?? 0);
   const dz = (position[2] ?? 0) - (target[2] ?? 0);
@@ -55,7 +81,7 @@ export function cameraFromOrbit(position: readonly number[], target: readonly nu
   const yaw = Math.atan2(dx, dz) / DEG;
   return {
     mode: '3d',
-    projection: 'perspective',
+    projection,
     fov,
     yaw: round(unwrapDegrees(yaw, refYaw), 1000),
     pitch: round(Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch)), 1000),

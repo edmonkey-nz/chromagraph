@@ -25,6 +25,7 @@ import {
 import { emptyFxLayer, type FxLayer } from '../../shared/effects-plan.ts';
 import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
 import type { LayerEffects } from '../../shared/layer-schema.ts';
+import { isometricHalfSize, ISOMETRIC_DEPTH } from '../../shared/editor-maths.ts';
 import { defaultCamera, type Camera } from '../../shared/project-schema.ts';
 import { PostEffects } from './effects.ts';
 import { LayerImages } from './layer-image.ts';
@@ -104,6 +105,11 @@ export class Stage {
   readonly orthoCamera = new OrthographicCamera(0, OUTPUT_WIDTH, OUTPUT_HEIGHT, 0, -10_000, 10_000);
   /** 3D camera; at yaw = pitch = 0, distance = 1 the z = 0 plane exactly fills the frame. */
   readonly perspectiveCamera = new PerspectiveCamera(45, OUTPUT_WIDTH / OUTPUT_HEIGHT, 1, 100_000);
+  /**
+   * 3D isometric camera (orthographic), orbiting like the perspective one; at distance 1 the
+   * target's plane fills the frame and larger distances show more (isometricHalfSize).
+   */
+  readonly isometricCamera = new OrthographicCamera(-OUTPUT_WIDTH / 2, OUTPUT_WIDTH / 2, OUTPUT_HEIGHT / 2, -OUTPUT_HEIGHT / 2, 1, 2);
   camera: ThreeCamera = this.orthoCamera;
   readonly rendererName: string;
   contextLost = false;
@@ -251,13 +257,16 @@ export class Stage {
       d.target[0] = cfg.target[0];
       d.target[1] = cfg.target[1];
       d.target[2] = cfg.target[2];
+      d.projection = cfg.projection;
     }
     if (cfg.mode === '2d') {
       this.camera = this.orthoCamera;
       return;
     }
-    const cam = this.perspectiveCamera;
-    cam.fov = cfg.fov;
+    const isometric = cfg.projection === 'isometric';
+    const cam = isometric ? this.isometricCamera : this.perspectiveCamera;
+    // The eye orbits the target in both projections (the orthographic one at the distance the
+    // perspective eye would be, so orbiting, picking and the gizmo behave alike).
     const fit = OUTPUT_HEIGHT / 2 / Math.tan((cfg.fov * Math.PI) / 360);
     const r = fit * cfg.distance;
     const yaw = (cfg.yaw * Math.PI) / 180;
@@ -272,8 +281,22 @@ export class Stage {
     );
     cam.up.set(0, 1, 0);
     cam.lookAt(tx, ty, tz);
-    cam.near = Math.max(0.5, r * 0.01);
-    cam.far = r * 20 + 10_000;
+    if (isometric) {
+      const iso = this.isometricCamera;
+      const [hw, hh] = isometricHalfSize(cfg.distance);
+      iso.left = -hw;
+      iso.right = hw;
+      iso.top = hh;
+      iso.bottom = -hh;
+      // Reaches ISOMETRIC_DEPTH past the target both ways, behind the eye too (near < 0).
+      iso.near = r - ISOMETRIC_DEPTH;
+      iso.far = r + ISOMETRIC_DEPTH;
+    } else {
+      const persp = this.perspectiveCamera;
+      persp.fov = cfg.fov;
+      persp.near = Math.max(0.5, r * 0.01);
+      persp.far = r * 20 + 10_000;
+    }
     cam.updateProjectionMatrix();
     this.camera = cam;
   }

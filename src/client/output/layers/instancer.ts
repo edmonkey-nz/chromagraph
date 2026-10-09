@@ -387,11 +387,25 @@ const vertexShader = /* glsl */ `
   }
 `;
 
+/**
+ * Box edges (EDGES, box primitive only): each face's border is found from its own 0..1 UVs,
+ * and fwidth turns the distance to the border into screen px, so edges are `width` px wide at
+ * any distance or angle. Faces show at uFaceOpacity under the edges (0: outlines only), and
+ * glow brightens the edge towards white and adds a soft halo inwards over the face, which the
+ * layer's glow (bloom) then spreads for a neon look.
+ */
 const fragmentShader = /* glsl */ `
   varying vec3 vColour;
   varying float vAlpha;
   varying vec2 vUv;
   varying vec3 vNormal;
+  #ifdef EDGES
+    uniform float uEdges;
+    uniform vec3 uEdgeColour;
+    uniform float uEdgeWidth;
+    uniform float uFaceOpacity;
+    uniform float uEdgeGlow;
+  #endif
 
   void main() {
     float a = vAlpha;
@@ -404,6 +418,21 @@ const fragmentShader = /* glsl */ `
     #ifdef LIT
       float diffuse = max(dot(normalize(vNormal), normalize(vec3(0.4, 0.7, 0.6))), 0.0);
       col *= 0.35 + 0.65 * diffuse;
+    #endif
+    #ifdef EDGES
+      if (uEdges > 0.5) {
+        vec2 px = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1.0e-6));
+        float d = min(px.x, px.y);                       // screen px to the face's border
+        float edge = 1.0 - smoothstep(uEdgeWidth - 0.5, uEdgeWidth + 0.5, d);
+        float halo = uEdgeGlow * uEdgeGlow * 0.6 * exp(-max(d - uEdgeWidth, 0.0) / (3.0 + 2.0 * uEdgeWidth));
+        vec3 lit = mix(uEdgeColour * (1.0 + 2.0 * uEdgeGlow), vec3(1.0), 0.35 * uEdgeGlow);
+        // Edge over halo over face, composited premultiplied.
+        float under = halo + (1.0 - halo) * uFaceOpacity;
+        float coverage = edge + (1.0 - edge) * under;
+        vec3 rgb = edge * lit + (1.0 - edge) * (halo * uEdgeColour + (1.0 - halo) * uFaceOpacity * col);
+        col = rgb / max(coverage, 1.0e-4);
+        a *= coverage;
+      }
     #endif
     if (a <= 0.0) discard;
     gl_FragColor = vec4(col, a);
@@ -492,6 +521,9 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
   if (data.yearIndex) defines.CALENDAR = '';
   if (layer.primitive === 'point') defines.ROUND = '';
   if (layer.primitive === 'box' || layer.primitive === 'sphere') defines.LIT = '';
+  // The edge style is compiled into every box layer and switched by a uniform, so turning it
+  // on or off (or modulating it) never recompiles.
+  if (layer.primitive === 'box') defines.EDGES = '';
 
   const colourData = data.channels.colour;
   /** Current layout and the morph's frozen ones, packed as in the shader. */
@@ -527,6 +559,11 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     uCloneFade: { value: 1 },
     uDataStep: { value: 0 },
     uPivot: { value: new Vector3() },
+    uEdges: { value: 0 },
+    uEdgeColour: { value: new Color() },
+    uEdgeWidth: { value: 2 },
+    uFaceOpacity: { value: 1 },
+    uEdgeGlow: { value: 0 },
   };
   for (const ch of CHANNELS) {
     if (!data.channels[ch.name]) continue;
@@ -593,9 +630,21 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     set('uReverse', cm.reverse ? 1 : 0);
     if (!colourData || colourData.categories === 0) uniforms.uRamp!.value = rampTexture(cm.ramp);
 
+    const edges = next.primitive === 'box' && next.edges.enabled;
+    set('uEdges', edges ? 1 : 0);
+    (uniforms.uEdgeColour!.value as Color).set(next.edges.colour);
+    set('uEdgeWidth', next.edges.width);
+    set('uFaceOpacity', next.edges.faceOpacity);
+    set('uEdgeGlow', next.edges.glow);
+
     const additive = next.blend === 'additive';
     const translucent =
-      additive || next.opacity < 1 || next.primitive === 'point' || hasOpacityChannel || (clones > 1 && cl.fade < 1);
+      additive ||
+      next.opacity < 1 ||
+      next.primitive === 'point' ||
+      hasOpacityChannel ||
+      (clones > 1 && cl.fade < 1) ||
+      (edges && next.edges.faceOpacity < 1);
     material.transparent = translucent;
     material.blending = additive ? AdditiveBlending : NormalBlending;
     // 2D layers sit on one plane, so depth testing would only cause z-fighting; draw order

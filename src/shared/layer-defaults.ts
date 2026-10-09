@@ -17,6 +17,7 @@ import {
   blankInstancerLayer,
   blankLineLayer,
   blankMultiplesLayer,
+  blankReflectorLayer,
   blankSurfaceLayer,
   blankTextLayer,
   unmapped,
@@ -27,6 +28,7 @@ import {
   type LayerConfig,
   type LayerType,
   type LineLayer,
+  type ReflectorLayer,
   type SmallMultiplesLayer,
   type SurfaceLayer,
   type TextLayer,
@@ -710,11 +712,25 @@ export function defaultSurfaceLayerFor(id: string, name: string, dataset: Datase
   return fitSurfaceLayer(layer, summary, dataset.timeZone);
 }
 
+// ---- reflection plane -----------------------------------------------------------------
+
+/**
+ * Copy of a reflection plane sized to the frame (1920 wide, 1080 deep). Its placement is the
+ * layer transform's (a new plane lies flat along the bottom of the frame; see floorTransform),
+ * which a fit leaves alone.
+ */
+export function fitReflectorLayer(layer: ReflectorLayer): ReflectorLayer {
+  const out = structuredClone(layer);
+  out.size = [FRAME_W, FRAME_H];
+  return out;
+}
+
 // ---- any type -------------------------------------------------------------------------
 
 /**
  * A new layer of `type`. Data layers need a dataset and its summary; without them they come
- * back blank (neutral settings, nothing mapped). Text works with or without data.
+ * back blank (neutral settings, nothing mapped). Text works with or without data; a
+ * reflection plane never has a dataset.
  */
 export function defaultLayerOfType(
   type: LayerType,
@@ -724,6 +740,7 @@ export function defaultLayerOfType(
   summary: DatasetSummary | null,
 ): LayerConfig {
   if (type === 'text') return defaultTextLayerFor(id, name, dataset, summary);
+  if (type === 'reflector') return blankReflectorLayer(id, name);
   if (!dataset || !summary) {
     const datasetId = dataset?.id ?? null;
     if (type === 'line') return blankLineLayer(id, name, datasetId);
@@ -747,6 +764,7 @@ export function defaultLayerOfType(
  */
 export function fitAnyLayer(layer: LayerConfig, summary: DatasetSummary | null, timeZone: string): LayerConfig {
   if (layer.type === 'text') return fitTextLayer(layer);
+  if (layer.type === 'reflector') return fitReflectorLayer(layer);
   if (!summary) return structuredClone(layer);
   switch (layer.type) {
     case 'instancer':

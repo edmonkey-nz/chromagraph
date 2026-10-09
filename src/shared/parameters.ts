@@ -187,6 +187,16 @@ const TEXT_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   outlineWidth: { label: 'outline width', min: 0, max: 20, hardMin: 0, hardMax: 20 },
 };
 
+const REFLECTOR_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  size: [
+    { label: 'width', min: 0, max: 6000, hardMin: 0 },
+    { label: 'depth', min: 0, max: 6000, hardMin: 0 },
+  ],
+  reflectivity: { label: 'reflectivity', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  blur: { label: 'blur', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  fade: { label: 'fade distance', min: 0, max: 2000, hardMin: 0 },
+};
+
 const CHANNEL_RANGE: Record<string, [number, number, number?, number?]> = {
   y: [-2000, 2000],
   z: [-2000, 2000],
@@ -287,6 +297,9 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
       break;
     case 'text':
       addFields(out, prefix, group, TEXT_FIELDS);
+      break;
+    case 'reflector':
+      addFields(out, prefix, group, REFLECTOR_FIELDS);
       break;
   }
   return out;
