@@ -510,6 +510,25 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 - Control: each layer card has "Glow" and "Trails" folders (`buildEffects` in `layer-ui.ts`).
   Moving one of their sliders while the effect is off switches it on.
 
+**Shadows, blur and fixed to screen** (`shared/compose-plan.ts`, `client/output/layer-image.ts`, schema v12).
+- `layer.effects` also has `shadow {enabled, colour, opacity, spread, offset}` and
+  `blur {enabled, amount}`; `layer.screenFixed` draws a layer with the 2D screen camera.
+- When a visible layer has a shadow or a blur, or is fixed to the screen under a 3D camera,
+  `Stage` draws the scene in segments, in stack order, into the same MSAA target. With none
+  of these on, the scene is one render, as before.
+  - A run of plain layers is one render, with the project camera or `orthoCamera`.
+  - A shadow or blur layer is drawn alone into a transparent image. Its shadow (blurred
+    coverage × colour × opacity, offset) is laid down with premultiplied blending, then
+    the layer itself, or its blurred image instead.
+  - Blur is a half-size pyramid plus a separable gaussian (sigma = setting / 2).
+- `LayerManager` tags each layer's root with `effects`, `screenFixed` and `blend`, and
+  applies screen-fixed layers with camera mode `'2d'`, so they ignore depth instead of
+  needing a depth clear. Morph fade-outs keep that camera mode.
+- The per-layer glow and trails passes (`drawOnly`) draw layers the same way.
+- Targets are lazy and released after 10 s unused. A failure draws the layer plainly and is
+  reported once.
+- Limits: a blurred layer is laid over the layers below it, so it loses 3D occlusion.
+
 **Camera motion presets** (`shared/camera-motion.ts`, UI in `camera-panel.ts`).
 - Presets (orbit, swing, zoom, pan, tilt, drift, fly-around) are plain LFO and noise
   modulators on `camera.*`, so the output needs nothing new and scenes capture them. A preset

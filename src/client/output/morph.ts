@@ -305,7 +305,7 @@ export class MorphEngine {
             instance,
             config: structuredClone(shown),
             fromOpacity,
-            cameraMode: manager.cameraMode,
+            cameraMode: shown.screenFixed ? '2d' : manager.cameraMode,
             timing: this.timing,
           });
         }

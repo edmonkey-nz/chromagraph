@@ -28,8 +28,8 @@ import { anyEffect, emptyPlan, planEffects, type FxLayer } from '../../shared/ef
  *   scene (MSAA target, resolved) -> bloom -> trails -> warp
  *
  * Bloom is a threshold -> five-level blurred mip chain -> weighted sum, at half the target
- * resolution. It is never written back into the scene target (three invalidates the MSAA
- * buffer after resolving it); instead the half-resolution bloom texture is added by whoever
+ * resolution. It is never written back into the scene target;
+ * instead the half-resolution bloom texture is added by whoever
  * consumes the image next: the trails pass, or the warp shader when trails are off. That
  * saves a full-resolution copy pass.
  *

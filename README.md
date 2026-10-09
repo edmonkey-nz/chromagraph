@@ -141,6 +141,10 @@ the NVIDIA GPU.
 - **Effects:** glow and motion trails, set per layer in each layer's **Glow** and
   **Trails** folders. Layers with the same settings cost nothing extra; each layer with
   its own trails costs about one more draw of that layer.
+- **Shadow and blur:** each layer's **Shadow** folder adds a drop shadow (colour, opacity,
+  spread for softness, and offset in px, y up). **Blur** blurs the layer by an amount in px.
+- **Fixed to screen:** tick it in a layer's **Transform** folder to draw that layer with
+  the 2D screen camera, so 3D camera moves don't affect it, as for titles.
 - **Camera moves:** in the Camera card under Motion, pick a preset (orbit, swing, zoom, pan,
   tilt, drift, fly-around) and set its speed. Presets are camera modulators, so you can
   fine-tune them in the Camera card's Modulation folder.
