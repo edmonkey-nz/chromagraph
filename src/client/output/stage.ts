@@ -135,10 +135,12 @@ export class Stage {
   private readonly compose: ComposeLayer[] = [];
   private composeCount = 0;
   private readonly composePlan: ComposePlan = emptyComposePlan();
-  /** The same for a drawOnly() subset that mixes cameras. */
+  /** The same for a drawOnly() subset. */
   private readonly subset: ComposeLayer[] = [];
   private readonly subsetPlan: ComposePlan = emptyComposePlan();
   private readonly savedClear = new Color();
+  /** This frame's clock (performance.now()), for the layer images' release timing. */
+  private now = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -310,7 +312,8 @@ export class Stage {
   render(dt: number): void {
     if (this.contextLost) return;
     const now = performance.now();
-    if (this.collectCompose()) this.renderComposed(now);
+    this.now = now;
+    if (this.collectCompose()) this.renderSegments(this.target, this.compose, this.composeCount, this.composePlan);
     else {
       this.renderer.setRenderTarget(this.target);
       this.renderer.render(this.scene, this.camera);
@@ -340,36 +343,43 @@ export class Stage {
     return this.camera !== this.orthoCamera && object.userData[SCREEN_FIXED_TAG] === true;
   }
 
+  /** Fill `c` for a visible top-level object: its stack position, camera, shadow and blur. */
+  private describeObject(c: ComposeLayer, object: Object3D): void {
+    const e = effectsOf(object);
+    c.object = object;
+    c.order = object.renderOrder;
+    c.screen = this.screenFixed(object);
+    const usable = !!e && (e.shadow?.enabled || e.blur?.enabled) && this.images.usable(object);
+    c.shadow = !!usable && e.shadow.enabled && e.shadow.opacity > 0;
+    c.blur = !!usable && e.blur.enabled && blurShows(e.blur.amount, this.targetScale);
+  }
+
   /**
    * Each visible object's shadow, blur and camera; true when the scene needs segmented
    * drawing. With none of those anywhere this loop is the only extra work.
    */
   private collectCompose(): boolean {
     const children = this.scene.children;
-    const scale = this.targetScale;
     let n = 0;
     for (let i = 0; i < children.length; i++) {
       const child = children[i]!;
       if (!child.visible) continue;
-      const e = effectsOf(child);
-      const c = (this.compose[n] ??= emptyComposeLayer());
+      this.describeObject((this.compose[n] ??= emptyComposeLayer()), child);
       n++;
-      c.object = child;
-      c.order = child.renderOrder;
-      c.screen = this.screenFixed(child);
-      const usable = !!e && (e.shadow?.enabled || e.blur?.enabled) && this.images.usable(child);
-      c.shadow = !!usable && e.shadow.enabled && e.shadow.opacity > 0;
-      c.blur = !!usable && e.blur.enabled && blurShows(e.blur.amount, scale);
     }
     for (let i = n; i < this.composeCount; i++) this.compose[i]!.object = null; // keep nothing alive
     this.composeCount = n;
     return needsCompose(this.compose, n);
   }
 
-  /** The scene in segments (see shared/compose-plan.ts), into the scene target. */
-  private renderComposed(now: number): void {
+  /**
+   * Draw `layers[0..count)` (every object visible now, or all of them that are not hidden for
+   * the caller) in segments (see shared/compose-plan.ts) into `target`, cleared to the
+   * background first.
+   */
+  private renderSegments(target: WebGLRenderTarget, layers: readonly ComposeLayer[], count: number, plan: ComposePlan): void {
     const r = this.renderer;
-    const plan = planCompose(this.compose, this.composeCount, this.composePlan);
+    planCompose(layers, count, plan);
     const autoClear = r.autoClear;
     r.getClearColor(this.savedClear);
     const clearAlpha = r.getClearAlpha();
@@ -377,15 +387,15 @@ export class Stage {
     this.scene.background = null;
     try {
       r.autoClear = false;
-      r.setRenderTarget(this.target);
+      r.setRenderTarget(target);
       r.setClearColor(this.background, 1);
       r.clear(true, true, true);
       r.setClearColor(this.savedClear, clearAlpha);
       for (let s = 0; s < plan.segmentCount; s++) {
         const seg = plan.segments[s]!;
         const camera = seg.screen ? this.orthoCamera : this.camera;
-        if (seg.image) this.drawImageSegment(plan, seg.start, camera, now, clearAlpha);
-        else this.drawRange(this.target, this.compose, plan, seg.start, seg.end, camera, this.hidden);
+        if (seg.image) this.drawImageSegment(target, layers, plan, seg.start, camera, clearAlpha);
+        else this.drawRange(target, layers, plan, seg.start, seg.end, camera);
       }
     } finally {
       this.scene.background = this.background;
@@ -398,10 +408,18 @@ export class Stage {
    * One layer with a shadow and/or a blur: drawn alone into the layer image, its shadow laid
    * down, then the layer itself (blurred, or plainly). Any failure draws it plainly.
    */
-  private drawImageSegment(plan: ComposePlan, position: number, camera: ThreeCamera, now: number, clearAlpha: number): void {
-    const c = this.compose[plan.sorted[position]!]!;
+  private drawImageSegment(
+    target: WebGLRenderTarget,
+    layers: readonly ComposeLayer[],
+    plan: ComposePlan,
+    position: number,
+    camera: ThreeCamera,
+    clearAlpha: number,
+  ): void {
+    const c = layers[plan.sorted[position]!]!;
     const object = c.object as Object3D;
     const e = effectsOf(object)!;
+    const now = this.now;
     let drawn = false;
     const source = this.images.begin(now);
     if (source) {
@@ -411,14 +429,14 @@ export class Stage {
         r.setClearColor(0x000000, 0);
         r.clear(true, true, false);
         r.setClearColor(this.savedClear, clearAlpha);
-        this.drawRange(source, this.compose, plan, position, position + 1, camera, this.hidden);
-        if (c.shadow) this.images.drawShadow(this.target, e.shadow, now);
-        if (c.blur) drawn = this.images.drawBlurred(this.target, e.blur.amount, object.userData[BLEND_TAG] === 'additive', now);
+        this.drawRange(source, layers, plan, position, position + 1, camera);
+        if (c.shadow) this.images.drawShadow(target, e.shadow, now);
+        if (c.blur) drawn = this.images.drawBlurred(target, e.blur.amount, object.userData[BLEND_TAG] === 'additive', now);
       } catch (err) {
         this.images.failLayer(object, err);
       }
     }
-    if (!drawn) this.drawRange(this.target, this.compose, plan, position, position + 1, camera, this.hidden);
+    if (!drawn) this.drawRange(target, layers, plan, position, position + 1, camera);
   }
 
   /**
@@ -432,9 +450,9 @@ export class Stage {
     start: number,
     end: number,
     camera: ThreeCamera,
-    hidden: Object3D[],
   ): void {
-    const base = hidden.length;
+    const hidden = this.hiddenInner;
+    hidden.length = 0;
     try {
       for (let p = 0; p < plan.count; p++) {
         if (p >= start && p < end) continue;
@@ -446,8 +464,8 @@ export class Stage {
       this.renderer.setRenderTarget(target);
       this.renderer.render(this.scene, camera);
     } finally {
-      for (let i = base; i < hidden.length; i++) hidden[i]!.visible = true;
-      hidden.length = base;
+      for (let i = 0; i < hidden.length; i++) hidden[i]!.visible = true;
+      hidden.length = 0;
     }
   }
 
@@ -474,14 +492,14 @@ export class Stage {
   }
 
   /**
-   * Draw only `objects[0..count)` into `target`, cleared to the background (per-layer
-   * effects), then restore visibility. Screen-fixed objects among them are drawn with the
-   * screen camera, in stack order with the rest.
+   * Draw only `objects[0..count)` into `target`, cleared to the background (per-layer glow
+   * and trails), then restore visibility. They are drawn as in the scene: screen-fixed ones
+   * with the screen camera, with their shadows, blurred when blurred.
    */
   private drawOnly(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number): void {
     const hidden = this.hidden;
     hidden.length = 0;
-    let mixed = false;
+    let n = 0;
     try {
       const children = this.scene.children;
       for (let i = 0; i < children.length; i++) {
@@ -490,13 +508,14 @@ export class Stage {
         let keep = false;
         for (let k = 0; k < count && !keep; k++) keep = objects[k] === child;
         if (keep) {
-          mixed ||= this.screenFixed(child);
+          this.describeObject((this.subset[n] ??= emptyComposeLayer()), child);
+          n++;
           continue;
         }
         child.visible = false;
         hidden.push(child);
       }
-      if (mixed) this.drawSubset(target, objects, count);
+      if (needsCompose(this.subset, n)) this.renderSegments(target, this.subset, n, this.subsetPlan);
       else {
         this.renderer.setRenderTarget(target);
         this.renderer.render(this.scene, this.camera);
@@ -504,39 +523,6 @@ export class Stage {
     } finally {
       for (let i = 0; i < hidden.length; i++) hidden[i]!.visible = true;
       hidden.length = 0;
-    }
-  }
-
-  /** drawOnly's objects (the only ones visible now) in camera runs, in stack order. */
-  private drawSubset(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number): void {
-    let n = 0;
-    for (let k = 0; k < count; k++) {
-      const object = objects[k];
-      if (!object || !object.visible) continue;
-      const c = (this.subset[n] ??= emptyComposeLayer());
-      n++;
-      c.object = object;
-      c.order = object.renderOrder;
-      c.screen = this.screenFixed(object);
-      c.shadow = false;
-      c.blur = false;
-    }
-    const plan = planCompose(this.subset, n, this.subsetPlan);
-    const r = this.renderer;
-    const autoClear = r.autoClear;
-    try {
-      for (let s = 0; s < plan.segmentCount; s++) {
-        // The first render clears to the background as usual; later ones add to it.
-        if (s === 1) {
-          this.scene.background = null;
-          r.autoClear = false;
-        }
-        const seg = plan.segments[s]!;
-        this.drawRange(target, this.subset, plan, seg.start, seg.end, seg.screen ? this.orthoCamera : this.camera, this.hiddenInner);
-      }
-    } finally {
-      this.scene.background = this.background;
-      r.autoClear = autoClear;
       for (let i = 0; i < n; i++) this.subset[i]!.object = null;
     }
   }
