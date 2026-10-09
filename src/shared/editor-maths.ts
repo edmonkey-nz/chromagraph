@@ -55,6 +55,7 @@ export function cameraFromOrbit(position: readonly number[], target: readonly nu
   const yaw = Math.atan2(dx, dz) / DEG;
   return {
     mode: '3d',
+    projection: 'perspective',
     fov,
     yaw: round(unwrapDegrees(yaw, refYaw), 1000),
     pitch: round(Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch)), 1000),

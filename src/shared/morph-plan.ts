@@ -281,6 +281,8 @@ export interface MorphCamera {
   pitch: number;
   distance: number;
   target: [number, number, number];
+  /** Switches to the target's at once (a projection cannot be blended). */
+  projection: 'perspective' | 'isometric';
 }
 
 /**
@@ -292,6 +294,7 @@ export interface MorphCamera {
  */
 export function lerpCamera(from: MorphCamera, to: MorphCamera, u: number, out: MorphCamera): MorphCamera {
   const src = u <= 0 ? from : to;
+  out.projection = u <= 0 ? from.projection : to.projection;
   if (u <= 0 || u >= 1) {
     out.mode = src.mode;
     out.fov = src.fov;

@@ -28,7 +28,7 @@ describe('migrate', () => {
     if (!r.ok) return;
     const [a, b] = r.project.layers;
     // v6: glow on for the output, layer a flagged, layer b not; trails off for the output.
-    expect(a!.effects).toEqual({ glow: { enabled: true, strength: 1.5, radius: 0.6, threshold: 0.1 }, trails: { enabled: false, persistence: 0.9 } });
+    expect(a!.effects).toMatchObject({ glow: { enabled: true, strength: 1.5, radius: 0.6, threshold: 0.1 }, trails: { enabled: false, persistence: 0.9 } });
     expect(b!.effects.glow.enabled).toBe(false);
     expect(b!.effects.glow.strength).toBe(1.5);
     expect(r.project.output).toEqual({ background: v6.output.background });
@@ -85,6 +85,20 @@ describe('migrate', () => {
     expect(r.project.timeline).toMatchObject({ fadeIn: false, fadeOut: false, fadeLength: 1, gap: 0 });
     for (const l of [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)]) {
       if (l.type === 'multiples') expect(l.labelPlacement).toBe('outside');
+    }
+  });
+
+    it('v12 adds shadow, blur, screen-fixed, camera projection and instancer edges (all off)', () => {
+    const v11 = JSON.parse(readFileSync(new URL('../fixtures/projects/v11.json', import.meta.url), 'utf8'));
+    const r = migrate(v11);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    if (!r.ok) return;
+    expect(r.project.camera.projection).toBe('perspective');
+    for (const s of r.project.scenes) expect(s.camera.projection).toBe('perspective');
+    for (const l of [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)]) {
+      expect(l.screenFixed).toBe(false);
+      expect([l.effects.shadow.enabled, l.effects.blur.enabled]).toEqual([false, false]);
+      if (l.type === 'instancer') expect(l.edges.enabled).toBe(false);
     }
   });
 

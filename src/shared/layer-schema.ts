@@ -175,6 +175,23 @@ export const LayerEffectsSchema = z.object({
     enabled: z.boolean(),
     persistence: z.number().min(0).max(0.99),
   }),
+  /**
+   * Drop shadow drawn just beneath this layer (over the layers below it): the layer's shape,
+   * blurred by `spread` px, tinted `colour` at `opacity`, moved by `offset` px (x right, y up).
+   * Screen space, like a CSS drop shadow, also with the 3D camera.
+   */
+  shadow: z.object({
+    enabled: z.boolean(),
+    colour: hexColour,
+    opacity: z.number().min(0).max(1),
+    spread: z.number().min(0).max(100),
+    offset: vec2,
+  }),
+  /** The layer drawn blurred by `amount` px (screen space), in its own place in the stack. */
+  blur: z.object({
+    enabled: z.boolean(),
+    amount: z.number().min(0).max(100),
+  }),
 });
 export type LayerEffects = z.infer<typeof LayerEffectsSchema>;
 
@@ -182,6 +199,8 @@ export function defaultLayerEffects(): LayerEffects {
   return {
     glow: { enabled: false, strength: 0.8, radius: 0.4, threshold: 0.2 },
     trails: { enabled: false, persistence: 0.85 },
+    shadow: { enabled: false, colour: '#000000', opacity: 0.6, spread: 8, offset: [6, -6] },
+    blur: { enabled: false, amount: 4 },
   };
 }
 
@@ -214,6 +233,11 @@ export const LayerBaseSchema = z.object({
   transform: TransformSchema,
   effects: LayerEffectsSchema,
   timeline: LayerTimelineSchema,
+  /**
+   * Fixed to the screen: the layer is drawn with the 2D pixel camera (x 0..1920, y 0..1080)
+   * whatever the project camera does, so it ignores 3D camera moves (titles, overlays).
+   */
+  screenFixed: z.boolean(),
 });
 export type LayerBase = z.infer<typeof LayerBaseSchema>;
 
@@ -254,6 +278,10 @@ export type InstancerLabels = z.infer<typeof InstancerLabelsSchema>;
 
 export function defaultInstancerLabels(): InstancerLabels {
   return { enabled: false, every: 'year', rows: 365, text: 'date', column: null, size: 24, offset: 16, orientation: 'along', colour: '#e8e8e8', hidePoints: false, font: 'terminal', uppercase: false };
+}
+
+export function defaultEdges(): { enabled: boolean; colour: string; width: number; faceOpacity: number; glow: number } {
+  return { enabled: false, colour: '#ff3030', width: 2, faceOpacity: 1, glow: 0 };
 }
 
 export const InstancerLayerSchema = LayerBaseSchema.extend({
@@ -303,6 +331,18 @@ export const InstancerLayerSchema = LayerBaseSchema.extend({
   colour: hexColour,
   cloner: ClonerSchema,
   labels: InstancerLabelsSchema,
+  /**
+   * Edge style for the 3D `box` primitive (ignored by other primitives): edges drawn in
+   * `colour`, `width` px wide on screen, faces at `faceOpacity` (0 = edges only), and `glow`
+   * 0..1 brightening the edges (pair it with the layer's glow for neon).
+   */
+  edges: z.object({
+    enabled: z.boolean(),
+    colour: hexColour,
+    width: z.number().min(0.5).max(20),
+    faceOpacity: z.number().min(0).max(1),
+    glow: z.number().min(0).max(1),
+  }),
 
   channels: z.object({
     y: MappingSchema,
@@ -652,14 +692,16 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     transform: identityTransform(),
     effects: defaultLayerEffects(),
     timeline: defaultLayerTimeline(),
+    screenFixed: false,
     cloner: identityCloner(),
     labels: defaultInstancerLabels(),
+    edges: defaultEdges(),
     channels: defaultChannels(),
   };
 }
 
 function base(id: string, name: string, datasetId: string | null): LayerBase {
-  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects(), timeline: defaultLayerTimeline() };
+  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects(), timeline: defaultLayerTimeline(), screenFixed: false };
 }
 
 export function blankLineLayer(id: string, name: string, datasetId: string | null): LineLayer {

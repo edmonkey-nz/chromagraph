@@ -15,10 +15,10 @@ import type { Camera } from '../../src/shared/project-schema.ts';
 import { Stage } from '../../src/client/output/stage.ts';
 
 const cams: Camera[] = [
-  { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0] },
-  { mode: '3d', fov: 30, yaw: 35, pitch: 20, distance: 1.7, target: [120, -40, 15] },
-  { mode: '3d', fov: 90, yaw: -150, pitch: -60, distance: 0.4, target: [-300, 200, -80] },
-  { mode: '3d', fov: 60, yaw: 179, pitch: 88, distance: 3, target: [0, 0, 500] },
+  { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective' },
+  { mode: '3d', fov: 30, yaw: 35, pitch: 20, distance: 1.7, target: [120, -40, 15], projection: 'perspective' },
+  { mode: '3d', fov: 90, yaw: -150, pitch: -60, distance: 0.4, target: [-300, 200, -80], projection: 'perspective' },
+  { mode: '3d', fov: 60, yaw: 179, pitch: 88, distance: 3, target: [0, 0, 500], projection: 'perspective' },
 ];
 
 function expectCameraClose(a: Camera, b: Camera): void {
@@ -55,14 +55,14 @@ describe('camera orbit maths', () => {
   });
 
   it('unwraps yaw towards the reference turn', () => {
-    const cfg: Camera = { mode: '3d', fov: 45, yaw: 370, pitch: 10, distance: 1, target: [0, 0, 0] };
+    const cfg: Camera = { mode: '3d', fov: 45, yaw: 370, pitch: 10, distance: 1, target: [0, 0, 0], projection: 'perspective' };
     const { position, target } = orbitFromCamera(cfg);
     expect(cameraFromOrbit(position, target, 45, 360)!.yaw).toBeCloseTo(370, 6);
     expect(cameraFromOrbit(position, target, 45, 0)!.yaw).toBeCloseTo(10, 6);
   });
 
   it('rounds so patches stay readable', () => {
-    const { position, target } = orbitFromCamera({ mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1.2, target: [0, 0, 0] });
+    const { position, target } = orbitFromCamera({ mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1.2, target: [0, 0, 0], projection: 'perspective' });
     const cfg = cameraFromOrbit(position, target, 45)!;
     expect(cfg.distance).toBe(1.2);
     expect(cfg.pitch).toBe(0);

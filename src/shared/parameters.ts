@@ -53,6 +53,13 @@ const CAMERA_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
 const BASE_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   opacity: { label: 'opacity', min: 0, max: 1, hardMin: 0, hardMax: 1 },
   'effects.glow.strength': { label: 'glow strength', min: 0, max: 3, hardMin: 0, hardMax: 3 },
+  'effects.shadow.opacity': { label: 'shadow opacity', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'effects.shadow.spread': { label: 'shadow spread', min: 0, max: 100, hardMin: 0, hardMax: 100 },
+  'effects.shadow.offset': [
+    { label: 'shadow x', min: -100, max: 100 },
+    { label: 'shadow y', min: -100, max: 100 },
+  ],
+  'effects.blur.amount': { label: 'blur', min: 0, max: 100, hardMin: 0, hardMax: 100 },
   'effects.glow.radius': { label: 'glow radius', min: 0, max: 1, hardMin: 0, hardMax: 1 },
   'effects.glow.threshold': { label: 'glow threshold', min: 0, max: 1, hardMin: 0, hardMax: 1 },
   'effects.trails.persistence': { label: 'trail length', min: 0, max: 0.99, hardMin: 0, hardMax: 0.99 },
@@ -95,6 +102,9 @@ const LAYER_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
     { label: 'depth', min: 0, max: 500 },
   ],
   'labels.size': { label: 'label size', min: 6, max: 200, hardMin: 6, hardMax: 200 },
+  'edges.width': { label: 'edge width', min: 0.5, max: 20, hardMin: 0.5, hardMax: 20 },
+  'edges.faceOpacity': { label: 'face opacity', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  'edges.glow': { label: 'edge glow', min: 0, max: 1, hardMin: 0, hardMax: 1 },
   'labels.offset': { label: 'label offset', min: -200, max: 200 },
 };
 

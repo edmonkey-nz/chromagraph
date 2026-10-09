@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 11;
+export const CURRENT_VERSION = 12;
 
 
 export const DatasetSchema = z.object({
@@ -37,6 +37,12 @@ export const CameraSchema = z.object({
   distance: z.number().positive(),
   /** Look-at point as an offset in px from the frame centre. */
   target: vec3,
+  /**
+   * 3D projection: 'perspective', or 'isometric' (orthographic, so parallel edges stay
+   * parallel; with yaw 45 and pitch 35.26 it is the classic isometric view). `distance` then
+   * scales the view instead of moving the camera.
+   */
+  projection: z.enum(['perspective', 'isometric']),
 });
 export type Camera = z.infer<typeof CameraSchema>;
 
@@ -121,7 +127,7 @@ export function defaultProject(name: string): Project {
 }
 
 export function defaultCamera(): Camera {
-  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0] };
+  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective' };
 }
 
 type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
@@ -265,6 +271,33 @@ export const migrations: Record<number, Migration> = {
       timeline: { ...((doc.timeline ?? {}) as Doc), playback: 'forward' },
       layers: layers(doc.layers),
       scenes: scenes.map((sc) => ({ ...sc, layers: layers(sc.layers) })),
+    };
+  },
+  // v12: per-layer drop shadow and blur, "fixed to screen", camera projection, instancer
+  // edge style (all off / perspective).
+  11: (doc) => {
+    const layer = (l: Doc): Doc => {
+      const fx = (l.effects ?? {}) as Doc;
+      const out: Doc = {
+        ...l,
+        screenFixed: l.screenFixed ?? false,
+        effects: {
+          ...fx,
+          shadow: fx.shadow ?? { enabled: false, colour: '#000000', opacity: 0.6, spread: 8, offset: [6, -6] },
+          blur: fx.blur ?? { enabled: false, amount: 4 },
+        },
+      };
+      if (l.type === 'instancer' && !l.edges) out.edges = { enabled: false, colour: '#ff3030', width: 2, faceOpacity: 1, glow: 0 };
+      return out;
+    };
+    const layers = (ls: unknown): unknown => (Array.isArray(ls) ? ls.map(layer) : ls);
+    const camera = (c: unknown): unknown => (c && typeof c === 'object' ? { projection: 'perspective', ...(c as Doc) } : c);
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return {
+      ...doc,
+      camera: camera(doc.camera),
+      layers: layers(doc.layers),
+      scenes: scenes.map((sc) => ({ ...sc, camera: camera(sc.camera), layers: layers(sc.layers) })),
     };
   },
   // v11: small-multiples panel titles get a placement (outside, as before); the project
