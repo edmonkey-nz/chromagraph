@@ -1,5 +1,6 @@
 import type { FolderApi } from 'tweakpane';
 import type { LayerConfig, TextLayer } from '../../shared/layer-schema.ts';
+import { CREDIT_TOKENS } from '../../shared/text-template.ts';
 import { addFitButton, addIdentity, addOpacityBlend, addVec3, buildEffects, buildTransform, FONT_TITLES, type LayerUi, options } from './layer-ui.ts';
 
 /** Text folders: General (template and row), Look, Transform. */
@@ -107,7 +108,8 @@ function clamp(v: number, lo: number, hi: number): number {
 /**
  * The template as a multi-line text box. Tweakpane's string binding is single-line, so its
  * input is swapped for a textarea (same styling) that sends while typing (throttled) and on
- * blur. An "insert column" list adds {Column} placeholders.
+ * blur. An "insert column" list adds {Column} placeholders and "Insert credit" the
+ * dataset's credit line ({@credit}).
  */
 function addTemplate(ui: LayerUi, f: FolderApi, layer: TextLayer): void {
   const m = { text: layer.text, insert: '' };
@@ -127,7 +129,9 @@ function addTemplate(ui: LayerUi, f: FolderApi, layer: TextLayer): void {
     ta.rows = 3;
     ta.maxLength = MAX_TEXT;
     ta.spellcheck = false;
-    ta.title = '{Column} shows that column at the current row; {Column|format} formats it, e.g. {Date|date} or {Rain [mm]|fixed:1}';
+    ta.title =
+      '{Column} shows that column at the current row; {Column|format} formats it, e.g. {Date|date} or {Rain [mm]|fixed:1}. ' +
+      "{@credit}, {@source}, {@url} and {@attribution} show the dataset's credits (Datasets tab).";
     Object.assign(ta.style, { height: 'auto', minHeight: '54px', resize: 'vertical', whiteSpace: 'pre-wrap', paddingTop: '2px', lineHeight: '1.4' });
     input.replaceWith(ta);
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -143,16 +147,41 @@ function addTemplate(ui: LayerUi, f: FolderApi, layer: TextLayer): void {
     ta.addEventListener('blur', flush);
     // Keep Tweakpane's key handling (and the W/E/R gizmo keys) out of the text box.
     ta.addEventListener('keydown', (ev) => ev.stopPropagation());
-    insertColumn(ui, f, m, (text) => {
+    const apply = (text: string) => {
       ta.value = text;
       send(text);
-    });
+    };
+    insertColumn(ui, f, m, apply);
+    insertCredit(f, layer, m, apply);
     return;
   }
-  insertColumn(ui, f, m, (text) => {
+  const apply = (text: string) => {
     send(text);
     ui.quiet(() => api.refresh());
+  };
+  insertColumn(ui, f, m, apply);
+  insertCredit(f, layer, m, apply);
+}
+
+/** "Insert credit" appends {@credit} on a line of its own, plus a hint listing the credit tokens. */
+function insertCredit(f: FolderApi, layer: TextLayer, m: { text: string }, apply: (text: string) => void): void {
+  const noDataset = layer.datasetId === null;
+  const button = f.addButton({ title: 'Insert credit', label: 'credits' });
+  button.element.title = noDataset
+    ? "Adds {@credit}. Choose a dataset for this layer, then set the dataset's source and attribution in the Datasets tab."
+    : 'Adds {@credit}: "Source: <source> · <attribution>" from this dataset (set them in the Datasets tab)';
+  button.on('click', () => {
+    const sep = m.text === '' || m.text.endsWith('\n') ? '' : '\n';
+    apply(`${m.text}${sep}{@credit}`);
   });
+  const note = f.addBlade({
+    view: 'text',
+    label: '',
+    parse: (v: string) => v,
+    value: noDataset ? 'Credits need a dataset (choose one above).' : CREDIT_TOKENS.join(' '),
+    disabled: true,
+  });
+  note.element.title = `${CREDIT_TOKENS.join(', ')}: the dataset's credit line, source, link and attribution (Datasets tab). Empty ones show nothing.`;
 }
 
 function insertColumn(ui: LayerUi, f: FolderApi, m: { text: string; insert: string }, apply: (text: string) => void): void {

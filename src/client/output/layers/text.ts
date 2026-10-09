@@ -2,7 +2,15 @@ import { AdditiveBlending, DoubleSide, Group, MeshBasicMaterial, NormalBlending 
 import { Text } from 'troika-three-text';
 import type { Table } from '../../../data/columns.ts';
 import type { TextLayer } from '../../../shared/layer-schema.ts';
-import { bindTemplate, compileTemplate, renderTemplate, templateRow, type BoundTemplate } from '../../../shared/text-template.ts';
+import {
+  bindTemplate,
+  compileTemplate,
+  renderTemplate,
+  sameCredits,
+  templateRow,
+  type BoundTemplate,
+  type TemplateCredits,
+} from '../../../shared/text-template.ts';
 import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 
@@ -15,6 +23,10 @@ import type { FrameContext, LayerInstance } from './layer.ts';
  * The template is compiled and bound once per text (or dataset) change, and evaluated only
  * when the current row index changes, so a `row` modulator (data playhead) costs a few
  * comparisons per frame until the row really moves.
+ *
+ * Credits ({@source}, {@credit}, …) come from the dataset's entry in project.json, not from
+ * the table, so they show before (or without) the file loading. LayerManager pushes them
+ * through setCredits when they change, which rebinds the template once.
  */
 
 export interface TextSource {
@@ -24,6 +36,7 @@ export interface TextSource {
 
 export interface TextInstance extends LayerInstance {
   apply(layer: TextLayer, cameraMode: '2d' | '3d'): void;
+  setCredits(credits: TemplateCredits | null): void;
 }
 
 /** Template source plus the layout-affecting props, to detect when sync() is needed. */
@@ -40,8 +53,17 @@ interface LayoutState {
   letterSpacing: number;
 }
 
-/** `source` is null for a layer without a dataset: only static text shows. */
-export function createTextLayer(layer: TextLayer, source: TextSource | null, cameraMode: '2d' | '3d'): TextInstance {
+/**
+ * `source` is null for a layer without a dataset (only static text and credits show) and
+ * for one whose dataset has not loaded yet (`loading`: column fields show the dash).
+ */
+export function createTextLayer(
+  layer: TextLayer,
+  source: TextSource | null,
+  cameraMode: '2d' | '3d',
+  initialCredits: TemplateCredits | null = null,
+  loading = false,
+): TextInstance {
   const root = new Group();
   root.name = layer.name;
   const material = new MeshBasicMaterial({ transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
@@ -55,6 +77,10 @@ export function createTextLayer(layer: TextLayer, source: TextSource | null, cam
   let templateSource: string | null = null;
   let bound: BoundTemplate | null = null;
   let lastRow = -1;
+  let credits: TemplateCredits | null = copyCredits(initialCredits);
+  // The last config and mode applied, so a credits change can re-render without a new config.
+  let current = layer;
+  let currentMode = cameraMode;
   const laid: LayoutState = {
     text: '',
     font: null,
@@ -69,9 +95,11 @@ export function createTextLayer(layer: TextLayer, source: TextSource | null, cam
   };
 
   function apply(next: TextLayer, mode: '2d' | '3d'): void {
+    current = next;
+    currentMode = mode;
     if (next.text !== templateSource) {
       templateSource = next.text;
-      bound = bindTemplate(compileTemplate(next.text), source?.table ?? null, source?.timeZone ?? 'UTC');
+      bound = bindTemplate(compileTemplate(next.text), source?.table ?? null, source?.timeZone ?? 'UTC', { credits, loading });
       lastRow = -1;
     }
     const row = bound!.dynamic ? templateRow(next.row, rowCount) : 0;
@@ -146,15 +174,28 @@ export function createTextLayer(layer: TextLayer, source: TextSource | null, cam
     root.name = next.name;
   }
 
+  function setCredits(next: TemplateCredits | null): void {
+    if (sameCredits(next, credits)) return;
+    credits = copyCredits(next);
+    templateSource = null; // rebind with the new credits
+    apply(current, currentMode);
+  }
+
   apply(layer, cameraMode);
 
   return {
     object: root,
     apply,
+    setCredits,
     update(_ctx: FrameContext) {},
     dispose() {
       text.dispose(); // glyph geometry
       material.dispose(); // also disposes troika's derived (and outline) materials
     },
   };
+}
+
+/** Just the three strings (the caller's object may be a whole Dataset entry). */
+function copyCredits(c: TemplateCredits | null): TemplateCredits | null {
+  return c ? { source: c.source, url: c.url, attribution: c.attribution } : null;
 }

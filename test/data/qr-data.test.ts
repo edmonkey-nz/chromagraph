@@ -27,24 +27,21 @@ function decode(matrix: QrMatrix, margin: number, px = 4): string | null {
 const LONG = `https://example.org/data?${'q=rainfall&'.repeat(60)}end`;
 
 describe('qrText', () => {
-  const datasets = [
-    { id: 'a', url: ' https://niwa.co.nz/cliflo \n' },
-    { id: 'b', url: '' },
-  ];
+  const linked = { url: ' https://niwa.co.nz/cliflo \n' };
 
   it('encodes the typed text, trimmed, or nothing when blank', () => {
     const layer = blankQrLayer('q', 'QR', null);
-    expect(qrText(layer, datasets)).toBe('https://example.org');
-    expect(qrText({ ...layer, text: '  https://x.nz/a b \n' }, datasets)).toBe('https://x.nz/a b');
-    expect(qrText({ ...layer, text: '   ' }, datasets)).toBeNull();
+    expect(qrText(layer, linked)).toBe('https://example.org');
+    expect(qrText({ ...layer, text: '  https://x.nz/a b \n' }, null)).toBe('https://x.nz/a b');
+    expect(qrText({ ...layer, text: '   ' }, linked)).toBeNull();
   });
 
   it("follows the layer's dataset url in dataset mode", () => {
     const layer = { ...blankQrLayer('q', 'QR', 'a'), content: 'dataset' as const };
-    expect(qrText(layer, datasets)).toBe('https://niwa.co.nz/cliflo');
-    expect(qrText({ ...layer, datasetId: 'b' }, datasets)).toBeNull();
-    expect(qrText({ ...layer, datasetId: 'gone' }, datasets)).toBeNull();
-    expect(qrText({ ...layer, datasetId: null }, datasets)).toBeNull();
+    expect(qrText(layer, linked)).toBe('https://niwa.co.nz/cliflo');
+    expect(qrText(layer, { url: '' })).toBeNull();
+    expect(qrText(layer, null)).toBeNull();
+    expect(qrText(layer, undefined)).toBeNull();
   });
 });
 

@@ -11,7 +11,6 @@
  * error correction level.
  */
 import qrcode from 'qrcode-generator';
-import type { Dataset } from '../shared/project-schema.ts';
 import type { QR_LEVELS, QrLayer } from '../shared/layer-schema.ts';
 
 export type QrLevel = (typeof QR_LEVELS)[number];
@@ -27,15 +26,15 @@ export interface QrMatrix {
 
 /**
  * The text a QR layer encodes, or null when there is nothing to encode (empty text, no
- * dataset, or a dataset without a url). Leading and trailing whitespace is dropped: a
- * pasted URL with a trailing newline should still open.
+ * dataset, or a dataset without a url). `dataset` is the layer's dataset entry (its credits),
+ * or null without one. Leading and trailing whitespace is dropped: a pasted URL with a
+ * trailing newline should still open.
  */
-export function qrText(layer: Pick<QrLayer, 'content' | 'text' | 'datasetId'>, datasets: readonly Pick<Dataset, 'id' | 'url'>[]): string | null {
+export function qrText(layer: Pick<QrLayer, 'content' | 'text'>, dataset: { readonly url: string } | null | undefined): string | null {
   let text: string;
   if (layer.content === 'text') {
     text = layer.text;
   } else {
-    const dataset = layer.datasetId === null ? undefined : datasets.find((d) => d.id === layer.datasetId);
     if (!dataset) return null;
     text = dataset.url;
   }

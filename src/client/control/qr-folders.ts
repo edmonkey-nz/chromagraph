@@ -107,8 +107,8 @@ function addReadout(ui: LayerUi, f: FolderApi): void {
   const refresh = () => {
     const l = ui.entry.layer;
     if (l.type !== 'qr') return;
-    const datasets = (ui.getDoc() ?? ui.doc).project.datasets;
-    const text = qrText(l, datasets);
+    const dataset = (ui.getDoc() ?? ui.doc).project.datasets.find((d) => d.id === l.datasetId);
+    const text = qrText(l, dataset);
     if (!encoded || encoded.text !== text || encoded.level !== l.level) {
       encoded = { text, level: l.level, count: 0, error: null };
       const bytes = text === null ? 0 : utf8Length(text);
