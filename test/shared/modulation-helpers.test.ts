@@ -59,6 +59,7 @@ describe('timeline formatting', () => {
     expect(formatClock(-1)).toBe('0:00');
     expect(formatPosition(205 / 600, 600)).toBe('3:25 / 10:00');
     expect(formatPosition(0.5, 7200)).toBe('1:00:00 / 2:00:00');
+    expect(formatPosition(1, 60, true)).toBe('1:00 / 1:00 · gap');
   });
 
   it('clamps durations to 1 s .. 24 h', () => {

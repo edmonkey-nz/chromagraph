@@ -31,12 +31,19 @@ const WARP_VERTEX = /* glsl */ `
 /**
  * Inverse homography: window point -> image uv. Exact perspective-correct mapping (no mesh
  * subdivision), black outside the image, with a one-pixel anti-aliased edge.
+ *
+ * The timeline's output fade (outputFade in modulation-helpers.ts) is the last step, after
+ * bloom and trails (whose histories it leaves alone): the image mixes towards the background
+ * colour by 1 - uFade. It mixes in display (sRGB) space, so the eased fade looks even; the
+ * area outside the keystoned image stays black.
  */
 const WARP_FRAGMENT = /* glsl */ `
   uniform sampler2D uImage;
   uniform sampler2D uBloom;
   uniform float uBloomOn;
   uniform mat3 uInverse;
+  uniform float uFade;
+  uniform vec3 uFadeColour;
   varying vec2 vScreen;
   void main() {
     vec3 p = uInverse * vec3(vScreen, 1.0);
@@ -49,6 +56,7 @@ const WARP_FRAGMENT = /* glsl */ `
     if (uBloomOn > 0.5) colour.rgb += texture2D(uBloom, imageUv).rgb;
     gl_FragColor = vec4(colour.rgb * inside, 1.0);
     #include <colorspace_fragment>
+    if (uFade < 1.0) gl_FragColor.rgb = mix(uFadeColour * inside, gl_FragColor.rgb, uFade);
   }
 `;
 
@@ -66,7 +74,8 @@ export const OUTPUT_HEIGHT = 1080;
 /**
  * Owns the WebGL renderer. The scene is drawn into a fixed 1920x1080 MSAA render target,
  * then through the output effects (effects.ts: bloom, trails; skipped entirely when both
- * are off), then to the screen through the keystone warp (an inverse homography per pixel).
+ * are off), then to the screen through the keystone warp (an inverse homography per pixel),
+ * which also applies the timeline's fade towards the background (setFade).
  */
 export class Stage {
   readonly renderer: WebGLRenderer;
@@ -92,6 +101,9 @@ export class Stage {
   private warpGeometry = new PlaneGeometry(1, 1);
   private lastShaderError: string | null = null;
   private background = new Color(0x000000);
+  /** The timeline's output fade, 0..1 (1: no fade), and the colour it fades to (sRGB components). */
+  private fade = 1;
+  private fadeColour = new Color(0x000000);
   private post: PostEffects;
   /** Per frame: visible layers and their effective glow / trails settings (a reused pool). */
   private readonly fx: FxLayer[] = [];
@@ -127,6 +139,8 @@ export class Stage {
         uBloom: { value: null },
         uBloomOn: { value: 0 },
         uInverse: { value: this.warpInverse },
+        uFade: { value: 1 },
+        uFadeColour: { value: this.fadeColour },
       },
       vertexShader: WARP_VERTEX,
       fragmentShader: WARP_FRAGMENT,
@@ -169,6 +183,15 @@ export class Stage {
   /** Background from sRGB components 0..1 (per-frame morphs; no string parsing). */
   setBackgroundRGB(r: number, g: number, b: number): void {
     this.background.setRGB(r, g, b, SRGBColorSpace);
+  }
+
+  /**
+   * The timeline's output fade for the next frames: 1 shows the image, 0 only the background
+   * colour (see outputFade). Applied in the warp pass, so the preview fades too.
+   */
+  setFade(f: number): void {
+    // A bad value shows the image rather than blanking the output (never fail dark).
+    this.fade = Number.isNaN(f) ? 1 : Math.min(Math.max(f, 0), 1);
   }
 
   /** The displayed background as sRGB components 0..1, written into `out`. */
@@ -262,6 +285,9 @@ export class Stage {
       warp.uBloom!.value = null;
       warp.uBloomOn!.value = 0;
     }
+    warp.uFade!.value = this.fade;
+    // Read each frame while fading, as a scene morph may be moving the background.
+    if (this.fade < 1) this.background.getRGB(this.fadeColour, SRGBColorSpace);
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.warpScene, this.warpCamera);
   }

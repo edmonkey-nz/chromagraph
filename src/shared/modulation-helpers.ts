@@ -1,11 +1,17 @@
 import {
-  cycleProgress,
+  cyclePosition,
+  cycleSeconds,
   evaluate,
+  gapElapsed,
+  gapSeconds,
   keyframeValue,
   playhead,
   playheadOf,
+  positionForProgress,
+  progressAtPosition,
   progressFor,
   sortKeys,
+  transportSeconds,
   type Modulator,
   type TimelineSettings,
   type ModulatorKind,
@@ -47,9 +53,12 @@ export function formatClock(sec: number, scaleSec = sec): string {
   return `${m}:${pad2(ss)}`;
 }
 
-/** "3:25 / 10:00" for a phase 0..1 through a timeline of `durationSec`. */
-export function formatPosition(phase: number, durationSec: number): string {
-  return `${formatClock(phase * durationSec, durationSec)} / ${formatClock(durationSec)}`;
+/**
+ * "3:25 / 10:00" for a phase 0..1 through a timeline of `durationSec`; "10:00 / 10:00 · gap"
+ * while it holds in the gap before restart.
+ */
+export function formatPosition(phase: number, durationSec: number, inGap = false): string {
+  return `${formatClock(phase * durationSec, durationSec)} / ${formatClock(durationSec)}${inGap ? ' · gap' : ''}`;
 }
 
 /** Compact number display: whole numbers for big values, a few decimals for small ones. */
@@ -141,13 +150,57 @@ export function paramPhase(
 
 /**
  * Transport re-anchored for new timeline settings so the playhead does not jump: the same
- * progress when only the duration or loop changes, the same playhead when the playback mode
- * changes (onto the outward leg of a ping-pong).
+ * progress when only the duration, loop or gap changes, the same playhead when the playback
+ * mode changes (onto the outward leg of a ping-pong). In the gap before restart it stays in
+ * the gap, keeping the seconds already held there; a gap shortened below those (or removed)
+ * ends now, so the next pass starts (a non-looping timeline rests at its end instead).
+ * Changing the playback mode in the gap continues from the held playhead without a gap.
  */
 export function reanchor(transport: Transport, from: TimelineSettings, to: TimelineSettings, nowMs: number): Transport {
-  const u = cycleProgress(transport, from, nowMs);
-  const next = from.playback === to.playback ? u : progressFor(playheadOf(u, from.playback), to.playback, 0);
+  const c = cyclePosition(transport, from, nowMs);
+  const held = gapElapsed(c, from);
+  let next: number;
+  if (held >= 0 && from.playback === to.playback) {
+    const g = gapSeconds(to);
+    next = g > 0 ? (cycleSeconds(to) + Math.min(held, g)) / transportSeconds(to) : 1;
+  } else {
+    const u = progressAtPosition(c, from);
+    next = positionForProgress(from.playback === to.playback ? u : progressFor(playheadOf(u, from.playback), to.playback, 0), to);
+  }
   return { playing: transport.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(next, 0), 1) };
+}
+
+/** What the output fade reads: the project timeline (a layer's own timeline has no fades). */
+export type FadeTimeline = Pick<Project['timeline'], 'duration' | 'loop' | 'playback' | 'gap' | 'fadeIn' | 'fadeOut' | 'fadeLength'>;
+
+/**
+ * Whole-output brightness f, 0..1, for the project timeline at wall time `nowMs`: the output
+ * mixes towards the background colour by 1 - f (stage.ts). Over one pass (forward 0 -> 1,
+ * reverse 1 -> 0, ping-pong there and back), with x seconds into it:
+ *   fadeIn   f eases 0 -> 1 over the first `fadeLength` s of the pass
+ *   fadeOut  f eases 1 -> 0 over the last `fadeLength` s of the pass, before the gap
+ *   gap      f = 0 with fadeOut (the background is held), else 1
+ * `fadeLength` is clamped to half the pass so the two never overlap. A finished
+ * non-looping timeline with fadeOut stays at 0. Both easings are smoothstep. A paused
+ * transport holds whatever f it paused at (it is a function of the transport, like the
+ * playhead). 1 when neither fade is on, which costs the output nothing.
+ */
+export function outputFade(tl: FadeTimeline, transport: Transport, nowMs: number): number {
+  if (!tl.fadeIn && !tl.fadeOut) return 1;
+  const pass = cycleSeconds(tl);
+  const x = cyclePosition(transport, tl, nowMs) * transportSeconds(tl);
+  if (x >= pass) return tl.fadeOut ? 0 : 1;
+  const len = Math.min(tl.fadeLength, pass / 2);
+  if (!(len > 0)) return 1;
+  let f = 1;
+  if (tl.fadeIn && x < len) f = smooth(x / len);
+  if (tl.fadeOut && pass - x < len) f = Math.min(f, smooth((pass - x) / len));
+  return f;
+}
+
+function smooth(t: number): number {
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return c * c * (3 - 2 * c);
 }
 
 /** The value a modulated parameter takes, as the output computes it (keyframes sorted here). */
