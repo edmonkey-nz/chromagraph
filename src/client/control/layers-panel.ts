@@ -78,7 +78,8 @@ function randomId(): string {
 function shapeKey(layer: LayerConfig): string {
   switch (layer.type) {
     case 'instancer':
-      return `instancer:${layer.arrangement}`;
+      // The primitive too: the Edges folder is for boxes only.
+      return `instancer:${layer.arrangement}:${layer.primitive}`;
     case 'heatmap':
       return `heatmap:${layer.layout}`;
     case 'surface':

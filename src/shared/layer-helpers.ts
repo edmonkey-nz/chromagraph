@@ -107,6 +107,31 @@ function ridgelineDataStep(layer: { timeColumn: string | null; rows: [number, nu
   return Math.max(1, Math.round(rows / RIDGELINE_COUNT));
 }
 
+export const EDGE_PRESETS = ['outline', 'neon'] as const;
+export type EdgePreset = (typeof EDGE_PRESETS)[number];
+
+/**
+ * Edge style presets for a box instancer (returns the new layer; diff it):
+ *   outline  dark, solid boxes with 2 px red edges (no glow)
+ *   neon     glassy boxes (faces at 0.12) with 3 px cyan edges at full edge glow, and the
+ *            layer's glow switched on (threshold 0.3) so the edges bloom
+ * The primitive becomes a box; mapped colours are left alone (the face colour is the
+ * layer colour only when colour is unmapped).
+ */
+export function edgePreset(layer: InstancerLayer, preset: EdgePreset): InstancerLayer {
+  const out = structuredClone(layer);
+  out.primitive = 'box';
+  if (preset === 'outline') {
+    out.edges = { enabled: true, colour: '#ff2a2a', width: 2, faceOpacity: 1, glow: 0 };
+    out.colour = '#141416';
+  } else {
+    out.edges = { enabled: true, colour: '#29e6ff', width: 3, faceOpacity: 0.12, glow: 1 };
+    out.colour = '#1a6cff';
+    out.effects.glow = { enabled: true, strength: 1.2, radius: 0.5, threshold: 0.3 };
+  }
+  return out;
+}
+
 /** px between the baselines of a line ridgeline's clones. */
 export const LINE_RIDGE_SPACING = 14;
 /** y range px of a line ridgeline: values rise from each clone's baseline. */
