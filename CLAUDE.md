@@ -305,6 +305,17 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
 with that many decimals, so "12.30" stays "12.30". Dates pad the day ("02 Jan 1879"), so
 text never changes width as the playhead moves.
 
+**Dataset credits.** Datasets carry `source`, `url` and `attribution` (schema v14), edited in
+the Datasets tab (`datasets-panel.ts`; the cards persist across renders, so echoes never
+overwrite a box being typed in).
+- Text templates show them with `{@source}`, `{@url}`, `{@attribution}` and `{@credit}`
+  ("Source: <source> · <attribution>", empty parts dropped). An empty value or no dataset
+  renders as ''. The tokens shadow columns named exactly `@source` etc.
+- `LayerManager` passes the dataset entry to `create` and pushes changes through the
+  optional `setCredits()` on the instance, so a credits edit never rebuilds a layer.
+- Kinds with `needsData: false` build before their dataset loads (text column fields show
+  "—" until then).
+
 **About box.** The **?** after the title in the control header opens ABOUT.md (read by
 `GET /api/about` on each open) in a `<dialog>`, rendered by `client/control/markdown.ts`.
 That renderer is small, tested and escapes all HTML.

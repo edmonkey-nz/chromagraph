@@ -96,7 +96,9 @@ npm run build && npm start
 - **Heat map**, **small multiples**, **hierarchy** (dendrogram, sunburst, treemap…) and
   **3D surface**.
 - **Text:** words, or live values from the data at the playhead. Numbers and dates keep the
-  file's formatting, so text doesn't jump.
+  file's formatting, so text doesn't jump. Give each dataset a source, link and attribution
+  in the Datasets tab, then press **Insert credit** on a text layer (or type `{@credit}`,
+  `{@source}`, `{@url}` or `{@attribution}`) to show them.
 - **Reflection plane:** a mirror floor for 3D scenes.
 
 **Mapping:** any column to position, size, colour, opacity or rotation, through linear,
