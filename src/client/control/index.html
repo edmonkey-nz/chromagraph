@@ -1163,6 +1163,474 @@
         text-decoration-color: rgba(255, 255, 255, 0.25);
       }
 
+      /* ---- right zone tabs: Layers | Timeline ------------------------------------------------------------ */
+      /* The zone itself no longer scrolls: its tab strip stays put and each panel scrolls on its own. */
+      #zone-layers {
+        overflow: hidden;
+        padding: 0;
+        gap: 0;
+      }
+      .zone-tabs {
+        flex: none;
+        padding: 0 4px;
+        margin-bottom: 8px;
+      }
+      #zone-layers > .zone-panel {
+        position: static;
+        inset: auto;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap);
+        padding: 2px 4px 24px 2px;
+        scrollbar-gutter: stable;
+      }
+      #panel-timeline {
+        padding-top: 0;
+      }
+
+      /* ---- timeline tab ------------------------------------------------------------------------------- */
+      .tl-root {
+        --tl-keys: #8db4ff;
+        --tl-ramp: #6fd6b0;
+        --tl-lfo: #e8bb5e;
+        --tl-noise: #c79bff;
+        --tl-playhead: #f3f5f9;
+        container-type: inline-size;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+      }
+      .tl-header {
+        --tl-label-w: 184px;
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        background: var(--bg);
+        padding: 2px 0 6px;
+        box-shadow: 0 8px 12px -10px rgba(0, 0, 0, 0.8);
+      }
+      .tl-transport {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 34px;
+        padding: 0 2px 6px;
+      }
+      .tl-transport .icon-btn {
+        width: 32px;
+        height: 32px;
+        background: var(--raised);
+        color: var(--text);
+        border: 1px solid var(--line);
+      }
+      .tl-transport .icon-btn.tl-play {
+        background: var(--accent-strong);
+        border-color: var(--accent-strong);
+        color: var(--on-accent);
+      }
+      .tl-transport .icon-btn.tl-play:hover {
+        background: var(--accent);
+        color: var(--on-accent);
+      }
+      .tl-pos {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        font-size: 14px;
+        margin-left: 6px;
+        white-space: nowrap;
+      }
+      .tl-pos.small {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-2);
+        margin-left: 0;
+      }
+      .tl-chip {
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text-2);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .tl-hint {
+        color: var(--muted);
+        font-size: 11.5px;
+        text-align: right;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* A row: label column, then the track (whose x is the phase 0..1 of the driving timeline). */
+      .tl-row {
+        display: grid;
+        grid-template-columns: var(--tl-label-w) minmax(0, 1fr);
+        align-items: stretch;
+      }
+      .tl-label {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 1px;
+        min-width: 0;
+        padding: 4px 8px 4px 12px;
+        border-right: 1px solid var(--line-soft);
+      }
+      .tl-master .tl-label {
+        flex-direction: row;
+        align-items: baseline;
+        justify-content: flex-start;
+        gap: 8px;
+        border-right-color: transparent;
+      }
+      .tl-name {
+        font-weight: 600;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tl-sub {
+        color: var(--muted);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tl-sub.selected {
+        color: var(--text);
+      }
+      .tl-track {
+        position: relative;
+        min-width: 0;
+      }
+      .tl-track canvas {
+        display: block;
+      }
+      .tl-ruler {
+        height: 26px;
+        cursor: ew-resize;
+        touch-action: none;
+        user-select: none;
+      }
+      .tl-master .tl-ruler {
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.025);
+      }
+      .tl-ruler:hover {
+        background: rgba(255, 255, 255, 0.045);
+      }
+      /* Playhead on a ruler: a handle and a short line (the lanes have their own line). */
+      .tl-head-mark {
+        position: absolute;
+        top: 0;
+        bottom: -6px;
+        left: -1px;
+        width: 2px;
+        background: var(--tl-playhead);
+        pointer-events: none;
+        will-change: transform;
+      }
+      .tl-head-mark::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -5px;
+        width: 12px;
+        height: 9px;
+        background: var(--tl-playhead);
+        clip-path: polygon(0 0, 100% 0, 50% 100%);
+      }
+      .tl-subruler .tl-head-mark,
+      .tl-subruler .tl-head-mark::before {
+        background: var(--accent);
+      }
+      .tl-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .tl-empty {
+        margin: 8px 4px;
+      }
+      .tl-group {
+        --tl-label-w: 184px;
+        background: var(--card);
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .tl-group.own {
+        border-color: rgba(141, 180, 255, 0.22);
+      }
+      .tl-group.selected {
+        border-color: rgba(141, 180, 255, 0.45);
+        box-shadow:
+          0 0 0 1px rgba(141, 180, 255, 0.35),
+          var(--shadow);
+      }
+      .tl-ghead {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 6px;
+        padding: 5px 8px 5px 4px;
+        background: var(--card-head);
+        min-height: 40px;
+      }
+      .tl-group.selected .tl-ghead {
+        background: linear-gradient(90deg, rgba(141, 180, 255, 0.14), rgba(141, 180, 255, 0.04));
+      }
+      .tl-group.selected .card-badge {
+        background: var(--accent-strong);
+        color: var(--on-accent);
+      }
+      .tl-fold {
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .tl-fold:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .tl-fold svg {
+        transform: rotate(90deg);
+        transition: transform 0.12s;
+      }
+      .tl-group.collapsed .tl-fold svg {
+        transform: none;
+      }
+      .tl-group.collapsed .tl-gbody {
+        display: none;
+      }
+      .tl-gname {
+        border: 0;
+        background: transparent;
+        padding: 2px 4px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 13.5px;
+        cursor: pointer;
+        max-width: 22ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tl-gname:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.06);
+        text-decoration: underline;
+        text-decoration-color: var(--muted);
+        text-underline-offset: 3px;
+      }
+      .tl-gname:disabled {
+        cursor: default;
+        color: var(--text);
+      }
+      .tl-group.off .tl-gname {
+        color: var(--muted);
+        text-decoration: line-through;
+        text-decoration-color: rgba(255, 255, 255, 0.25);
+      }
+      .tl-type {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .tl-type:empty {
+        display: none;
+      }
+      .tl-tag {
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 11.5px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.04);
+        white-space: nowrap;
+      }
+      .tl-tag.own {
+        color: #cfe0ff;
+        background: var(--accent-weak);
+        box-shadow: inset 0 0 0 1px rgba(141, 180, 255, 0.3);
+      }
+      .tl-ghead .icon-btn {
+        width: 26px;
+        height: 26px;
+      }
+      .tl-ghead .icon-btn.tl-play {
+        color: var(--accent);
+      }
+      .tl-add {
+        min-height: 26px;
+        padding: 2px 6px;
+        font-size: 12px;
+        max-width: 150px;
+        color: var(--text-2);
+      }
+      .tl-gbody {
+        position: relative;
+        border-top: 1px solid var(--line-soft);
+      }
+      .tl-subruler {
+        background: rgba(141, 180, 255, 0.04);
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .tl-subruler .tl-label {
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+      .tl-none {
+        margin: 0;
+        padding: 10px 12px;
+        font-size: 12px;
+      }
+      .tl-lane + .tl-lane {
+        border-top: 1px solid var(--line-soft);
+      }
+      .tl-lrow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .tl-kind {
+        flex: none;
+        padding: 0 6px;
+        border-radius: 999px;
+        font-size: 10.5px;
+        line-height: 16px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--tl-keys);
+        background: rgba(141, 180, 255, 0.12);
+      }
+      .tl-kind.ramp {
+        color: var(--tl-ramp);
+        background: rgba(111, 214, 176, 0.12);
+      }
+      .tl-kind.lfo {
+        color: var(--tl-lfo);
+        background: rgba(232, 187, 94, 0.12);
+      }
+      .tl-kind.noise {
+        color: var(--tl-noise);
+        background: rgba(199, 155, 255, 0.12);
+      }
+      .tl-value {
+        flex: none;
+        min-width: 38px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+      }
+      .tl-mini.icon-btn {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        opacity: 0.55;
+      }
+      .tl-lane:hover .tl-mini.icon-btn:not(:disabled),
+      .tl-mini.icon-btn:focus-visible {
+        opacity: 1;
+      }
+      .tl-mini.icon-btn:disabled {
+        opacity: 0.2;
+      }
+      .tl-lane.disabled .tl-name {
+        color: var(--muted);
+      }
+      .tl-lane canvas {
+        outline: none;
+        touch-action: none;
+        cursor: crosshair;
+      }
+      .tl-lane canvas:focus-visible {
+        box-shadow: inset 0 0 0 1px var(--accent-ring);
+      }
+      .tl-lane canvas.dragging {
+        cursor: grabbing !important;
+      }
+      /* Live value at the playhead. */
+      .tl-dot {
+        position: absolute;
+        top: -4px;
+        left: -4px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--tl-playhead);
+        box-shadow: 0 0 0 2px var(--card);
+        pointer-events: none;
+        will-change: transform;
+      }
+      /* LFO and noise run on the wall clock, not the timeline: hatched, and they cover the playhead line. */
+      .tl-lane.wave {
+        position: relative;
+        z-index: 2;
+        background: var(--card);
+      }
+      .tl-lane.wave .tl-track {
+        background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.028) 0 6px, transparent 6px 12px);
+      }
+      .tl-lane.wave canvas {
+        cursor: default;
+      }
+      .tl-free {
+        position: absolute;
+        top: 3px;
+        left: 8px;
+        padding: 0 6px;
+        border-radius: 4px;
+        background: rgba(13, 15, 19, 0.75);
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 15px;
+        pointer-events: none;
+      }
+      /* The playhead line over a group's lanes. */
+      .tl-line {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -1px;
+        width: 2px;
+        background: var(--tl-playhead);
+        opacity: 0.55;
+        z-index: 1;
+        pointer-events: none;
+        will-change: transform;
+      }
+      .tl-group.own .tl-line {
+        background: var(--accent);
+        opacity: 0.8;
+      }
+      @container (max-width: 620px) {
+        .tl-header,
+        .tl-group {
+          --tl-label-w: 132px;
+        }
+        .tl-hint,
+        .tl-type {
+          display: none;
+        }
+        .tl-label {
+          padding-left: 8px;
+        }
+      }
+
       /* ---- scenes ------------------------------------------------------------------------------------ */
       .scene-list {
         list-style: none;
@@ -1337,6 +1805,10 @@
           overflow: visible;
           padding: 0;
         }
+        #zone-layers,
+        #zone-layers > .zone-panel {
+          overflow: visible;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
         *,
@@ -1406,7 +1878,15 @@
         <div class="zone" id="zone-show" aria-label="Scenes and timeline"></div>
         <div class="zone" id="zone-look" aria-label="Output and camera"></div>
       </div>
-      <div class="zone" id="zone-layers" aria-label="Layers"></div>
+      <!-- Right zone: the layer cards, or the timeline of the project, every layer and the camera. -->
+      <div class="zone" id="zone-layers" aria-label="Layers and timeline">
+        <div class="tablist zone-tabs" role="tablist" aria-label="Layers and timeline">
+          <button type="button" role="tab" id="tab-layers" aria-controls="panel-layers">Layers <span id="badge-layers" class="badge"></span></button>
+          <button type="button" role="tab" id="tab-timeline" aria-controls="panel-timeline">Timeline <span id="badge-timeline" class="badge"></span></button>
+        </div>
+        <div role="tabpanel" class="zone-panel" id="panel-layers" aria-labelledby="tab-layers"></div>
+        <div role="tabpanel" class="zone-panel" id="panel-timeline" aria-labelledby="tab-timeline" hidden></div>
+      </div>
     </main>
 
     <!-- Bottom drawer: closed it is just the tab strip (with badges); a tab opens it upwards. -->

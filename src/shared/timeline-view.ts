@@ -138,6 +138,18 @@ export function laneValue(lane: Pick<LaneCommon, 'def' | 'modulator' | 'base'>, 
   return clampParam(lane.def, evaluate(lane.modulator, lane.base, nowMs, phase));
 }
 
+/**
+ * Redraw a curve lane against a fixed `lo..hi` (renormalising its samples in place), so a
+ * key being dragged does not rescale the lane under the pointer.
+ */
+export function reframeLane(lane: CurveLane, lo: number, hi: number): void {
+  if (lane.lo === lo && lane.hi === hi) return;
+  const s = lane.samples;
+  for (let i = 0; i < s.length; i++) s[i] = (lane.lo + s[i]! * (lane.hi - lane.lo) - lo) / (hi - lo);
+  lane.lo = lo;
+  lane.hi = hi;
+}
+
 /** Lane position 0..1 (bottom..top) of a value. */
 export function normalise(lane: Pick<LaneCommon, 'lo' | 'hi'>, v: number): number {
   return (v - lane.lo) / (lane.hi - lane.lo);

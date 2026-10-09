@@ -20,6 +20,7 @@ import { ProjectBar } from './project-bar.ts';
 import { ScenesPanel } from './scenes-panel.ts';
 import { Tabs } from './tabs.ts';
 import { TimelinePanel } from './timeline-panel.ts';
+import { TimelineView } from './timeline-view.ts';
 import { Card, h, loadSetting, saveSetting } from './ui.ts';
 
 /**
@@ -30,8 +31,9 @@ import { Card, h, loadSetting, saveSetting } from './ui.ts';
  *   workspace    cards in columns:
  *                  show    Scenes, Timeline                     (what changes over time)
  *                  look    live preview (with edit-mode tools), Output, Camera
- *                  layers  one card per layer, full height, two columns when wide; each card
- *                          has the layer's own Modulation folder
+ *                  right   two tabs, full height: Layers (one card per layer, two columns
+ *                          when wide; each card has the layer's own Modulation folder) and
+ *                          Timeline (the project, layer and camera timelines with their lanes)
  *   drawer       tabs along the bottom: Datasets, Output windows, Calibration, Diagnostics,
  *                Problems, Log. Closed it is just the tab strip; a tab opens it upwards.
  *
@@ -64,8 +66,16 @@ const el = {
   editBadge: $('edit-badge'),
   zoneShow: $('zone-show'),
   zoneLook: $('zone-look'),
-  zoneLayers: $('zone-layers'),
-  badges: { datasets: $('badge-datasets'), outputs: $('badge-outputs'), problems: $('badge-problems'), log: $('badge-log') },
+  panelLayers: $('panel-layers'),
+  panelTimeline: $('panel-timeline'),
+  badges: {
+    datasets: $('badge-datasets'),
+    outputs: $('badge-outputs'),
+    problems: $('badge-problems'),
+    log: $('badge-log'),
+    layers: $('badge-layers'),
+    timeline: $('badge-timeline'),
+  },
 };
 
 const outputs = new Map<string, OutputStatus>();
@@ -98,6 +108,10 @@ const state = new SyncedState(
     timelinePanel.update(doc);
     scenesPanel.update(doc);
     layersPanel.update(doc, external);
+    timelineView.update(doc, external);
+    el.badges.layers.textContent = doc.project.layers.length > 0 ? String(doc.project.layers.length) : '';
+    const animated = Object.keys(doc.project.parameters).filter((id) => hasOwner(doc, id)).length;
+    el.badges.timeline.textContent = animated > 0 ? String(animated) : '';
     editMode.update(doc);
     cameraModulation.update(doc, external);
     cameraModulationFolder.title = cameraModulation.count > 0 ? `Modulation (${cameraModulation.count})` : 'Modulation';
@@ -173,7 +187,7 @@ el.importButton.addEventListener('click', () => el.importFile.click());
 
 // ---- layers ------------------------------------------------------------------------
 
-const layersPanel = new LayersPanel(el.zoneLayers, {
+const layersPanel = new LayersPanel(el.panelLayers, {
   sendPatch,
   getDoc,
   summary: (id) => datasetsPanel.summary(id),
@@ -181,6 +195,11 @@ const layersPanel = new LayersPanel(el.zoneLayers, {
   select: (id) => editMode.select(id),
 });
 datasetsPanel.onChange = () => layersPanel.refreshSummaries();
+
+// The right zone's second tab: every timeline, its playheads, keyframes and other modulators.
+const timelineView = new TimelineView(el.panelTimeline, { sendPatch, getDoc, showError, select: (id) => editMode.select(id) });
+// It animates (requestAnimationFrame) only while shown; the chosen tab is remembered.
+new Tabs($('tab-layers').parentElement as HTMLElement, 'right-tab', (panel) => timelineView.setVisible(panel === 'panel-timeline'));
 
 /** The live phase slider, modulator monitors and morph bars move locally, about 10 times a second. */
 setInterval(() => {
@@ -230,7 +249,10 @@ const editMode = new EditMode(
     showPreview: () => {
       if (!el.previewToggle.checked) setPreview(true);
     },
-    showSelection: (id, reveal) => layersPanel.setSelected(id, reveal),
+    showSelection: (id, reveal) => {
+      layersPanel.setSelected(id, reveal);
+      timelineView.setSelected(id);
+    },
   },
 );
 
