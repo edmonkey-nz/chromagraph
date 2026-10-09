@@ -32,6 +32,7 @@ import {
   type MultiplesData,
 } from '../../../data/multiples-data.ts';
 import type { ScaleType, SmallMultiplesLayer } from '../../../shared/layer-schema.ts';
+import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { rampTexture } from './ramps.ts';
 
@@ -331,6 +332,8 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
   labelGroup.renderOrder = 2;
   root.add(labelGroup);
   let labels: Text[] | null = null;
+  /** Font and case the labels were laid out with (changing either re-lays them out). */
+  const labelStyle = { font: layer.labelFont as string, uppercase: layer.labelUppercase };
 
   function ensureLabels(): Text[] {
     if (labels) return labels;
@@ -339,7 +342,8 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
     for (let p = 0; p < n; p++) {
       const t = new Text();
       t.material = labelMaterial;
-      t.text = panelLabel(d, p);
+      t.text = displayText(panelLabel(d, p), labelStyle.uppercase);
+      t.font = fontUrl(labelStyle.font);
       t.fontSize = LABEL_BASE_PX;
       t.anchorX = 'left';
       t.anchorY = 'bottom';
@@ -416,7 +420,18 @@ export function createMultiples(layer: SmallMultiplesLayer, source: MultiplesSou
     const showLabels = next.labelSize > 0 && panelCount > 0;
     labelGroup.visible = showLabels;
     if (showLabels) {
+      const restyle = labels !== null && (next.labelFont !== labelStyle.font || next.labelUppercase !== labelStyle.uppercase);
+      labelStyle.font = next.labelFont;
+      labelStyle.uppercase = next.labelUppercase;
       const list = ensureLabels();
+      if (restyle) {
+        for (let p = 0; p < list.length; p++) {
+          const t = list[p]!;
+          t.text = displayText(panelLabel(d, p), labelStyle.uppercase);
+          t.font = fontUrl(labelStyle.font);
+          t.sync();
+        }
+      }
       const scale = next.labelSize / LABEL_BASE_PX;
       const lift = next.labelSize * 0.2;
       for (let p = 0; p < list.length; p++) {

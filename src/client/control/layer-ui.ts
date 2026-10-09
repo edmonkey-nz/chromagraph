@@ -4,13 +4,15 @@ import type { LayerChange } from '../../shared/layer-helpers.ts';
 import {
   BLEND_MODES,
   COLOUR_RAMPS,
+  type ColourMapping,
+  type FontChoice,
+  FONTS,
   FRAME_CENTRE,
   identityTransform,
-  SCALE_TYPES,
-  type ColourMapping,
   type LayerConfig,
   type LayerTransform,
   type Mapping,
+  SCALE_TYPES,
 } from '../../shared/layer-schema.ts';
 import type { Path } from '../../shared/patch.ts';
 import type { ModulationPanel } from './modulation-panel.ts';
@@ -337,6 +339,14 @@ export function addChoice<T extends string>(
   return f
     .addBinding(m, 'v', { label, options: values.map((v) => ({ text: titles[v] ?? v, value: v })) })
     .on('change', (ev) => ui.set(path, ev.value));
+}
+
+export const FONT_TITLES: Record<FontChoice, string> = { terminal: '1970s terminal (fixed width)', sans: 'sans (Roboto)' };
+
+/** Font choice and "uppercase" switch for in-scene text at `fontPath` / `upperPath`. */
+export function addFontCase(ui: LayerUi, f: FolderApi, font: FontChoice, uppercase: boolean, fontPath: Path, upperPath: Path): void {
+  addChoice(ui, f, font, 'font', fontPath, FONTS, FONT_TITLES);
+  addPlain(ui, f, uppercase, 'uppercase', upperPath).element.title = 'Show the text in capitals (what you typed is kept)';
 }
 
 /** A boolean or #rrggbb colour field at `path`. */

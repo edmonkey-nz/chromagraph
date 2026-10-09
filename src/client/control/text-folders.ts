@@ -1,6 +1,6 @@
 import type { FolderApi } from 'tweakpane';
 import type { LayerConfig, TextLayer } from '../../shared/layer-schema.ts';
-import { addFitButton, addIdentity, addOpacityBlend, addVec3, buildEffects, buildTransform, type LayerUi, options } from './layer-ui.ts';
+import { addFitButton, addIdentity, addOpacityBlend, addVec3, buildEffects, buildTransform, FONT_TITLES, type LayerUi, options } from './layer-ui.ts';
 
 /** Text folders: General (template and row), Look, Transform. */
 
@@ -31,7 +31,9 @@ export function buildText(ui: LayerUi, layer: TextLayer, titleOf: (l: LayerConfi
     letterSpacing: layer.letterSpacing,
     outlineWidth: layer.outlineWidth,
     outlineColour: layer.outlineColour,
-    font: layer.font ?? '',
+    font: layer.font === 'terminal' || layer.font === 'sans' ? '' : layer.font,
+    fontChoice: layer.font === 'terminal' || layer.font === 'sans' ? layer.font : 'custom',
+    uppercase: layer.uppercase,
   };
   addVec3(ui, k, layer.position, 'position', ['position'], 'position').element.title = 'Anchor point in px (y up)';
   ui.mark(
@@ -71,8 +73,27 @@ export function buildText(ui: LayerUi, layer: TextLayer, titleOf: (l: LayerConfi
     'outlineWidth',
   );
   k.addBinding(m, 'outlineColour', { label: 'outline colour' }).on('change', (ev) => ui.set(['outlineColour'], ev.value));
-  k.addBinding(m, 'font', { label: 'font URL' }).on('change', (ev) => ui.set(['font'], ev.value.trim() || null)).element.title =
-    'URL of a .ttf, .otf or .woff font served by the app; empty for the default font';
+  const choice = k.addBinding(m, 'fontChoice', {
+    label: 'font',
+    options: [
+      { text: FONT_TITLES.terminal, value: 'terminal' },
+      { text: FONT_TITLES.sans, value: 'sans' },
+      { text: 'custom (URL)', value: 'custom' },
+    ],
+  });
+  const fontUrlApi = k.addBinding(m, 'font', { label: 'font URL' });
+  fontUrlApi.element.title = 'URL of a .ttf, .otf or .woff font served by the app';
+  fontUrlApi.hidden = m.fontChoice !== 'custom';
+  choice.on('change', (ev) => {
+    fontUrlApi.hidden = ev.value !== 'custom';
+    if (ev.value !== 'custom') ui.set(['font'], ev.value);
+    else if (m.font.trim()) ui.set(['font'], m.font.trim());
+  });
+  fontUrlApi.on('change', (ev) => {
+    const url = ev.value.trim();
+    if (url) ui.set(['font'], url);
+  });
+  k.addBinding(m, 'uppercase').on('change', (ev) => ui.set(['uppercase'], ev.value)).element.title = 'Show the text in capitals (the template is kept as written)';
   addFitButton(ui, k);
 
   buildEffects(ui, root, layer);

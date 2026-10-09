@@ -9,6 +9,7 @@ import {
   IcosahedronGeometry,
   InstancedBufferGeometry,
   Mesh,
+  MeshBasicMaterial,
   NearestFilter,
   NormalBlending,
   PlaneGeometry,
@@ -19,6 +20,7 @@ import {
   Vector4,
   type IUniform,
 } from 'three';
+import { BatchedText, Text } from 'troika-three-text';
 import type { CalendarFields } from '../../../data/calendar.ts';
 import type { Table } from '../../../data/columns.ts';
 import type { Cadence } from '../../../data/gaps.ts';
@@ -30,7 +32,9 @@ import {
   type ChannelName,
   type InstanceData,
 } from '../../../data/instance-data.ts';
+import { DateLabels, emptyPlacement, labelRows, labelText, placeLabel, visibleLabels } from '../../../data/instance-labels.ts';
 import type { ColourMapping, InstancerLayer, Mapping, Primitive, ScaleType } from '../../../shared/layer-schema.ts';
+import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
 
@@ -65,6 +69,8 @@ export interface InstancerData {
   table: Table;
   cadences: Record<string, Cadence>;
   calendars: Record<string, CalendarFields>;
+  /** For date labels (the dataset's display timezone). */
+  timeZone?: string;
 }
 
 export interface InstancerInstance extends LayerInstance {
@@ -553,7 +559,7 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     set('uFirstRow', first);
     set('uVisibleRows', visible);
     set('uClones', clones);
-    geometry.instanceCount = visible * clones;
+    geometry.instanceCount = next.labels.enabled && next.labels.hidePoints ? 0 : visible * clones;
     const tStart = next.followRange && next.arrangement !== 'calendar' ? firstDefinedT(data.t, first) : 0;
     packLayout(next, tStart, layout);
     set('uNeedCalendar', next.arrangement === 'calendar' || fromCalendar ? 1 : 0);
@@ -597,6 +603,122 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     material.depthTest = mode === '3d' && !additive;
     material.depthWrite = mode === '3d' && !translucent;
     mesh.name = next.name;
+    applyLabels(next, first, last, visible, tStart);
+  }
+
+  // ---- labels at points of the arrangement (data/instance-labels.ts) ----
+  // A BatchedText child of the mesh, so the layer transform, visibility and effects apply.
+  // Slot k shows candidate k * stride: a label keeps its slot (and its laid-out text) as the
+  // visible row range moves, so a data playhead only lays out labels entering the range.
+  const labelMaterial = new MeshBasicMaterial({ transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
+  const labelBatch = new BatchedText();
+  labelBatch.material = labelMaterial;
+  labelBatch.frustumCulled = false;
+  labelBatch.renderOrder = 2;
+  labelBatch.visible = false;
+  mesh.add(labelBatch);
+  const labelPool: Text[] = [];
+  const dates = new DateLabels(source.timeZone ?? 'UTC');
+  const placement = emptyPlacement();
+  let candidates: Int32Array = new Int32Array(0);
+  let candidateTexts: (string | undefined)[] = [];
+  let candidatesFor: InstancerLayer['labels'] | null = null;
+  let candidatesTimeColumn: string | null = null;
+  /** What the slots were last placed for (compared field by field: apply() runs per frame when modulated). */
+  const placed = { from: -1, to: -1, stride: 0, layout: new Float32Array(16), labels: null as InstancerLayer['labels'] | null, opacity: -1 };
+
+  function labelSlot(i: number): Text {
+    let text = labelPool[i];
+    if (!text) {
+      text = new Text();
+      text.text = '';
+      text.whiteSpace = 'nowrap';
+      labelPool.push(text);
+      labelBatch.addText(text);
+    }
+    return text;
+  }
+
+  function sameLayout(a: Float32Array, b: Float32Array): boolean {
+    for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function applyLabels(next: InstancerLayer, first: number, last: number, visible: number, tStart: number): void {
+    const L = next.labels;
+    if (!L.enabled || visible === 0) {
+      labelBatch.visible = false;
+      return;
+    }
+    const prev = candidatesFor;
+    if (!prev || prev.every !== L.every || prev.rows !== L.rows || prev.text !== L.text || prev.column !== L.column || candidatesTimeColumn !== next.timeColumn) {
+      const calendar = next.timeColumn ? (source.calendars[next.timeColumn] ?? null) : null;
+      candidates = labelRows(L, data.t, calendar);
+      candidateTexts = new Array<string | undefined>(candidates.length);
+      candidatesFor = L;
+      candidatesTimeColumn = next.timeColumn;
+      placed.from = -1; // force a full re-place
+      for (const t of labelPool) if (t.text !== '') t.text = '';
+    }
+    const { from, to, stride } = visibleLabels(candidates, first, last);
+    const style = placed.labels;
+    if (
+      from === placed.from &&
+      to === placed.to &&
+      stride === placed.stride &&
+      next.opacity === placed.opacity &&
+      sameLayout(layout, placed.layout) &&
+      style !== null &&
+      style.size === L.size &&
+      style.offset === L.offset &&
+      style.orientation === L.orientation &&
+      style.colour === L.colour &&
+      style.font === L.font &&
+      style.uppercase === L.uppercase
+    ) {
+      labelBatch.visible = true;
+      return;
+    }
+    placed.from = from;
+    placed.to = to;
+    placed.stride = stride;
+    placed.opacity = next.opacity;
+    placed.layout.set(layout);
+    placed.labels = L;
+
+    const calendar = next.timeColumn ? (source.calendars[next.timeColumn] ?? null) : null;
+    const slots = Math.ceil(candidates.length / stride);
+    let shown = 0;
+    for (let slot = 0; slot < slots; slot++) {
+      const k = slot * stride;
+      const inRange = k >= from && k < to;
+      if (!inRange) {
+        const t = labelPool[slot];
+        if (t && t.text !== '') t.text = '';
+        continue;
+      }
+      const row = candidates[k]!;
+      let s = candidateTexts[k];
+      if (s === undefined) {
+        s = labelText(L, row, source.table, next.timeColumn, calendar, dates);
+        candidateTexts[k] = s;
+      }
+      const text = labelSlot(slot);
+      const shownText = displayText(s, L.uppercase);
+      if (text.text !== shownText) text.text = shownText;
+      if (s === '') continue;
+      text.font = fontUrl(L.font);
+      shown++;
+      placeLabel(next, data.t[row]! - tStart, data.yearIndex?.[row] ?? 0, data.dayOfYear?.[row] ?? 0, placement);
+      text.fontSize = L.size;
+      text.color = L.colour;
+      text.fillOpacity = next.opacity;
+      text.anchorX = placement.anchorX;
+      text.anchorY = placement.anchorY;
+      text.position.set(placement.x, placement.y, placement.z);
+      text.rotation.z = placement.rotation;
+    }
+    labelBatch.visible = shown > 0;
   }
 
   apply(layer, cameraMode);
@@ -641,6 +763,12 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
       geometry.dispose();
       material.dispose();
       for (const t of textures) t.dispose();
+      for (const text of labelPool) {
+        labelBatch.removeText(text);
+        text.dispose();
+      }
+      labelBatch.dispose();
+      labelMaterial.dispose();
     },
   };
 }

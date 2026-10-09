@@ -25,7 +25,7 @@ import {
   reanchor,
   removeKeyframe,
 } from '../../src/shared/modulation-helpers.ts';
-import { MODULATOR_KINDS, ModulatorSchema, timelinePhase, type Parameter } from '../../src/shared/modulators.ts';
+import { MODULATOR_KINDS, ModulatorSchema, playhead, timelinePhase, type Parameter } from '../../src/shared/modulators.ts';
 import { parameterDefs } from '../../src/shared/parameters.ts';
 import { applyOps } from '../../src/shared/patch.ts';
 import { defaultProject, ProjectSchema, type Project } from '../../src/shared/project-schema.ts';
@@ -71,11 +71,20 @@ describe('timeline formatting', () => {
   it('re-anchors the transport so a duration change keeps the playhead where it is', () => {
     const t = { playing: true, anchorWallMs: 0, anchorPhase: 0 };
     const now = 30_000;
-    const r = reanchor(t, { duration: 60, loop: true }, now);
+    const r = reanchor(t, { duration: 60, loop: true, playback: 'forward' }, { duration: 600, loop: true, playback: 'forward' }, now);
     expect(r).toEqual({ playing: true, anchorWallMs: now, anchorPhase: 0.5 });
     // Under the new duration the phase carries on from 0.5.
     expect(timelinePhase(r, 600, true, now)).toBe(0.5);
     expect(timelinePhase(r, 600, true, now + 60_000)).toBeCloseTo(0.6);
+  });
+
+  it('switching playback mode keeps the playhead where it is', () => {
+    const t = { playing: true, anchorWallMs: 0, anchorPhase: 0.3 };
+    const fwd = { duration: 100, loop: true, playback: 'forward' as const };
+    const r = reanchor(t, fwd, { ...fwd, playback: 'reverse' }, 0);
+    expect(playhead(r, { ...fwd, playback: 'reverse' }, 0)).toBeCloseTo(0.3);
+    const p = reanchor(t, fwd, { ...fwd, playback: 'pingpong' }, 0);
+    expect(playhead(p, { ...fwd, playback: 'pingpong' }, 0)).toBeCloseTo(0.3);
   });
 });
 

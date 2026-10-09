@@ -271,6 +271,13 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   the patches.
 - `normalise()` in the same file is the tested twin of the GLSL scale maths in
   `client/output/layers/instancer.ts`. Change both together.
+- **Labels** (`InstancerLabelsSchema`, schema v9). An instancer can draw text at points of its
+  own arrangement: years, decades, or every N rows with their date or a column's value.
+  - `data/instance-labels.ts` (pure, tested) picks the rows and texts. Its `placeLabel` is the
+    CPU twin of the shader's `arrange()`; change both together.
+  - The labels are a troika `BatchedText` child of the mesh, so the transform, effects and
+    visible rows (data playhead) apply. Slot k shows candidate k·stride; at most 500.
+  - `hidePoints` draws the labels alone.
 - Calendar fields (year, day of year in the dataset's timezone) are computed in the parse
   worker. The output's `DatasetStore` reloads a dataset when its timezone changes.
 - On the control side, `shared/layer-defaults.ts` (`defaultLayerFor`, `fitLayer`) chooses
@@ -280,6 +287,19 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
 - `/output/?preview` is the control window's embedded preview. It connects with role
   `preview`, renders at half resolution, and never reports status or logs, nor writes
   the output's state cache.
+
+**Fonts and text case.** In-scene text (text layers and the labels of instancer, hierarchy and
+small-multiples layers) has a font choice. 'terminal' is VT323, a fixed-width 1970s DEC
+face (OFL, bundled in `client/output/fonts/`, precached for offline boots); it is the
+default. 'sans' is troika's Roboto, fetched online. Text layers also accept a font URL.
+Each has an uppercase switch. `client/output/fonts.ts` resolves both.
+
+**Line aggregation.** `layer.aggregate` (line layers, v10) turns rows into one point per
+week, month, year (calendar fields in the dataset timezone) or N rows, combined by mean,
+sum, min, max or last. Missing values are left out, and a bucket with none is missing.
+Buckets become the layer's rows, so the row range, data playhead and cloner count buckets.
+`LineData.gapUnit` scales the gap rule to the bucket length. Tests are in
+`test/data/line-aggregate.test.ts`.
 
 **Layer types beyond the instancer (phases 6–7).** Each type has:
 - a renderer in `client/output/layers/<type>.ts`,
@@ -310,6 +330,11 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   output, the preview and the control window agree, and avoids drift over hours.
 - **Transport.** `session.transport` drives the timeline. The server persists it in
   `server-state.json`, so a restart keeps the playhead where it was.
+- **Playback modes.** A timeline (project or layer) has `playback`: forward, reverse or
+  pingpong (schema v10). The transport keeps progress u through one cycle; a ping-pong cycle
+  is there and back, so it lasts twice the duration. `playhead()` in `shared/modulators.ts`
+  maps u to the phase that modulators see. `progressFor()` maps a scrub back, staying on the
+  current ping-pong leg. `reanchor()` keeps the playhead still when the settings change.
 - **Per-layer timelines.** `layer.timeline = { own, duration, loop }` (schema v8). With
   `own` on, the layer's ramps, keyframes and data playhead run on its own timeline, played
   by `session.layerTransports[layerId]`. Without a transport yet, it falls back to the

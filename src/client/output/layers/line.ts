@@ -18,6 +18,7 @@ import {
   type IUniform,
 } from 'three';
 import type { Table } from '../../../data/columns.ts';
+import type { CalendarFields } from '../../../data/calendar.ts';
 import type { Cadence } from '../../../data/gaps.ts';
 import { resolveDomain, type ChannelData } from '../../../data/instance-data.ts';
 import {
@@ -71,6 +72,8 @@ import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
 export interface LineSource {
   table: Table;
   cadences: Record<string, Cadence>;
+  /** Calendar fields per time column (for week / month / year aggregation). */
+  calendars?: Record<string, CalendarFields>;
 }
 
 export interface LineInstance extends LayerInstance {
@@ -371,7 +374,7 @@ function dataTexture(n: number, fill: (out: Float32Array) => void): DataTexture 
 }
 
 export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d' | '3d'): LineInstance {
-  const data: LineData = buildLineData(layer, source.table, source.cadences);
+  const data: LineData = buildLineData(layer, source.table, source.cadences, source.calendars);
   const root = new Group();
   root.name = layer.name;
 
@@ -483,7 +486,7 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
       set('uTStart', lineTStart(data, next.followRange, first));
     }
     set('uBreak', next.breakOnGaps ? 1 : 0);
-    set('uGapFactor', next.gapFactor);
+    set('uGapFactor', next.gapFactor * data.gapUnit);
     set('uWidth', next.width);
     (uniforms.uColour!.value as Color).set(next.colour);
     set('uOpacity', next.opacity);

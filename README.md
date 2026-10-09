@@ -92,11 +92,23 @@ the NVIDIA GPU.
   - small multiples
   - hierarchy (dendrogram, sunburst, treemap and more)
   - 3D surface
+- **Labels on instancers:** in an instancer's **Labels** folder, label its points by year,
+  decade or every N rows (date or a column's value). They follow the layer's spiral, ring,
+  line or calendar, and are revealed by its data playhead. **Hide points** gives a
+  labels-only layer.
 - **Mappings:** any column to position, size, colour, opacity or rotation, through
   linear, log, sqrt or quantise scales and colour ramps.
 - **Animation:** LFO, noise, ramp or keyframe modulators on almost any number, on a looping
   timeline of up to 24 h. Each layer card has its own **Modulation** folder (with the data
   playhead, which reveals the record over time); the camera's is in the Camera card.
+- **Playback:** a timeline plays forward, in reverse, or ping-pong (there and back; each way
+  takes the duration). This applies to the project timeline and to each layer's own.
+- **Text:** the default font is a fixed-width 1970s terminal face (VT323). Sans is the
+  alternative, and text layers can also take a font URL. Every text option has an
+  **uppercase** switch.
+- **Line charts:** a line layer's **Aggregate** folder draws one point per week, month, year
+  or N rows (mean, sum, min, max or last), so daily data reads as a line chart. **Add layer
+  → line chart (aggregated)** starts with monthly means.
 - **Per-layer timelines:** in a layer card's **Timeline** folder, tick **own timeline** to
   give that layer its own duration, loop, play/pause and scrub. The project Timeline
   card's Play/Pause and Restart still drive every layer.

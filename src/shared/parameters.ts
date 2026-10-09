@@ -94,6 +94,8 @@ const LAYER_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
     { label: 'height', min: 0, max: 500 },
     { label: 'depth', min: 0, max: 500 },
   ],
+  'labels.size': { label: 'label size', min: 6, max: 200, hardMin: 6, hardMax: 200 },
+  'labels.offset': { label: 'label offset', min: -200, max: 200 },
 };
 
 const CLONER_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {

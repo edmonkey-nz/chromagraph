@@ -5,6 +5,7 @@ import { SyncedState } from '../common/synced-state.ts';
 import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { HIERARCHY_WORKER_URL } from '../../data/hierarchy-client.ts';
 import { DatasetStore } from './datasets.ts';
+import { TERMINAL_FONT_URL } from './fonts.ts';
 import { PreviewEditor } from './editor.ts';
 import { LayerManager } from './layer-manager.ts';
 import { ModulationEngine } from './modulation.ts';
@@ -309,6 +310,8 @@ if ('serviceWorker' in navigator && !preview) {
           location.href,
           new URL(PARSE_WORKER_URL, location.href).href,
           new URL(HIERARCHY_WORKER_URL, location.href).href,
+          // The default font, even if no text has needed it yet (troika fetches it on first use).
+          new URL(TERMINAL_FONT_URL, location.href).href,
           ...loaded,
         ]);
       })

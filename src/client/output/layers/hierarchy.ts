@@ -43,6 +43,7 @@ import {
 } from '../../../data/hierarchy-layout.ts';
 import type { HierarchyLayer, ScaleType } from '../../../shared/layer-schema.ts';
 import { OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../stage.ts';
+import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { rampTexture } from './ramps.ts';
 
@@ -472,6 +473,8 @@ export function createHierarchy(
   let placedDepth = NaN;
   let placedSize = NaN;
   let placedGap = NaN;
+  let placedFont = '';
+  let placedUppercase = false;
 
   function schedule(): void {
     if (inFlight || disposed || fatal) return;
@@ -629,8 +632,19 @@ export function createHierarchy(
     const t = tree;
     const l = layout;
     const gap = Math.max(0, next.nodeSize[1]) + 6;
-    if (!labelsDirty && placedDepth === next.labelDepth && placedSize === next.labelSize && placedGap === gap) return;
+    if (
+      !labelsDirty &&
+      placedDepth === next.labelDepth &&
+      placedSize === next.labelSize &&
+      placedGap === gap &&
+      placedFont === next.labelFont &&
+      placedUppercase === next.labelUppercase
+    ) {
+      return;
+    }
     labelsDirty = false;
+    placedFont = next.labelFont;
+    placedUppercase = next.labelUppercase;
     placedDepth = next.labelDepth;
     placedSize = next.labelSize;
     placedGap = gap;
@@ -648,7 +662,7 @@ export function createHierarchy(
         if (!labelFits(l, i, size)) continue;
         wantedCount++;
         if (used >= MAX_LABELS) continue;
-        placeLabel(labelText(used++), t, l, i, size, gap);
+        placeLabel(labelText(used++), t, l, i, size, gap, next);
       }
     }
     for (let j = used; j < pool.length; j++) pool[j]!.text = '';
@@ -677,8 +691,9 @@ export function createHierarchy(
     }
   }
 
-  function placeLabel(text: Text, t: HierarchyTree, l: HierarchyLayoutResult, i: number, size: number, gap: number): void {
-    text.text = t.labels[t.label[i]!] ?? '';
+  function placeLabel(text: Text, t: HierarchyTree, l: HierarchyLayoutResult, i: number, size: number, gap: number, next: HierarchyLayer): void {
+    text.text = displayText(t.labels[t.label[i]!] ?? '', next.labelUppercase);
+    text.font = fontUrl(next.labelFont);
     text.fontSize = size;
     let x = l.x[i]!;
     let y = l.y[i]!;

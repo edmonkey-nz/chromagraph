@@ -1,6 +1,7 @@
 import type { BladeApi, ButtonApi, FolderApi } from 'tweakpane';
-import { clampDuration, formatPosition, layerTransport, projectPhase, reanchor } from '../../shared/modulation-helpers.ts';
-import { seek, setPlaying, timelinePhase, wallMs, type Transport } from '../../shared/modulators.ts';
+import { clampDuration, formatPosition, layerTransport, reanchor } from '../../shared/modulation-helpers.ts';
+import { PLAYBACKS } from '../../shared/layer-schema.ts';
+import { cycleProgress, cycleSeconds, playhead, progressFor, seek, setPlaying, wallMs, type TimelineSettings, type Transport } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
 
@@ -17,7 +18,7 @@ export interface TimelinePanelDeps {
   getDoc(): SyncDoc | null;
 }
 
-type Timeline = { duration: number; loop: boolean };
+type Timeline = TimelineSettings;
 
 /** What a panel drives: where its timeline and transport live, and how to patch them. */
 export interface TimelineTarget {
@@ -43,7 +44,7 @@ export const projectTimeline: TimelineTarget = {
       const tl = layer.timeline;
       if (!tl.own) continue;
       const t = layerTransport(doc.session, layer.id);
-      let next = action === 'restart' ? seek(t, 0, nowMs) : setPlaying(t, action === 'play', tl.duration, tl.loop, nowMs);
+      let next = action === 'restart' ? seek(t, 0, nowMs) : setPlaying(t, action === 'play', cycleSeconds(tl), tl.loop, nowMs);
       if (action === 'play' && !tl.loop && next.anchorPhase >= 1) next = seek(next, 0, nowMs);
       ops.push({ op: 'set', path: ['session', 'layerTransports', layer.id], value: next });
     }
@@ -80,14 +81,14 @@ export function ownTimelineOps(doc: SyncDoc, layerId: string, own: boolean, nowM
     if (doc.session.layerTransports[layerId]) ops.push({ op: 'remove', path: ['session', 'layerTransports', layerId] });
     return ops;
   }
-  const { duration, loop } = doc.project.timeline;
+  const { duration, loop, playback } = doc.project.timeline;
   const t = doc.session.transport;
   return [
-    { op: 'set', path: ['project', 'layers', i, 'timeline'], value: { own: true, duration, loop } },
+    { op: 'set', path: ['project', 'layers', i, 'timeline'], value: { own: true, duration, loop, playback } },
     {
       op: 'set',
       path: ['session', 'layerTransports', layerId],
-      value: { playing: t.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(projectPhase(doc.project, t, nowMs), 0), 1) },
+      value: { playing: t.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(cycleProgress(t, doc.project.timeline, nowMs), 0), 1) },
     },
   ];
 }
@@ -105,9 +106,10 @@ const QUICK_SET: { title: string; seconds: number }[] = [
 ];
 
 export class TimelinePanel {
-  private model = { duration: 600, loop: true, phase: 0, position: '0:00 / 10:00' };
+  private model = { duration: 600, loop: true, playback: 'forward' as TimelineSettings['playback'], phase: 0, position: '0:00 / 10:00' };
   private durationApi: Refreshable;
   private loopApi: Refreshable;
+  private playbackApi: Refreshable;
   private phaseApi: Refreshable;
   private positionApi: Refreshable;
   private playButton: ButtonApi;
@@ -157,6 +159,16 @@ export class TimelinePanel {
         if (this.quietDepth === 0) this.setTimeline({ loop: ev.value });
       }),
     );
+    this.playbackApi = add(
+      f
+        .addBinding(m, 'playback', {
+          options: PLAYBACKS.map((p) => ({ text: p === 'pingpong' ? 'ping-pong (there and back)' : p, value: p })),
+        })
+        .on('change', (ev) => {
+          if (this.quietDepth === 0) this.setTimeline({ playback: ev.value });
+        }),
+    );
+    this.playbackApi.element.title = 'Forward 0 → 1, reverse 1 → 0, or ping-pong 0 → 1 → 0 (each way takes the duration)';
 
     add(f.addBlade({ view: 'separator' }));
     this.playButton = add(f.addButton({ title: 'Play', label: 'transport' }));
@@ -195,9 +207,11 @@ export class TimelinePanel {
       // Don't overwrite the duration field while its text box is being edited.
       if (!this.editingText(this.durationApi)) this.model.duration = tl.duration;
       this.model.loop = tl.loop;
+      this.model.playback = tl.playback;
       this.quiet(() => {
         this.durationApi.refresh();
         this.loopApi.refresh();
+        this.playbackApi.refresh();
       });
     }
     this.seenTimeline = tl;
@@ -210,7 +224,7 @@ export class TimelinePanel {
     const doc = this.deps.getDoc();
     const tl = doc ? this.target.timeline(doc) : null;
     if (!doc || !tl || !this.transport) return;
-    const phase = timelinePhase(this.transport, tl.duration, tl.loop, nowMs);
+    const phase = playhead(this.transport, tl, nowMs);
     const interacting = this.dragging || this.editingText(this.phaseApi);
     const shown = interacting ? this.model.phase : phase;
     this.model.position = formatPosition(shown, tl.duration);
@@ -253,9 +267,10 @@ export class TimelinePanel {
     const wanted: Partial<Timeline> = {};
     if (change.duration !== undefined && change.duration !== tl.duration) wanted.duration = change.duration;
     if (change.loop !== undefined && change.loop !== tl.loop) wanted.loop = change.loop;
+    if (change.playback !== undefined && change.playback !== tl.playback) wanted.playback = change.playback;
     const ops = this.target.timelineOps(doc, wanted);
     if (ops.length === 0) return;
-    this.sendTransport(doc, reanchor(this.transport, tl, wallMs()), ops);
+    this.sendTransport(doc, reanchor(this.transport, tl, { ...tl, ...wanted }, wallMs()), ops);
   }
 
   private togglePlay(): void {
@@ -264,17 +279,22 @@ export class TimelinePanel {
     if (!doc || !tl || !this.transport) return;
     const now = wallMs();
     const playing = !this.transport.playing;
-    let next = setPlaying(this.transport, playing, tl.duration, tl.loop, now);
+    let next = setPlaying(this.transport, playing, cycleSeconds(tl), tl.loop, now);
     // A finished, non-looping timeline starts again from the beginning.
     if (playing && !tl.loop && next.anchorPhase >= 1) next = seek(next, 0, now);
     this.sendTransport(doc, next, this.target.alsoOn?.(doc, playing ? 'play' : 'pause', now) ?? []);
   }
 
-  /** Seek to `phase`; Restart (`restart`) also restarts what the target drives with it. */
+  /**
+   * Seek the playhead to `phase` (the slider), or Restart (`restart`: the start of the
+   * cycle, which also restarts what the target drives with it).
+   */
   private seekTo(phase: number, restart: boolean): void {
     const doc = this.deps.getDoc();
-    if (!doc || !this.transport) return;
+    const tl = doc ? this.target.timeline(doc) : null;
+    if (!doc || !tl || !this.transport) return;
     const now = wallMs();
-    this.sendTransport(doc, seek(this.transport, phase, now), restart ? (this.target.alsoOn?.(doc, 'restart', now) ?? []) : []);
+    const u = restart ? 0 : progressFor(phase, tl.playback, cycleProgress(this.transport, tl, now));
+    this.sendTransport(doc, seek(this.transport, u, now), restart ? (this.target.alsoOn?.(doc, 'restart', now) ?? []) : []);
   }
 }

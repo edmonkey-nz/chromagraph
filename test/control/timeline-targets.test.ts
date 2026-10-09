@@ -10,7 +10,7 @@ const T0 = 1_791_457_234_694; // a real wall-clock time
 
 function doc(): SyncDoc {
   const p = defaultProject('t');
-  p.timeline = { duration: 100, loop: true };
+  p.timeline = { duration: 100, loop: true, playback: 'forward' };
   p.layers = [blankInstancerLayer('ly-a', 'A', null), blankInstancerLayer('ly-b', 'B', null)];
   return { project: p, session: defaultSession(T0), profile: defaultProfile('default') };
 }
@@ -34,7 +34,7 @@ describe('per-layer timelines', () => {
   it('switching to its own timeline continues from the project position, then runs on its own', () => {
     const now = T0 + 25_000;
     const d = checked(doc(), ownTimelineOps(doc(), 'ly-a', true, now));
-    expect(d.project.layers[0]!.timeline).toEqual({ own: true, duration: 100, loop: true });
+    expect(d.project.layers[0]!.timeline).toEqual({ own: true, duration: 100, loop: true, playback: 'forward' });
     expect(layerPhase(d.project, d.session, 'ly-a', now)).toBeCloseTo(0.25); // no jump
     // A shorter duration of its own: it now runs 10x faster than the project's.
     const short = checked(d, layerTimeline('ly-a').timelineOps(d, { duration: 10 }));
@@ -48,7 +48,7 @@ describe('per-layer timelines', () => {
 
   it('a layer with its own timeline but no transport yet plays with the project transport', () => {
     const d = doc();
-    d.project.layers[0]!.timeline = { own: true, duration: 50, loop: true };
+    d.project.layers[0]!.timeline = { own: true, duration: 50, loop: true, playback: 'forward' };
     expect(layerPhase(d.project, d.session, 'ly-a', T0 + 25_000)).toBeCloseTo(0.5);
   });
 

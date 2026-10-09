@@ -12,6 +12,7 @@ import {
   addChoice,
   addDomain,
   addFitButton,
+  addFontCase,
   addIdentity,
   addNumber,
   addOpacityBlend,
@@ -125,6 +126,7 @@ export function buildHierarchy(ui: LayerUi, layer: HierarchyLayer, titleOf: (l: 
   });
   addNumber(ui, t, layer.labelSize, 'size (px)', ['labelSize'], { min: 8, max: 120, step: 1, hardMax: 200, field: 'labelSize', hint: '24 px is the projection minimum' });
   addPlain(ui, t, layer.labelColour, 'colour', ['labelColour']);
+  addFontCase(ui, t, layer.labelFont, layer.labelUppercase, ['labelFont'], ['labelUppercase']);
 
   const look = ui.folder(root, 'Look', 'Look', false);
   addOpacityBlend(ui, look, layer);

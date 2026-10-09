@@ -35,6 +35,17 @@ export const COLOUR_RAMPS = [
 ] as const;
 export type ColourRamp = (typeof COLOUR_RAMPS)[number];
 
+/**
+ * In-scene text fonts: 'terminal' (VT323, a 1970s DEC terminal face, fixed width; the default)
+ * or 'sans' (troika's default, Roboto). Both resolve to a URL in client/output/fonts.ts.
+ */
+export const FONTS = ['terminal', 'sans'] as const;
+export type FontChoice = (typeof FONTS)[number];
+
+/** How a timeline's playhead runs: 0 -> 1, 1 -> 0, or 0 -> 1 -> 0 (one way per duration). */
+export const PLAYBACKS = ['forward', 'reverse', 'pingpong'] as const;
+export type Playback = (typeof PLAYBACKS)[number];
+
 export const PRIMITIVES = ['point', 'square', 'bar', 'box', 'sphere'] as const;
 export type Primitive = (typeof PRIMITIVES)[number];
 
@@ -184,11 +195,12 @@ export const LayerTimelineSchema = z.object({
   /** Seconds for one full pass of the layer's playhead. */
   duration: z.number().positive(),
   loop: z.boolean(),
+  playback: z.enum(PLAYBACKS),
 });
 export type LayerTimeline = z.infer<typeof LayerTimelineSchema>;
 
 export function defaultLayerTimeline(): LayerTimeline {
-  return { own: false, duration: 600, loop: true };
+  return { own: false, duration: 600, loop: true, playback: 'forward' };
 }
 
 /** Fields every layer type has. */
@@ -204,6 +216,45 @@ export const LayerBaseSchema = z.object({
   timeline: LayerTimelineSchema,
 });
 export type LayerBase = z.infer<typeof LayerBaseSchema>;
+
+export const LABEL_EVERY = ['year', 'decade', 'rows'] as const;
+export const LABEL_TEXTS = ['date', 'value'] as const;
+export const LABEL_ORIENTATIONS = ['along', 'outward', 'upright'] as const;
+
+/**
+ * Text labels at points of an instancer's own arrangement (so they follow a spiral, ring,
+ * line or calendar exactly, including the layer's transform and visible row range):
+ *   every        'year' / 'decade': the first row of each calendar year or decade (needs a
+ *                time column), labelled "1879" / "1870s"; 'rows': every `rows`-th row,
+ *                labelled with its date (`text: 'date'`) or `column`'s value
+ *   offset       px from the point: outward for radial/spiral, up for linear, left for
+ *                grid/calendar
+ *   orientation  'along' the arrangement (tangent), 'outward' (radial/spiral: along the
+ *                radius), or 'upright'; text is flipped so it never reads upside down
+ * Labels belong to the original points only (not cloner copies) and ignore the y/z
+ * channels. `hidePoints` draws the labels alone (for a labels-only copy of a layer). At most 500 are drawn: beyond that, every k-th label is shown.
+ */
+export const InstancerLabelsSchema = z.object({
+  enabled: z.boolean(),
+  every: z.enum(LABEL_EVERY),
+  rows: z.number().int().min(1),
+  text: z.enum(LABEL_TEXTS),
+  column: z.string().nullable(),
+  /** px at 1080p (projection minimum is 24). */
+  size: z.number().min(6).max(200),
+  offset: z.number(),
+  orientation: z.enum(LABEL_ORIENTATIONS),
+  colour: hexColour,
+  /** Draw only the labels, not the points (a labels-only copy of a layer). */
+  hidePoints: z.boolean(),
+  font: z.enum(FONTS),
+  uppercase: z.boolean(),
+});
+export type InstancerLabels = z.infer<typeof InstancerLabelsSchema>;
+
+export function defaultInstancerLabels(): InstancerLabels {
+  return { enabled: false, every: 'year', rows: 365, text: 'date', column: null, size: 24, offset: 16, orientation: 'along', colour: '#e8e8e8', hidePoints: false, font: 'terminal', uppercase: false };
+}
 
 export const InstancerLayerSchema = LayerBaseSchema.extend({
   type: z.literal('instancer'),
@@ -251,6 +302,7 @@ export const InstancerLayerSchema = LayerBaseSchema.extend({
   heightAxis: z.enum(['y', 'z']).default('y'),
   colour: hexColour,
   cloner: ClonerSchema,
+  labels: InstancerLabelsSchema,
 
   channels: z.object({
     y: MappingSchema,
@@ -269,6 +321,9 @@ export type InstancerLayer = z.infer<typeof InstancerLayerSchema>;
  * 1 px lines). Each row's point is origin + t * step (t as for the instancer), plus the
  * mapped y and z offsets.
  */
+export const AGGREGATES = ['mean', 'sum', 'min', 'max', 'last'] as const;
+export const LINE_BUCKETS = ['none', 'week', 'month', 'year', 'rows'] as const;
+
 export const LineLayerSchema = LayerBaseSchema.extend({
   type: z.literal('line'),
   xMode: z.enum(X_MODES),
@@ -308,11 +363,23 @@ export const LineLayerSchema = LayerBaseSchema.extend({
     colour: hexColour,
     opacity: z.number().min(0).max(1),
   }),
+  /**
+   * Aggregation: one point per bucket instead of per row, so dense spiky data (daily rain)
+   * reads as a line chart. Buckets are calendar weeks, months or years (in the dataset
+   * timezone; needs a time column) or runs of `rows` rows; `fn` combines a bucket's values
+   * (missing values are left out; a bucket with none is missing, so the line breaks there).
+   * The point sits at the middle of its bucket's time span. Rows, the data playhead and the
+   * cloner's data step then count buckets. 'none' draws every row.
+   */
+  aggregate: z.object({
+    by: z.enum(LINE_BUCKETS),
+    rows: z.number().int().min(1),
+    fn: z.enum(AGGREGATES),
+  }),
 });
 export type LineLayer = z.infer<typeof LineLayerSchema>;
 
 export const HEATMAP_LAYOUTS = ['calendar', 'grid'] as const;
-export const AGGREGATES = ['mean', 'sum', 'min', 'max', 'last'] as const;
 
 /**
  * Heat map drawn from a data texture (one texel per cell), so even 100k cells is one quad.
@@ -367,8 +434,10 @@ export const TextLayerSchema = LayerBaseSchema.extend({
   letterSpacing: z.number().min(-0.5).max(2),
   outlineWidth: z.number().min(0).max(20),
   outlineColour: hexColour,
-  /** URL of a .ttf/.otf/.woff font served by the app, or null for the default font. */
-  font: z.string().nullable(),
+  /** 'terminal' or 'sans' (see FONTS), or the URL of a .ttf/.otf/.woff font served by the app. */
+  font: z.string().min(1),
+  /** Show the text in capitals (the template is kept as written). */
+  uppercase: z.boolean(),
 });
 export type TextLayer = z.infer<typeof TextLayerSchema>;
 
@@ -418,6 +487,8 @@ export const SmallMultiplesLayerSchema = LayerBaseSchema.extend({
   /** Panel titles (e.g. "1923", "Mar 1923", the category) at this px size; 0 hides them. */
   labelSize: z.number().min(0).max(200),
   labelColour: hexColour,
+  labelFont: z.enum(FONTS),
+  labelUppercase: z.boolean(),
   /** Faint frame around each panel. */
   frame: z.boolean(),
 });
@@ -475,6 +546,8 @@ export const HierarchyLayerSchema = LayerBaseSchema.extend({
   labelDepth: z.number().int().min(-1).max(5),
   labelSize: z.number().min(8).max(200),
   labelColour: hexColour,
+  labelFont: z.enum(FONTS),
+  labelUppercase: z.boolean(),
 });
 export type HierarchyLayer = z.infer<typeof HierarchyLayerSchema>;
 
@@ -574,6 +647,7 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     effects: defaultLayerEffects(),
     timeline: defaultLayerTimeline(),
     cloner: identityCloner(),
+    labels: defaultInstancerLabels(),
     channels: defaultChannels(),
   };
 }
@@ -601,6 +675,7 @@ export function blankLineLayer(id: string, name: string, datasetId: string | nul
     gapFactor: 1.5,
     cloner: identityCloner(),
     fill: { mode: 'none', colour: '#000000', opacity: 1 },
+    aggregate: { by: 'none', rows: 30, fn: 'mean' },
   };
 }
 
@@ -643,7 +718,8 @@ export function blankTextLayer(id: string, name: string, datasetId: string | nul
     letterSpacing: 0,
     outlineWidth: 0,
     outlineColour: '#000000',
-    font: null,
+    font: 'terminal',
+    uppercase: false,
   };
 }
 
@@ -672,6 +748,8 @@ export function blankMultiplesLayer(id: string, name: string, datasetId: string 
     markSize: 1,
     labelSize: 0,
     labelColour: '#9aa0a6',
+    labelFont: 'terminal',
+    labelUppercase: false,
     frame: false,
   };
 }
@@ -703,6 +781,8 @@ export function blankHierarchyLayer(id: string, name: string, datasetId: string 
     labelDepth: 1,
     labelSize: 24,
     labelColour: '#d8dade',
+    labelFont: 'terminal',
+    labelUppercase: false,
   };
 }
 

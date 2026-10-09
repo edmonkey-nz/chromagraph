@@ -46,6 +46,9 @@ export interface LayersPanelDeps {
   select(layerId: string): void;
 }
 
+/** Add-layer menu entry for a line layer preset (see the type menu). */
+const LINE_CHART = 'line-chart';
+
 /** Appended to the label of a field whose parameter has a modulator. */
 const MODULATED_SUFFIX = ' ~';
 /** Class on the selected layer's card (styled in index.html). */
@@ -106,15 +109,18 @@ export class LayersPanel {
   private quietDepth = 0;
   /** The modulators the field labels were last marked from. */
   private parameters: SyncDoc['project']['parameters'] | null = null;
-  private addModel: { type: LayerType } = { type: 'instancer' };
+  private addModel: { type: LayerType | typeof LINE_CHART } = { type: 'instancer' };
   private selected: string | null = null;
   /** A layer we just added, to select once it arrives. */
   private pendingSelect: string | null = null;
 
   constructor(zone: HTMLElement, private deps: LayersPanelDeps) {
     this.typeSelect.append(...LAYER_TYPES.map((t) => h('option', { value: t, textContent: LAYER_TYPE_TITLES[t] })));
+    // A line layer preset: monthly means (or means of 30 rows without a time column), which reads
+    // as a line chart rather than a spike per row.
+    this.typeSelect.insertBefore(h('option', { value: LINE_CHART, textContent: 'line chart (aggregated)' }), this.typeSelect.querySelector('option[value=heatmap]'));
     this.typeSelect.setAttribute('aria-label', 'Type of the new layer');
-    this.typeSelect.addEventListener('change', () => (this.addModel.type = this.typeSelect.value as LayerType));
+    this.typeSelect.addEventListener('change', () => (this.addModel.type = this.typeSelect.value as LayerType | typeof LINE_CHART));
     const add = h('button', { type: 'button', className: 'btn primary', textContent: 'Add layer' });
     add.addEventListener('click', () => this.addLayer());
     const collapseAll = h('button', { type: 'button', className: 'btn ghost', textContent: 'Collapse all' });
@@ -373,7 +379,8 @@ export class LayersPanel {
   private addLayer(): void {
     const doc = this.deps.getDoc();
     if (!doc) return;
-    const type = this.addModel.type;
+    const chosen = this.addModel.type;
+    const type: LayerType = chosen === LINE_CHART ? 'line' : chosen;
     const { datasets, layers } = doc.project;
     let dataset: Dataset | null = null;
     let summary: DatasetSummary | null = null;
@@ -401,7 +408,10 @@ export class LayersPanel {
     const names = new Set(layers.map((l) => l.name));
     let n = layers.length + 1;
     while (names.has(`Layer ${n}`)) n++;
-    const layer = defaultLayerOfType(type, id, `Layer ${n}`, dataset, summary);
+    let layer = defaultLayerOfType(type, id, `Layer ${n}`, dataset, summary);
+    if (chosen === LINE_CHART && layer.type === 'line') {
+      layer = { ...layer, aggregate: { by: layer.timeColumn ? 'month' : 'rows', rows: 30, fn: 'mean' } };
+    }
     this.expanded.set(`${id}/`, true);
     this.pendingSelect = id;
     this.deps.sendPatch([{ op: 'set', path: ['project', 'layers', layers.length], value: layer }]);

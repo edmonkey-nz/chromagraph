@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hexColour, identityCloner, identityTransform, LayerSchema, vec3 } from './layer-schema.ts';
+import { hexColour, identityCloner, identityTransform, LayerSchema, PLAYBACKS, vec3 } from './layer-schema.ts';
 import { ParameterSchema, TransportSchema, type Transport } from './modulators.ts';
 import type { OutputProfile } from './output-profile.ts';
 
@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 8;
+export const CURRENT_VERSION = 10;
 
 
 export const DatasetSchema = z.object({
@@ -72,9 +72,10 @@ export const ProjectSchema = z.object({
   /** Modulators by parameter id (see parameters.ts). Base values live in the fields themselves. */
   parameters: z.record(z.string(), ParameterSchema),
   timeline: z.object({
-    /** Seconds for one full pass of the playhead. */
+    /** Seconds for one full pass of the playhead (one way, for ping-pong). */
     duration: z.number().positive(),
     loop: z.boolean(),
+    playback: z.enum(PLAYBACKS),
   }),
   camera: CameraSchema,
   output: z.object({
@@ -102,7 +103,7 @@ export function defaultProject(name: string): Project {
     datasets: [],
     layers: [],
     parameters: {},
-    timeline: { duration: 600, loop: true },
+    timeline: { duration: 600, loop: true, playback: 'forward' },
     camera: defaultCamera(),
     output: { background: '#000000' },
     scenes: [],
@@ -235,6 +236,35 @@ export const migrations: Record<number, Migration> = {
       Array.isArray(layers) ? layers.map((l: Doc) => ({ ...l, timeline: l.timeline ?? { own: false, duration: 600, loop: true } })) : layers;
     const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
     return { ...doc, layers: withTimeline(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withTimeline(sc.layers) })) };
+  },
+  // v10: timelines play forward, reverse or ping-pong (forward); in-scene text gets a font
+  // choice, where the 1970s terminal face is the new default, and an uppercase option; line
+  // layers can aggregate (none).
+  9: (doc) => {
+    const layer = (l: Doc): Doc => {
+      const out: Doc = { ...l, timeline: { ...((l.timeline ?? {}) as Doc), playback: 'forward' } };
+      if (l.type === 'text') Object.assign(out, { font: typeof l.font === 'string' && l.font ? l.font : 'terminal', uppercase: false });
+      if (l.type === 'instancer') out.labels = { ...((l.labels ?? {}) as Doc), font: 'terminal', uppercase: false };
+      if (l.type === 'multiples' || l.type === 'hierarchy') Object.assign(out, { labelFont: 'terminal', labelUppercase: false });
+      if (l.type === 'line') out.aggregate = { by: 'none', rows: 30, fn: 'mean' };
+      return out;
+    };
+    const layers = (ls: unknown): unknown => (Array.isArray(ls) ? ls.map(layer) : ls);
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return {
+      ...doc,
+      timeline: { ...((doc.timeline ?? {}) as Doc), playback: 'forward' },
+      layers: layers(doc.layers),
+      scenes: scenes.map((sc) => ({ ...sc, layers: layers(sc.layers) })),
+    };
+  },
+  // v9: instancer layers can label points of their arrangement (off).
+  8: (doc) => {
+    const off = { enabled: false, every: 'year', rows: 365, text: 'date', column: null, size: 24, offset: 16, orientation: 'along', colour: '#e8e8e8', hidePoints: false };
+    const withLabels = (layers: unknown): unknown =>
+      Array.isArray(layers) ? layers.map((l: Doc) => (l.type === 'instancer' && !l.labels ? { ...l, labels: { ...off } } : l)) : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withLabels(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withLabels(sc.layers) })) };
   },
 };
 

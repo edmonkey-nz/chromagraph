@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cycleProgress,
+  playhead,
+  progressFor,
   evaluate,
   keyframeValue,
   lfoWave,
@@ -121,5 +124,40 @@ describe('ramp and keyframes', () => {
     expect(ModulatorSchema.safeParse(lfo()).success).toBe(true);
     expect(ModulatorSchema.safeParse({ ...lfo(), period: 0 }).success).toBe(false);
     expect(ModulatorSchema.safeParse({ kind: 'keyframes', enabled: true, keys: [], interpolation: 'linear' }).success).toBe(false);
+  });
+});
+
+describe('playback modes', () => {
+  const T0 = 1_791_457_234_694;
+  const tr = { playing: true, anchorWallMs: T0, anchorPhase: 0 };
+  const at = (s: number) => T0 + s * 1000;
+
+  it('forward and reverse run each way over the duration', () => {
+    expect(playhead(tr, { duration: 100, loop: true, playback: 'forward' }, at(25))).toBeCloseTo(0.25);
+    expect(playhead(tr, { duration: 100, loop: true, playback: 'reverse' }, at(25))).toBeCloseTo(0.75);
+    expect(playhead(tr, { duration: 100, loop: true, playback: 'reverse' }, at(0))).toBe(1);
+  });
+
+  it('ping-pong goes out over one duration and back over the next', () => {
+    const pp = { duration: 100, loop: true, playback: 'pingpong' as const };
+    expect(playhead(tr, pp, at(25))).toBeCloseTo(0.25);
+    expect(playhead(tr, pp, at(100))).toBeCloseTo(1);
+    expect(playhead(tr, pp, at(125))).toBeCloseTo(0.75);
+    expect(playhead(tr, pp, at(200))).toBeCloseTo(0);
+    expect(playhead(tr, pp, at(225))).toBeCloseTo(0.25);
+  });
+
+  it('a finished one-shot rests at its end: 1 forward, 0 reverse and ping-pong', () => {
+    expect(playhead(tr, { duration: 10, loop: false, playback: 'forward' }, at(99))).toBe(1);
+    expect(playhead(tr, { duration: 10, loop: false, playback: 'reverse' }, at(99))).toBe(0);
+    expect(playhead(tr, { duration: 10, loop: false, playback: 'pingpong' }, at(99))).toBe(0);
+  });
+
+  it('scrubbing a ping-pong keeps the leg it is on', () => {
+    const pp = { duration: 100, loop: true, playback: 'pingpong' as const };
+    const coming = cycleProgress(tr, pp, at(150)); // on the way back
+    expect(progressFor(0.3, 'pingpong', coming)).toBeCloseTo(0.85);
+    expect(progressFor(0.3, 'pingpong', 0.1)).toBeCloseTo(0.15);
+    expect(progressFor(0.3, 'reverse', 0)).toBeCloseTo(0.7);
   });
 });

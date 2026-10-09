@@ -47,10 +47,37 @@ describe('migrate', () => {
     if (!r.ok) return;
     const all = [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)];
     expect(all.length).toBeGreaterThan(2);
-    for (const l of all) expect(l.timeline).toEqual({ own: false, duration: 600, loop: true });
+    for (const l of all) expect(l.timeline).toEqual({ own: false, duration: 600, loop: true, playback: 'forward' });
   });
 
-  it('rejects missing, newer and invalid versions', () => {
+  it('v9 gives instancer layers, scenes included, labels that are off', () => {
+    const v8 = JSON.parse(readFileSync(new URL('../fixtures/projects/v8.json', import.meta.url), 'utf8'));
+    const r = migrate(v8);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    if (!r.ok) return;
+    const instancers = [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)].filter((l) => l.type === 'instancer');
+    expect(instancers.length).toBe(2);
+    for (const l of instancers) expect(l.type === 'instancer' && l.labels.enabled).toBe(false);
+  });
+
+  it('v10 adds forward playback, the terminal font as default text font, uppercase off and no line aggregation', () => {
+    const v9 = JSON.parse(readFileSync(new URL('../fixtures/projects/v9.json', import.meta.url), 'utf8'));
+    const r = migrate(v9);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    if (!r.ok) return;
+    expect(r.project.timeline.playback).toBe('forward');
+    const all = [...r.project.layers, ...r.project.scenes.flatMap((s) => s.layers)];
+    for (const l of all) {
+      expect(l.timeline.playback).toBe('forward');
+      if (l.type === 'text') expect([l.font, l.uppercase]).toEqual(['terminal', false]);
+      if (l.type === 'instancer') expect([l.labels.font, l.labels.uppercase]).toEqual(['terminal', false]);
+      if (l.type === 'multiples' || l.type === 'hierarchy') expect([l.labelFont, l.labelUppercase]).toEqual(['terminal', false]);
+      if (l.type === 'line') expect(l.aggregate.by).toBe('none');
+    }
+    expect(all.map((l) => l.type).sort()).toEqual(['hierarchy', 'hierarchy', 'instancer', 'instancer', 'line', 'multiples', 'multiples', 'text']);
+  });
+
+    it('rejects missing, newer and invalid versions', () => {
     expect(migrate({ name: 'x' }).ok).toBe(false);
     expect(migrate({ ...defaultProject('x'), version: CURRENT_VERSION + 1 }).ok).toBe(false);
     expect(migrate({ ...defaultProject('x'), version: 0 }).ok).toBe(false);

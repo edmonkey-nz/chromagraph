@@ -1,6 +1,6 @@
 import type { FolderApi } from 'tweakpane';
 import { budgetReadout, diffChanges, lineSegmentCount, ridgelineLine } from '../../shared/layer-helpers.ts';
-import { X_MODES, type LayerConfig, type LineLayer } from '../../shared/layer-schema.ts';
+import { AGGREGATES, type LayerConfig, type LineLayer, X_MODES } from '../../shared/layer-schema.ts';
 import {
   addChoice,
   addFitButton,
@@ -38,6 +38,37 @@ export function buildLine(ui: LayerUi, layer: LineLayer, titleOf: (l: LayerConfi
   addTimeColumn(ui, g, layer.timeColumn);
   addRows(ui, g, layer.rows);
   g.addBinding(m, 'followRange', { label: 'follow range' }).on('change', (ev) => ui.set(['followRange'], ev.value));
+
+  // Aggregate: one point per week / month / year / N rows, so dense data reads as a line chart.
+  const a = ui.folder(root, 'Aggregate', 'Aggregate', layer.aggregate.by !== 'none');
+  const am = { ...layer.aggregate };
+  const by = a.addBinding(am, 'by', {
+    label: 'one point per',
+    options: [
+      { text: 'row (no aggregation)', value: 'none' },
+      { text: 'week', value: 'week' },
+      { text: 'month', value: 'month' },
+      { text: 'year', value: 'year' },
+      { text: 'N rows', value: 'rows' },
+    ],
+  });
+  by.element.title = 'Combine rows into one point per period, so spiky daily data reads as a line chart. Weeks, months and years need a time column.';
+  const nRows = a.addBinding(am, 'rows', { label: 'N rows', min: 1, max: 5000, step: 1 });
+  const fn = a.addBinding(am, 'fn', {
+    label: 'combine by',
+    options: AGGREGATES.map((f) => ({ text: f === 'last' ? 'last value' : f, value: f })),
+  });
+  const showAgg = () => {
+    nRows.hidden = am.by !== 'rows';
+    fn.hidden = am.by === 'none';
+  };
+  showAgg();
+  by.on('change', (ev) => {
+    showAgg();
+    ui.set(['aggregate', 'by'], ev.value);
+  });
+  nRows.on('change', (ev) => ui.set(['aggregate', 'rows'], Math.max(1, Math.round(ev.value))));
+  fn.on('change', (ev) => ui.set(['aggregate', 'fn'], ev.value));
 
   const l = ui.folder(root, 'Layout', 'Layout', false);
   addVec3(ui, l, layer.origin, 'origin', ['origin'], 'origin').element.title = 'Position of t = 0, and the zero of the y mapping';

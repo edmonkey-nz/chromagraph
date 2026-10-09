@@ -1,9 +1,13 @@
 import {
+  cycleProgress,
   evaluate,
   keyframeValue,
+  playhead,
+  playheadOf,
+  progressFor,
   sortKeys,
-  timelinePhase,
   type Modulator,
+  type TimelineSettings,
   type ModulatorKind,
   type Parameter,
   type Transport,
@@ -96,9 +100,9 @@ export function defaultModulator(kind: ModulatorKind, def: Pick<ParamDef, 'min' 
   }
 }
 
-/** Timeline phase of a project at wall time `nowMs`. */
+/** The project timeline's playhead at wall time `nowMs` (see playhead in modulators.ts). */
 export function projectPhase(project: Pick<Project, 'timeline'>, transport: Transport, nowMs: number): number {
-  return timelinePhase(transport, project.timeline.duration, project.timeline.loop, nowMs);
+  return playhead(transport, project.timeline, nowMs);
 }
 
 /**
@@ -121,7 +125,7 @@ export function layerPhase(
 ): number {
   const layer = project.layers.find((l) => l.id === layerId);
   if (!layer?.timeline.own) return projectPhase(project, session.transport, nowMs);
-  return timelinePhase(layerTransport(session, layerId), layer.timeline.duration, layer.timeline.loop, nowMs);
+  return playhead(layerTransport(session, layerId), layer.timeline, nowMs);
 }
 
 /** The phase a parameter's modulators run on: its layer's own timeline, or the project's. */
@@ -136,12 +140,14 @@ export function paramPhase(
 }
 
 /**
- * Transport re-anchored at its current phase under the old timeline settings, so changing
- * the duration or loop flag does not make the playhead jump.
+ * Transport re-anchored for new timeline settings so the playhead does not jump: the same
+ * progress when only the duration or loop changes, the same playhead when the playback mode
+ * changes (onto the outward leg of a ping-pong).
  */
-export function reanchor(transport: Transport, timeline: Project['timeline'], nowMs: number): Transport {
-  const p = timelinePhase(transport, timeline.duration, timeline.loop, nowMs);
-  return { playing: transport.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(p, 0), 1) };
+export function reanchor(transport: Transport, from: TimelineSettings, to: TimelineSettings, nowMs: number): Transport {
+  const u = cycleProgress(transport, from, nowMs);
+  const next = from.playback === to.playback ? u : progressFor(playheadOf(u, from.playback), to.playback, 0);
+  return { playing: transport.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(next, 0), 1) };
 }
 
 /** The value a modulated parameter takes, as the output computes it (keyframes sorted here). */

@@ -99,6 +99,63 @@ export function setPlaying(t: Transport, playing: boolean, durationSec: number, 
   return { playing, anchorWallMs: nowMs, anchorPhase: timelinePhase(t, durationSec, loop, nowMs) };
 }
 
+/**
+ * Playback modes (forward, reverse, ping-pong). The transport keeps the *progress* u through
+ * one cycle, 0..1, exactly as above; a ping-pong cycle is there and back, so it lasts twice
+ * the duration. The playhead that modulators see is derived from u:
+ *   forward  u      reverse  1 - u      pingpong  0 -> 1 over the first half, 1 -> 0 over the second
+ * A finished non-looping timeline therefore rests at 1 (forward) or 0 (reverse, ping-pong).
+ */
+export type PlaybackMode = 'forward' | 'reverse' | 'pingpong';
+export interface TimelineSettings {
+  duration: number;
+  loop: boolean;
+  playback: PlaybackMode;
+}
+
+/** Seconds per transport cycle: the duration, or twice it for ping-pong. */
+export function cycleSeconds(tl: TimelineSettings): number {
+  return tl.playback === 'pingpong' ? tl.duration * 2 : tl.duration;
+}
+
+/** The transport's progress u through its cycle at `nowMs`. */
+export function cycleProgress(t: Transport, tl: TimelineSettings, nowMs: number): number {
+  return timelinePhase(t, cycleSeconds(tl), tl.loop, nowMs);
+}
+
+/** The playhead (what modulators see) for progress u. */
+export function playheadOf(u: number, playback: PlaybackMode): number {
+  switch (playback) {
+    case 'forward':
+      return u;
+    case 'reverse':
+      return 1 - u;
+    case 'pingpong':
+      return u <= 0.5 ? u * 2 : 2 - u * 2;
+  }
+}
+
+/** The playhead at `nowMs`. */
+export function playhead(t: Transport, tl: TimelineSettings, nowMs: number): number {
+  return playheadOf(cycleProgress(t, tl, nowMs), tl.playback);
+}
+
+/**
+ * The progress that shows playhead `phase`. Ping-pong has two (going out and coming back):
+ * the one on the leg that progress `currentU` is on, so a scrub keeps the direction.
+ */
+export function progressFor(phase: number, playback: PlaybackMode, currentU: number): number {
+  const p = Math.min(Math.max(phase, 0), 1);
+  switch (playback) {
+    case 'forward':
+      return p;
+    case 'reverse':
+      return 1 - p;
+    case 'pingpong':
+      return currentU > 0.5 ? 1 - p / 2 : p / 2;
+  }
+}
+
 /** Transport moved to `phase` (scrub or restart), keeping play state. */
 export function seek(t: Transport, phase: number, nowMs: number): Transport {
   return { playing: t.playing, anchorWallMs: nowMs, anchorPhase: Math.min(Math.max(phase, 0), 1) };

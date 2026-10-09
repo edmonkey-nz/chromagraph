@@ -14,6 +14,7 @@
  * With the fill on, each drawn segment also gets an area down to the clone's baseline.
  */
 import type { LineLayer, ScaleType } from '../shared/layer-schema.ts';
+import type { CalendarFields } from './calendar.ts';
 import type { Column, Table } from './columns.ts';
 import type { Cadence } from './gaps.ts';
 import { LayerDataError, MISSING, normalise, resolveDomain, type ChannelData } from './instance-data.ts';
@@ -48,6 +49,11 @@ export interface LineData {
   y: ChannelData | null;
   z: ChannelData | null;
   colour: ChannelData | null;
+  /**
+   * t units per nominal step between points: 1 for raw rows, a bucket's length when
+   * aggregated (so the gap rule measures gaps in buckets; see segmentBroken).
+   */
+  gapUnit: number;
 }
 
 /** Fields whose change needs new point arrays (everything else is a uniform update). */
@@ -59,6 +65,8 @@ export function lineStructureKey(layer: LineLayer): string {
     layer.y.column,
     layer.z.column,
     layer.colourMap.column,
+    layer.aggregate.by,
+    layer.aggregate.by === 'none' ? null : [layer.aggregate.fn, layer.aggregate.by === 'rows' ? layer.aggregate.rows : null, layer.timeColumn],
   ]);
 }
 
@@ -100,7 +108,7 @@ function channelValues(c: Column, allowCategory: boolean, what: string): Channel
 }
 
 function emptyLine(rowCount: number, timeMode: boolean): LineData {
-  return { count: 0, points: new Float32Array(0), rowCount, timeMode, y: null, z: null, colour: null };
+  return { count: 0, points: new Float32Array(0), rowCount, timeMode, y: null, z: null, colour: null, gapUnit: 1 };
 }
 
 /**
@@ -108,7 +116,12 @@ function emptyLine(rowCount: number, timeMode: boolean): LineData {
  * mode without a time column) yields no points rather than an error; a column that does
  * not exist or has the wrong type is a LayerDataError.
  */
-export function buildLineData(layer: LineLayer, table: Table, cadences: Record<string, Cadence>): LineData {
+export function buildLineData(
+  layer: LineLayer,
+  table: Table,
+  cadences: Record<string, Cadence>,
+  calendars: Record<string, CalendarFields> = {},
+): LineData {
   const n = table.rowCount;
   if (n > MAX_LINE_POINTS) throw new LayerDataError(`${n} rows is more than the ${MAX_LINE_POINTS} point limit`);
   const timeMode = layer.xMode === 'time';
@@ -116,11 +129,12 @@ export function buildLineData(layer: LineLayer, table: Table, cadences: Record<s
 
   // t per row (MISSING where undefined), as in buildInstanceData.
   const t = new Float32Array(n);
+  let unit = DAY_MS;
   if (timeMode) {
     const tc = column(table, layer.timeColumn!, 'time column');
     if (tc.type !== 'time') throw new LayerDataError(`"${tc.name}" is not a time column`);
     const step = cadences[tc.name]?.step;
-    const unit = step !== undefined && step > 0 && Number.isFinite(step) ? step : DAY_MS;
+    unit = step !== undefined && step > 0 && Number.isFinite(step) ? step : DAY_MS;
     for (let i = 0; i < n; i++) {
       const v = tc.values[i]!;
       t[i] = Number.isNaN(v) ? MISSING : (v - tc.min) / unit;
@@ -132,6 +146,11 @@ export function buildLineData(layer: LineLayer, table: Table, cadences: Record<s
   const y = layer.y.column ? channelValues(column(table, layer.y.column, 'y'), false, 'y') : null;
   const z = layer.z.column ? channelValues(column(table, layer.z.column, 'z'), false, 'z') : null;
   const colour = layer.colourMap.column ? channelValues(column(table, layer.colourMap.column, 'colour'), true, 'colour') : null;
+
+  if (layer.aggregate.by !== 'none') {
+    const calendar = layer.timeColumn ? (calendars[layer.timeColumn] ?? null) : null;
+    return aggregateLine(layer, t, y, z, colour, calendar, timeMode, unit);
+  }
 
   const missing = (i: number): boolean =>
     t[i]! === MISSING || (y !== null && y.values[i]! === MISSING) || (z !== null && z.values[i]! === MISSING) || (colour !== null && colour.values[i]! === MISSING);
@@ -150,7 +169,125 @@ export function buildLineData(layer: LineLayer, table: Table, cadences: Record<s
     points[o + P_COLOUR] = colour ? colour.values[i]! : 0;
     k++;
   }
-  return { count, points, rowCount: n, timeMode, y, z, colour };
+  return { count, points, rowCount: n, timeMode, y, z, colour, gapUnit: 1 };
+}
+
+const NOMINAL_DAYS = { week: 7, month: 365.25 / 12, year: 365.25 } as const;
+
+/** 0-based month of a 0-based day of year. */
+export function monthOfDay(year: number, dayOfYear: number): number {
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const ends = [31, leap ? 60 : 59, leap ? 91 : 90, leap ? 121 : 120, leap ? 152 : 151, leap ? 182 : 181, leap ? 213 : 212, leap ? 244 : 243, leap ? 274 : 273, leap ? 305 : 304, leap ? 335 : 334];
+  let m = 0;
+  while (m < 11 && dayOfYear >= ends[m]!) m++;
+  return m;
+}
+
+/**
+ * One point per bucket (see LineLayerSchema.aggregate). Buckets follow row order: a new one
+ * starts where the bucket key changes. Each becomes a "row" of the result, so the row
+ * range, data playhead and cloner count buckets. A bucket with no value for a mapped channel
+ * is missing (the line breaks there), never zero.
+ */
+function aggregateLine(
+  layer: LineLayer,
+  t: Float32Array,
+  y: ChannelData | null,
+  z: ChannelData | null,
+  colour: ChannelData | null,
+  calendar: CalendarFields | null,
+  timeMode: boolean,
+  unitMs: number,
+): LineData {
+  const { by, fn } = layer.aggregate;
+  const n = t.length;
+  const size = Math.max(1, Math.floor(layer.aggregate.rows));
+  if (by !== 'rows' && !calendar) throw new LayerDataError(`aggregating by ${by} needs a time column (with its calendar fields loaded)`);
+  const keyOf = (i: number): number => {
+    if (by === 'rows') return Math.floor(i / size);
+    const yr = calendar!.year[i]!;
+    if (Number.isNaN(yr)) return NaN;
+    const doy = calendar!.dayOfYear[i]!;
+    if (by === 'year') return yr;
+    if (by === 'month') return yr * 12 + monthOfDay(yr, doy);
+    return yr * 53 + Math.floor(doy / 7);
+  };
+
+  // Bucket boundaries (first row of each), in row order.
+  const starts: number[] = [];
+  let previous = NaN;
+  for (let i = 0; i < n; i++) {
+    const k = keyOf(i);
+    if (Number.isNaN(k)) continue;
+    if (k !== previous) starts.push(i);
+    previous = k;
+  }
+  const buckets = starts.length;
+  const bt = new Float32Array(buckets).fill(MISSING);
+  const reduce = (c: ChannelData | null, f: typeof fn): ChannelData | null => {
+    if (!c) return null;
+    const out = new Float32Array(buckets).fill(MISSING);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let b = 0; b < buckets; b++) {
+      const end = b + 1 < buckets ? starts[b + 1]! : n;
+      let count = 0;
+      let acc = f === 'min' ? Infinity : f === 'max' ? -Infinity : 0;
+      for (let i = starts[b]!; i < end; i++) {
+        const v = c.values[i]!;
+        if (v === MISSING || Number.isNaN(keyOf(i))) continue;
+        count++;
+        if (f === 'sum' || f === 'mean') acc += v;
+        else if (f === 'min') acc = Math.min(acc, v);
+        else if (f === 'max') acc = Math.max(acc, v);
+        else acc = v; // last
+      }
+      if (count === 0) continue;
+      const v = f === 'mean' ? acc / count : acc;
+      out[b] = v;
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    const domain: [number, number] = Number.isFinite(lo) ? [lo, hi] : c.autoDomain;
+    return { values: out, autoDomain: domain, categories: c.categories };
+  };
+  // Categories have no mean: a colour-by-category line takes each bucket's last value.
+  const yb = reduce(y, fn);
+  const zb = reduce(z, fn);
+  const cb = reduce(colour, colour && colour.categories > 0 ? 'last' : fn);
+
+  // t of a bucket: the middle of its rows' time (or index) span.
+  for (let b = 0; b < buckets; b++) {
+    const end = b + 1 < buckets ? starts[b + 1]! : n;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = starts[b]!; i < end; i++) {
+      const v = t[i]!;
+      if (v === MISSING) continue;
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    if (Number.isFinite(lo)) bt[b] = (lo + hi) / 2;
+  }
+
+  const missing = (b: number): boolean =>
+    bt[b]! === MISSING || (yb !== null && yb.values[b]! === MISSING) || (zb !== null && zb.values[b]! === MISSING) || (cb !== null && cb.values[b]! === MISSING);
+  let count = 0;
+  for (let b = 0; b < buckets; b++) if (!missing(b)) count++;
+  const points = new Float32Array(count * POINT_STRIDE);
+  let k = 0;
+  for (let b = 0; b < buckets; b++) {
+    if (missing(b)) continue;
+    const o = k * POINT_STRIDE;
+    points[o + P_T] = bt[b]!;
+    points[o + P_ROW] = b;
+    points[o + P_Y] = yb ? yb.values[b]! : 0;
+    points[o + P_Z] = zb ? zb.values[b]! : 0;
+    points[o + P_COLOUR] = cb ? cb.values[b]! : 0;
+    k++;
+  }
+  const gapUnit = by === 'rows' ? size : timeMode ? (NOMINAL_DAYS[by as keyof typeof NOMINAL_DAYS] * DAY_MS) / unitMs : 1;
+  return { count, points, rowCount: buckets, timeMode, y: yb, z: zb, colour: cb, gapUnit };
 }
 
 /** Visible rows [first, last] (inclusive) for `rows` fractions, as the instancer computes them. */
@@ -171,7 +308,7 @@ export function segmentBroken(data: LineData, i: number, breakOnGaps: boolean, g
   const b = a + POINT_STRIDE;
   const p = data.points;
   if (p[b + P_ROW]! - p[a + P_ROW]! > 1.5) return true;
-  return data.timeMode && p[b + P_T]! - p[a + P_T]! > gapFactor;
+  return data.timeMode && p[b + P_T]! - p[a + P_T]! > gapFactor * data.gapUnit;
 }
 
 /** Whether segment i is drawn for the given rows range and gap settings. */

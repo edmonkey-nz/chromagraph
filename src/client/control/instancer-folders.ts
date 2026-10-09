@@ -2,6 +2,7 @@ import type { BladeApi, FolderApi } from 'tweakpane';
 import { budgetReadout, ridgelineCloner, visibleRowCount } from '../../shared/layer-helpers.ts';
 import {
   ARRANGEMENTS,
+  LABEL_ORIENTATIONS,
   NUMERIC_CHANNELS,
   PRIMITIVES,
   X_MODES,
@@ -11,6 +12,7 @@ import {
 } from '../../shared/layer-schema.ts';
 import {
   addFitButton,
+  addFontCase,
   addIdentity,
   addOpacityBlend,
   addRows,
@@ -29,7 +31,7 @@ import {
   xyz,
 } from './layer-ui.ts';
 
-/** Instancer folders: General, Layout, Look, Channels, Cloner, Transform. */
+/** Instancer folders: General, Layout, Look, Channels, Cloner, Labels, Glow, Trails, Transform. */
 
 const CHANNEL_TITLES: Record<NumericChannel | 'colour', string> = {
   y: 'y offset',
@@ -48,6 +50,7 @@ export function buildInstancer(ui: LayerUi, layer: InstancerLayer, titleOf: (l: 
   buildLook(ui, root, layer);
   buildChannels(ui, root, layer);
   buildCloner(ui, root, layer);
+  buildLabels(ui, root, layer);
   buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
 }
@@ -143,6 +146,73 @@ function buildChannels(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): v
 const DATA_STEP_HINT =
   'Clone k keeps row i’s arranged position but takes its mapped values (height, colour…) from row i + k × data step, ' +
   'so stacked clones show later stretches of the data: waterfall and ridgeline plots. 0 repeats the same row.';
+
+/**
+ * "Labels": text at points of the arrangement (years, decades, or every N rows with their
+ * date or a column's value), following the layer's layout. See InstancerLabelsSchema.
+ */
+function buildLabels(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void {
+  const L = layer.labels;
+  const f = ui.folder(parent, 'Labels', 'Labels', L.enabled);
+  const m = { ...L, column: L.column ?? '' };
+  const columns = ui.summary?.columns.filter((c) => !c.empty) ?? [];
+  f.addBinding(m, 'enabled', { label: 'on' }).on('change', (ev) => ui.set(['labels', 'enabled'], ev.value));
+  const every = f.addBinding(m, 'every', {
+    label: 'label every',
+    options: [
+      { text: 'year', value: 'year' },
+      { text: 'decade', value: 'decade' },
+      { text: 'N rows', value: 'rows' },
+    ],
+  });
+  const rows = f.addBinding(m, 'rows', { label: 'N rows', min: 1, max: 10000, step: 1 });
+  const text = f.addBinding(m, 'text', {
+    options: [
+      { text: 'date', value: 'date' },
+      { text: 'column value', value: 'value' },
+    ],
+  });
+  const column = f.addBinding(m, 'column', {
+    label: 'column',
+    options: [{ text: '(choose)', value: '' }, ...columns.map((c) => ({ text: c.name, value: c.name }))],
+  });
+  const note = f.addBlade({ view: 'text', label: '', parse: (v: string) => v, value: 'Years and decades need a time column (General).', disabled: true });
+  const show = () => {
+    const byRows = m.every === 'rows';
+    rows.hidden = !byRows;
+    text.hidden = !byRows;
+    column.hidden = !byRows || m.text !== 'value';
+    note.hidden = byRows || layer.timeColumn !== null;
+  };
+  every.on('change', (ev) => {
+    show();
+    ui.set(['labels', 'every'], ev.value);
+  });
+  rows.on('change', (ev) => ui.set(['labels', 'rows'], Math.max(1, Math.round(ev.value))));
+  text.on('change', (ev) => {
+    show();
+    ui.set(['labels', 'text'], ev.value);
+  });
+  column.on('change', (ev) => ui.set(['labels', 'column'], ev.value === '' ? null : ev.value));
+  show();
+  ui.mark(
+    f.addBinding(m, 'size', { label: 'size', min: 6, max: 200, step: 1 }).on('change', (ev) => ui.set(['labels', 'size'], ev.value)),
+    'size',
+    'labels.size',
+  );
+  ui.mark(
+    f.addBinding(m, 'offset', { label: 'offset', min: -200, max: 200, step: 1 }).on('change', (ev) => ui.set(['labels', 'offset'], ev.value)),
+    'offset',
+    'labels.offset',
+  ).element.title = 'Distance from the points: outward on a ring or spiral, up from a line, left of a grid or calendar row';
+  f.addBinding(m, 'orientation', {
+    options: LABEL_ORIENTATIONS.map((o) => ({ text: o === 'along' ? 'along the layout' : o === 'outward' ? 'outward (rings, spirals)' : 'upright', value: o })),
+  }).on('change', (ev) => ui.set(['labels', 'orientation'], ev.value));
+  f.addBinding(m, 'colour').on('change', (ev) => ui.set(['labels', 'colour'], ev.value));
+  addFontCase(ui, f, L.font, L.uppercase, ['labels', 'font'], ['labels', 'uppercase']);
+  f.addBinding(m, 'hidePoints', { label: 'hide points' }).on('change', (ev) => ui.set(['labels', 'hidePoints'], ev.value)).element.title =
+    'Draw only the labels (for a labels-only copy of a layer)';
+}
 
 /**
  * "Cloner" folder: every row drawn `count` times, each clone stepped by the offsets below,

@@ -3,6 +3,7 @@ import { Text } from 'troika-three-text';
 import type { Table } from '../../../data/columns.ts';
 import type { TextLayer } from '../../../shared/layer-schema.ts';
 import { bindTemplate, compileTemplate, renderTemplate, templateRow, type BoundTemplate } from '../../../shared/text-template.ts';
+import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 
 /**
@@ -29,6 +30,7 @@ export interface TextInstance extends LayerInstance {
 interface LayoutState {
   text: string;
   font: string | null;
+  uppercase: boolean;
   fontSize: number;
   align: TextLayer['align'];
   anchorX: TextLayer['anchorX'];
@@ -56,6 +58,7 @@ export function createTextLayer(layer: TextLayer, source: TextSource | null, cam
   const laid: LayoutState = {
     text: '',
     font: null,
+    uppercase: false,
     fontSize: 0,
     align: 'left',
     anchorX: 'left',
@@ -73,9 +76,13 @@ export function createTextLayer(layer: TextLayer, source: TextSource | null, cam
     }
     const row = bound!.dynamic ? templateRow(next.row, rowCount) : 0;
     let dirty = false;
+    if (next.uppercase !== laid.uppercase) {
+      laid.uppercase = next.uppercase;
+      lastRow = -1; // re-render the text in (or out of) capitals
+    }
     if (row !== lastRow) {
       lastRow = row;
-      const s = renderTemplate(bound!, row);
+      const s = displayText(renderTemplate(bound!, row), next.uppercase);
       if (s !== laid.text) {
         laid.text = s;
         text.text = s;
@@ -84,7 +91,7 @@ export function createTextLayer(layer: TextLayer, source: TextSource | null, cam
     }
     if (next.font !== laid.font) {
       laid.font = next.font;
-      text.font = next.font;
+      text.font = fontUrl(next.font);
       dirty = true;
     }
     if (next.fontSize !== laid.fontSize) {

@@ -7,6 +7,7 @@ import {
   addChoice,
   addDomain,
   addFitButton,
+  addFontCase,
   addIdentity,
   addNumber,
   addOpacityBlend,
@@ -101,6 +102,7 @@ export function buildMultiples(ui: LayerUi, layer: SmallMultiplesLayer, titleOf:
     hint: 'Panel titles (e.g. "1923", "Mar 1923", the category) in px at 1080p; 0 hides them. 24 px is the projection minimum.',
   });
   addPlain(ui, t, layer.labelColour, 'title colour', ['labelColour']);
+  addFontCase(ui, t, layer.labelFont, layer.labelUppercase, ['labelFont'], ['labelUppercase']);
   addPlain(ui, t, layer.frame, 'frame', ['frame']).element.title = 'Faint frame around each panel';
 
   const k = ui.folder(root, 'Look', 'Look', false);

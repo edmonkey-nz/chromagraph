@@ -1,5 +1,5 @@
 import type { LayerConfig } from '../../shared/layer-schema.ts';
-import { evaluate, sortKeys, timelinePhase, type Modulator } from '../../shared/modulators.ts';
+import { evaluate, playhead, sortKeys, type Modulator, type TimelineSettings } from '../../shared/modulators.ts';
 import { clampParam, parameterDefs, parseParamId, readParam, type ParamDef } from '../../shared/parameters.ts';
 import type { Camera, Project, SyncDoc } from '../../shared/project-schema.ts';
 
@@ -18,8 +18,8 @@ interface Owner {
   layerId: string | null;
   scratch: LayerConfig | Camera | Project['output'];
   dirty: boolean;
-  /** A layer with its own timeline: its duration and loop (its transport is read per frame). */
-  timeline: { duration: number; loop: boolean } | null;
+  /** A layer with its own timeline: its settings (its transport is read per frame). */
+  timeline: TimelineSettings | null;
   /** Timeline phase for this owner's bindings, set at the start of each frame. */
   phase: number;
 }
@@ -104,7 +104,7 @@ export class ModulationEngine {
           layerId: target.kind === 'layer' ? target.layerId : null,
           scratch: structuredClone(source) as Owner['scratch'],
           dirty: false,
-          timeline: own ? { duration: own.duration, loop: own.loop } : null,
+          timeline: own ? { duration: own.duration, loop: own.loop, playback: own.playback } : null,
           phase: 0,
         });
         ownerIndex.set(key, index);
@@ -126,14 +126,14 @@ export class ModulationEngine {
     const doc = this.doc;
     if (!doc) return;
     const timeline = doc.project.timeline;
-    this._phase = timelinePhase(doc.session.transport, timeline.duration, timeline.loop, nowMs);
+    this._phase = playhead(doc.session.transport, timeline, nowMs);
     if (this.bindings.length === 0) return;
 
     // Layers with their own timeline run on their own transport (no allocation: a lookup each).
     for (let i = 0; i < this.owners.length; i++) {
       const o = this.owners[i]!;
       const t = o.timeline;
-      o.phase = t ? timelinePhase(doc.session.layerTransports[o.layerId!] ?? doc.session.transport, t.duration, t.loop, nowMs) : this._phase;
+      o.phase = t ? playhead(doc.session.layerTransports[o.layerId!] ?? doc.session.transport, t, nowMs) : this._phase;
     }
     for (let i = 0; i < this.bindings.length; i++) {
       const b = this.bindings[i]!;
