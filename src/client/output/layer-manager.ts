@@ -6,7 +6,8 @@ import { lineStructureKey } from '../../data/line-data.ts';
 import { multiplesStructureKey } from '../../data/multiples-data.ts';
 import { surfaceStructureKey } from '../../data/surface-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
-import type { SyncDoc } from '../../shared/project-schema.ts';
+import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
+import type { TemplateCredits } from '../../shared/text-template.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
 import { createHeatmap } from './layers/heatmap.ts';
 import { createHierarchy } from './layers/hierarchy.ts';
@@ -29,17 +30,21 @@ type LayerOf<T extends LayerType> = Extract<LayerConfig, { type: T }>;
 /** A built layer that takes uniform-only updates. */
 export interface ApplicableLayer<L> extends LayerInstance {
   apply(layer: L, cameraMode: CameraMode): void;
+  /** Layers that show their dataset's credits (text) take changes to them here. */
+  setCredits?(credits: TemplateCredits | null): void;
 }
 
 /**
  * How one layer type is built. `structureKey` lists the fields whose change needs a rebuild
  * (new buffers or textures); every other change goes through the instance's apply().
- * `needsData` false means the type builds without a dataset when datasetId is null.
+ * `needsData` false means the type builds without a table: with no dataset, or before its
+ * dataset has loaded (it is rebuilt when the table arrives, as the data version is in the key).
+ * `credits` is the layer's dataset entry (source, url, attribution), or null without one.
  */
 interface LayerKind<L extends LayerConfig> {
   structureKey(layer: L, timeZone: string, data: LoadedDataset | null): string;
   needsData: boolean;
-  create(layer: L, data: LoadedDataset | null, cameraMode: CameraMode): ApplicableLayer<L>;
+  create(layer: L, data: LoadedDataset | null, cameraMode: CameraMode, credits: TemplateCredits | null): ApplicableLayer<L>;
 }
 
 function required(data: LoadedDataset | null): LoadedDataset {
@@ -73,7 +78,9 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     // Template, row and every style property are applied in place (text layout is async).
     structureKey: (layer) => JSON.stringify([layer.datasetId]),
     needsData: false,
-    create: (layer, data, mode) => createTextLayer(layer, data ? { table: data.table, timeZone: data.timeZone } : null, mode),
+    // Credits show at once; column fields show the dash until the table loads ("loading").
+    create: (layer, data, mode, credits) =>
+      createTextLayer(layer, data ? { table: data.table, timeZone: data.timeZone } : null, mode, credits, !data && credits !== null),
   },
   multiples: {
     structureKey: (layer, timeZone) => multiplesStructureKey(layer, timeZone),
@@ -132,8 +139,12 @@ function kindOf(layer: LayerConfig): LayerKind<LayerConfig> {
  * Reconciles the project's layer list with built layer instances. A layer is rebuilt only
  * when its type, its structure (see each kind's structureKey) or its dataset's version
  * changes; everything else is a uniform update through apply(). Layers whose dataset has
- * not loaded yet are simply not built (waiting is not an error); a text layer with no
- * dataset builds straight away and shows its static text.
+ * not loaded yet are simply not built (waiting is not an error); a text layer builds
+ * straight away and shows its static text and credits.
+ *
+ * Credits (a dataset's source, url and attribution) live in project.json, not in the table:
+ * they are pushed to instances with setCredits when the dataset entry changes, so editing
+ * them never rebuilds a layer.
  */
 export class LayerManager {
   private keys = new Map<string, string>();
@@ -141,6 +152,8 @@ export class LayerManager {
   /** Last config pushed into each instance (base, modulated or morphed): what is on screen. */
   private displayed = new Map<string, LayerConfig>();
   private orders = new Map<string, number>();
+  /** The dataset entry last given to each layer as its credits (compared by reference). */
+  private credits = new Map<string, Dataset | null>();
   private enabled = new Map<string, boolean>();
   /** Layers kept visible while a morph fades them, whatever their `enabled` says. */
   private forcedVisible = new Set<string>();
@@ -160,6 +173,7 @@ export class LayerManager {
     const cameraChanged = cameraMode !== this._cameraMode;
     this._cameraMode = cameraMode;
     const timeZones = timeZonesOf(doc);
+    const datasetById = new Map(doc.project.datasets.map((d) => [d.id, d]));
     const seen = new Set<string>();
 
     doc.project.layers.forEach((layer, index) => {
@@ -167,6 +181,7 @@ export class LayerManager {
       if (!kind) return;
       seen.add(layer.id);
       const data = layer.datasetId ? this.datasets.get(layer.datasetId) : null;
+      const credits = (layer.datasetId && datasetById.get(layer.datasetId)) || null;
       const key = this.keyOf(layer, timeZones);
       if (key === null) {
         this.drop(layer.id);
@@ -176,11 +191,16 @@ export class LayerManager {
         this.keys.set(layer.id, key);
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
-        this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode)));
+        this.credits.set(layer.id, credits);
+        this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode), credits));
       } else if (layer !== this.applied.get(layer.id) || cameraChanged) {
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
         this.host.call<ApplicableLayer<LayerConfig>>(layer.id, (inst) => inst.apply(layer, modeFor(layer, cameraMode)));
+      }
+      if (credits !== this.credits.get(layer.id)) {
+        this.credits.set(layer.id, credits);
+        this.host.call<ApplicableLayer<LayerConfig>>(layer.id, (inst) => inst.setCredits?.(credits));
       }
       this.orders.set(layer.id, LAYER_ORDER_BASE + index);
       this.enabled.set(layer.id, layer.enabled);
@@ -238,6 +258,7 @@ export class LayerManager {
     this.keys.delete(id);
     this.applied.delete(id);
     this.displayed.delete(id);
+    this.credits.delete(id);
     if (!instance) this.host.remove(id);
     return instance as ApplicableLayer<LayerConfig> | null;
   }
@@ -260,7 +281,7 @@ export class LayerManager {
     const kind = kindOf(layer);
     if (!kind) return null;
     const data = layer.datasetId ? this.datasets.get(layer.datasetId) : null;
-    if (!data && (kind.needsData || layer.datasetId)) return null;
+    if (!data && kind.needsData) return null;
     const timeZone = (layer.datasetId && timeZones.get(layer.datasetId)) || 'UTC';
     return `${layer.type}|${kind.structureKey(layer, timeZone, data)}|${data?.version ?? '-'}`;
   }
@@ -303,6 +324,7 @@ export class LayerManager {
     this.keys.delete(id);
     this.applied.delete(id);
     this.displayed.delete(id);
+    this.credits.delete(id);
     this.host.remove(id);
   }
 }
