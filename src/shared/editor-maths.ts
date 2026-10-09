@@ -1,5 +1,5 @@
 import { FRAME_CENTRE, type LayerTransform } from './layer-schema.ts';
-import type { Camera } from './project-schema.ts';
+import { defaultDof, type Camera } from './project-schema.ts';
 
 /**
  * Pure maths for the preview's direct-manipulation editor (gizmo and orbit camera). Plain
@@ -62,7 +62,8 @@ export function orbitFromCamera(cfg: Camera): { position: V3; target: V3 } {
  * unwrapped to the turn nearest `refYaw`, so dragging past ±180° keeps counting rather
  * than jumping; pitch is clamped to the schema's ±89°. Values are rounded (0.001°,
  * 1e-5 distance, 0.01 px) so patches stay readable. `projection` is passed through (an
- * isometric view stays isometric while orbiting; its distance is the zoom). Returns null for
+ * isometric view stays isometric while orbiting; its distance is the zoom), and so is `dof`
+ * (copied, so the result never shares it). Returns null for
  * a degenerate camera (eye on the target).
  */
 export function cameraFromOrbit(
@@ -71,6 +72,7 @@ export function cameraFromOrbit(
   fov: number,
   refYaw = 0,
   projection: Camera['projection'] = 'perspective',
+  dof: Camera['dof'] = defaultDof(),
 ): Camera | null {
   const dx = (position[0] ?? 0) - (target[0] ?? 0);
   const dy = (position[1] ?? 0) - (target[1] ?? 0);
@@ -82,6 +84,7 @@ export function cameraFromOrbit(
   return {
     mode: '3d',
     projection,
+    dof: { ...dof },
     fov,
     yaw: round(unwrapDegrees(yaw, refYaw), 1000),
     pitch: round(Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch)), 1000),

@@ -147,6 +147,10 @@ the NVIDIA GPU.
   angle. Box instancers have an **Edges** folder (width in px, face opacity, edge glow) with
   **Red outline** and **Neon** presets. Add a **reflection plane** layer for a mirror floor;
   place it with the gizmo or **Lay flat as floor**. It costs one extra scene render.
+- **Depth of field:** in the Camera card (3D only), tick **on** and set **focus** (px from
+  the camera target, + further away), **sharp depth** and **blur**. **Focus on target** puts
+  the sharp plane through the point the camera orbits. Layers fixed to the screen stay sharp.
+  Focus and blur can be animated with modulators, for a rack focus.
 - **Fixed to screen:** tick it in a layer's **Transform** folder to draw that layer with
   the 2D screen camera, so 3D camera moves don't affect it, as for titles.
 - **Camera moves:** in the Camera card under Motion, pick a preset (orbit, swing, zoom, pan,

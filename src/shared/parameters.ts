@@ -47,6 +47,9 @@ const CAMERA_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   pitch: { label: 'pitch', min: -89, max: 89, hardMin: -89, hardMax: 89 },
   distance: { label: 'distance', min: 0.2, max: 5, hardMin: 0.01 },
   target: AXES.map((a) => ({ label: `target ${a}`, min: -2000, max: 2000 })),
+  'dof.focus': { label: 'focus', min: -2000, max: 2000, hardMin: -20_000, hardMax: 20_000 },
+  'dof.depth': { label: 'sharp depth', min: 0, max: 2000, hardMin: 0, hardMax: 20_000 },
+  'dof.amount': { label: 'focus blur', min: 0, max: 40, hardMin: 0, hardMax: 40 },
 };
 
 /** Fields every layer type has (opacity and its glow / trails settings; the transform is separate). */

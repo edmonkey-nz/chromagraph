@@ -17,6 +17,7 @@
  */
 
 import type { LayerEffects } from './layer-schema.ts';
+import type { Dof } from './project-schema.ts';
 
 export type MorphEasing = 'linear' | 'smooth' | 'ease-in' | 'ease-out';
 
@@ -283,18 +284,20 @@ export interface MorphCamera {
   target: [number, number, number];
   /** Switches to the target's at once (a projection cannot be blended). */
   projection: 'perspective' | 'isometric';
+  dof: Dof;
 }
 
 /**
  * Camera blend into `out`. Numbers lerp, yaw goes the shortest way round. A 2D camera is
  * treated as the 3D camera that frames the same picture (yaw = pitch = 0, distance 1,
  * target centred; see CameraSchema), so a 2D <-> 3D morph is a continuous camera move:
- * 2D -> 3D switches to the perspective camera at the start, 3D -> 2D at the end. Exact at
- * u = 0 and u = 1.
+ * 2D -> 3D switches to the perspective camera at the start, 3D -> 2D at the end. Depth of
+ * field blends as lerpDof does. Exact at u = 0 and u = 1.
  */
 export function lerpCamera(from: MorphCamera, to: MorphCamera, u: number, out: MorphCamera): MorphCamera {
   const src = u <= 0 ? from : to;
   out.projection = u <= 0 ? from.projection : to.projection;
+  lerpDof(from.dof, to.dof, u, out.dof);
   if (u <= 0 || u >= 1) {
     out.mode = src.mode;
     out.fov = src.fov;
@@ -320,6 +323,29 @@ export function lerpCamera(from: MorphCamera, to: MorphCamera, u: number, out: M
   for (let i = 0; i < 3; i++) {
     out.target[i] = lerp(flatFrom ? 0 : from.target[i]!, flatTo ? 0 : to.target[i]!, u);
   }
+  return out;
+}
+
+/**
+ * Depth of field blend into `out`. Numbers lerp; switched on or off by the morph, it stays on
+ * for the whole morph while its blur ramps from or to zero, at the focus of the side that has
+ * it. Exact at u = 0 and u = 1.
+ */
+export function lerpDof(from: Dof, to: Dof, u: number, out: Dof): Dof {
+  if (u <= 0 || u >= 1 || (!from.enabled && !to.enabled)) {
+    const src = u <= 0 ? from : to;
+    out.enabled = src.enabled;
+    out.focus = src.focus;
+    out.depth = src.depth;
+    out.amount = src.amount;
+    return out;
+  }
+  const a = from.enabled ? from : to;
+  const b = to.enabled ? to : from;
+  out.enabled = true;
+  out.focus = lerp(a.focus, b.focus, u);
+  out.depth = lerp(a.depth, b.depth, u);
+  out.amount = lerp(from.enabled ? from.amount : 0, to.enabled ? to.amount : 0, u);
   return out;
 }
 

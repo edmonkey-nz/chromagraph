@@ -19,6 +19,9 @@ import { defaultCamera, type Camera, type SyncDoc } from '../../shared/project-s
  *
  * Motion: camera move presets with a speed (shared/camera-motion.ts). They are camera
  * modulators, so they also show (and can be fine-tuned) in the Modulation card.
+ *
+ * Depth of field (DofSchema, 3D only): moving a slider while it is off switches it on, as
+ * the layers' effect folders do.
  */
 
 const MODULATED_SUFFIX = ' ~';
@@ -42,6 +45,7 @@ export class CameraPanel {
   private motionFolder: FolderApi;
   private speedApi: BladeApi;
   private doc: SyncDoc | null = null;
+  private dof = { enabled: false, focus: 0, depth: 200, amount: 12 };
 
   constructor(
     private root: FolderApi,
@@ -105,6 +109,38 @@ export class CameraPanel {
       });
     this.renderMotion();
 
+    const dofFolder = root.addFolder({ title: 'Depth of field', expanded: false });
+    const dof = this.dof;
+    const setDof = (field: keyof Camera['dof'], value: unknown) => {
+      if (this.quietDepth > 0) return;
+      const ops: PatchOp[] = [{ op: 'set', path: ['project', 'camera', 'dof', field], value }];
+      if (field !== 'enabled' && !dof.enabled) {
+        dof.enabled = true;
+        ops.push({ op: 'set', path: ['project', 'camera', 'dof', 'enabled'], value: true });
+        this.quietDepth++;
+        try {
+          dofFolder.refresh();
+        } finally {
+          this.quietDepth--;
+        }
+      }
+      this.sendPatch(ops);
+    };
+    dofFolder.addBinding(dof, 'enabled', { label: 'on' }).on('change', (ev) => setDof('enabled', ev.value)).element.title =
+      '3D camera only. Blurs what is nearer or further than the focus. Layers fixed to the screen stay sharp, on top';
+    const dofSliders: [keyof typeof dof & ('focus' | 'depth' | 'amount'), string, { min: number; max: number; step: number }, string][] = [
+      ['focus', 'focus', { min: -2000, max: 2000, step: 1 }, 'Where the sharp plane is: px from the camera target, + further away'],
+      ['depth', 'sharp depth', { min: 0, max: 2000, step: 1 }, 'How deep the sharp zone is (px); the blur then grows over the same depth again'],
+      ['amount', 'blur', { min: 0, max: 40, step: 0.5 }, 'Most blur, in px at 1080p'],
+    ];
+    for (const [field, label, range, hint] of dofSliders) {
+      const api = dofFolder.addBinding(dof, field, { label, ...range }).on('change', (ev) => setDof(field, ev.value));
+      api.element.title = hint;
+      this.labelled.push({ api, label, ids: [`camera.dof.${field}`] });
+    }
+    dofFolder.addButton({ title: 'Focus on target' }).on('click', () => setDof('focus', 0)).element.title =
+      'Put the sharp plane through the camera target (the point it orbits)';
+
     root.element.addEventListener('pointerdown', () => (this.dragging = true));
     window.addEventListener('pointerup', () => (this.dragging = false));
     window.addEventListener('pointercancel', () => (this.dragging = false));
@@ -151,6 +187,7 @@ export class CameraPanel {
     }
     Object.assign(this.cam, { mode: c.mode, projection: c.projection, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
     this.cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
+    Object.assign(this.dof, c.dof);
     this.quietDepth++;
     try {
       this.root.refresh();

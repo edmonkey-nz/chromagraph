@@ -13,14 +13,14 @@ import {
   unwrapDegrees,
 } from '../../src/shared/editor-maths.ts';
 import type { LayerTransform } from '../../src/shared/layer-schema.ts';
-import type { Camera } from '../../src/shared/project-schema.ts';
+import { defaultDof, type Camera } from '../../src/shared/project-schema.ts';
 import { Stage } from '../../src/client/output/stage.ts';
 
 const cams: Camera[] = [
-  { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective' },
-  { mode: '3d', fov: 30, yaw: 35, pitch: 20, distance: 1.7, target: [120, -40, 15], projection: 'perspective' },
-  { mode: '3d', fov: 90, yaw: -150, pitch: -60, distance: 0.4, target: [-300, 200, -80], projection: 'perspective' },
-  { mode: '3d', fov: 60, yaw: 179, pitch: 88, distance: 3, target: [0, 0, 500], projection: 'perspective' },
+  { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective', dof: defaultDof() },
+  { mode: '3d', fov: 30, yaw: 35, pitch: 20, distance: 1.7, target: [120, -40, 15], projection: 'perspective', dof: defaultDof() },
+  { mode: '3d', fov: 90, yaw: -150, pitch: -60, distance: 0.4, target: [-300, 200, -80], projection: 'perspective', dof: defaultDof() },
+  { mode: '3d', fov: 60, yaw: 179, pitch: 88, distance: 3, target: [0, 0, 500], projection: 'perspective', dof: defaultDof() },
 ];
 
 function expectCameraClose(a: Camera, b: Camera): void {
@@ -57,26 +57,36 @@ describe('camera orbit maths', () => {
   });
 
   it('unwraps yaw towards the reference turn', () => {
-    const cfg: Camera = { mode: '3d', fov: 45, yaw: 370, pitch: 10, distance: 1, target: [0, 0, 0], projection: 'perspective' };
+    const cfg: Camera = { mode: '3d', fov: 45, yaw: 370, pitch: 10, distance: 1, target: [0, 0, 0], projection: 'perspective', dof: defaultDof() };
     const { position, target } = orbitFromCamera(cfg);
     expect(cameraFromOrbit(position, target, 45, 360)!.yaw).toBeCloseTo(370, 6);
     expect(cameraFromOrbit(position, target, 45, 0)!.yaw).toBeCloseTo(10, 6);
   });
 
   it('rounds so patches stay readable', () => {
-    const { position, target } = orbitFromCamera({ mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1.2, target: [0, 0, 0], projection: 'perspective' });
+    const { position, target } = orbitFromCamera({ mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1.2, target: [0, 0, 0], projection: 'perspective', dof: defaultDof() });
     const cfg = cameraFromOrbit(position, target, 45)!;
     expect(cfg.distance).toBe(1.2);
     expect(cfg.pitch).toBe(0);
   });
 
   it('keeps the projection while orbiting', () => {
-    const cfg: Camera = { mode: '3d', fov: 45, yaw: 45, pitch: 35.26, distance: 1.5, target: [0, 0, 0], projection: 'isometric' };
+    const cfg: Camera = { mode: '3d', fov: 45, yaw: 45, pitch: 35.26, distance: 1.5, target: [0, 0, 0], projection: 'isometric', dof: defaultDof() };
     const { position, target } = orbitFromCamera(cfg);
     const back = cameraFromOrbit(position, target, cfg.fov, cfg.yaw, cfg.projection)!;
     expect(back.projection).toBe('isometric');
     expectCameraClose(back, cfg);
     expect(cameraFromOrbit(position, target, cfg.fov)!.projection).toBe('perspective');
+  });
+
+  it('keeps depth of field while orbiting, as a copy', () => {
+    const dof = { enabled: true, focus: -120, depth: 300, amount: 18 };
+    const cfg: Camera = { mode: '3d', fov: 45, yaw: 20, pitch: 10, distance: 1, target: [0, 0, 0], projection: 'perspective', dof };
+    const { position, target } = orbitFromCamera(cfg);
+    const back = cameraFromOrbit(position, target, cfg.fov, cfg.yaw, cfg.projection, dof)!;
+    expect(back.dof).toEqual(dof);
+    expect(back.dof).not.toBe(dof);
+    expect(cameraFromOrbit(position, target, cfg.fov)!.dof.enabled).toBe(false);
   });
 
   it('clamps pitch to the schema and rejects a degenerate eye', () => {
@@ -97,7 +107,7 @@ describe('isometric camera', () => {
 
   it('fills the frame with the z = 0 plane at yaw = pitch = 0, distance 1', () => {
     const fake = stageWith();
-    Stage.prototype.setCamera.call(fake as unknown as Stage, { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'isometric' });
+    Stage.prototype.setCamera.call(fake as unknown as Stage, { mode: '3d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'isometric', dof: defaultDof() });
     expect(fake.camera).toBe(fake.isometricCamera);
     const cam = fake.isometricCamera;
     cam.updateMatrixWorld();
@@ -115,7 +125,7 @@ describe('isometric camera', () => {
 
   it('orbits like the perspective camera and keeps the scene inside near/far', () => {
     for (const base of cams) {
-      const cfg: Camera = { ...base, projection: 'isometric' };
+      const cfg: Camera = { ...base, projection: 'isometric', dof: defaultDof() };
       const fake = stageWith();
       Stage.prototype.setCamera.call(fake as unknown as Stage, cfg);
       const { position, target } = orbitFromCamera(cfg);

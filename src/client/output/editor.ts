@@ -16,7 +16,7 @@ import { cameraFromOrbit, gizmoSnap, orbitFromCamera, PITCH_LIMIT, proxyFromTran
 import { unwrap, wrap, type ControlToPreview, type GizmoMode, type PreviewToControl } from '../../shared/editor-protocol.ts';
 import type { LayerConfig } from '../../shared/layer-schema.ts';
 import type { LayerTransform } from '../../shared/layer-schema.ts';
-import type { Camera, SyncDoc } from '../../shared/project-schema.ts';
+import { defaultDof, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
 import { applyLayerTransform } from './layers/transform.ts';
 import { OUTPUT_HEIGHT, OUTPUT_WIDTH, type Stage } from './stage.ts';
 
@@ -85,6 +85,7 @@ export class PreviewEditor {
   private orbitRefYaw = 0;
   /** The projection of the camera being orbited (kept: zooming an isometric view scales it). */
   private orbitProjection: Camera['projection'] = 'perspective';
+  private orbitDof: Camera['dof'] = defaultDof();
   private cameraOverride: Camera | null = null;
   private cameraUntil = 0;
   private cameraFinalTimer: ReturnType<typeof setTimeout> | null = null;
@@ -441,6 +442,7 @@ export class PreviewEditor {
     cam.updateProjectionMatrix();
     this.orbitRefYaw = cfg.yaw;
     this.orbitProjection = cfg.projection;
+    this.orbitDof = { ...cfg.dof };
     this.orbiting = true;
   }
 
@@ -449,7 +451,7 @@ export class PreviewEditor {
     if (!tools || !this.orbiting) return;
     const p = tools.orbitCamera.position;
     const t = tools.orbit.target;
-    const cfg = cameraFromOrbit([p.x, p.y, p.z], [t.x, t.y, t.z], tools.orbitCamera.fov, this.orbitRefYaw, this.orbitProjection);
+    const cfg = cameraFromOrbit([p.x, p.y, p.z], [t.x, t.y, t.z], tools.orbitCamera.fov, this.orbitRefYaw, this.orbitProjection, this.orbitDof);
     if (!cfg) return;
     this.orbitRefYaw = cfg.yaw;
     this.cameraOverride = cfg;

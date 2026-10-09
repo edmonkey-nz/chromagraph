@@ -1,5 +1,6 @@
 import {
   Color,
+  DepthTexture,
   Mesh,
   Matrix3,
   OrthographicCamera,
@@ -11,6 +12,7 @@ import {
   WebGLRenderer,
   WebGLRenderTarget,
   type Camera as ThreeCamera,
+  type Material,
   type Object3D,
 } from 'three';
 import {
@@ -26,7 +28,9 @@ import { emptyFxLayer, type FxLayer } from '../../shared/effects-plan.ts';
 import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homography.ts';
 import type { LayerEffects } from '../../shared/layer-schema.ts';
 import { isometricHalfSize, ISOMETRIC_DEPTH } from '../../shared/editor-maths.ts';
+import { dofShows } from '../../shared/dof.ts';
 import { defaultCamera, type Camera } from '../../shared/project-schema.ts';
+import { DepthOfField } from './dof.ts';
 import { PostEffects } from './effects.ts';
 import { LayerImages } from './layer-image.ts';
 
@@ -97,6 +101,13 @@ export const OUTPUT_HEIGHT = 1080;
  * into the same target (shared/compose-plan.ts; shadows and blur in layer-image.ts). Only the
  * first segment clears; the target keeps its multisampled image between renders (three only
  * invalidates it after resolving in the Oculus browser).
+ *
+ * Camera depth of field (dof.ts) blurs the 3D scene by its depth, in place, before the
+ * effects. The target gets a depth texture the first time it is switched on. Layers that draw
+ * without writing depth (text, labels, translucent layers) and blurred layers (drawn as
+ * images) then have their depth written in a depth-only pass (writeMissingDepth), so they are
+ * focused where they are, not by what is behind them. Screen-fixed layers are left out of
+ * the scene for that, then drawn on top, sharp.
  */
 export class Stage {
   readonly renderer: WebGLRenderer;
@@ -147,6 +158,15 @@ export class Stage {
   private readonly savedClear = new Color();
   /** This frame's clock (performance.now()), for the layer images' release timing. */
   private now = 0;
+  private dof: DepthOfField;
+  /** True once the scene target has a depth texture (made when depth of field is first on). */
+  private depthTextured = false;
+  /** Per frame with depth of field: screen-fixed layers held back, then drawn on top. */
+  private readonly held: Object3D[] = [];
+  /** Materials forced to depth-only by writeMissingDepth, and their own settings. */
+  private readonly forced: Material[] = [];
+  private readonly forcedState: boolean[] = [];
+  private needsDepth = false;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -194,6 +214,14 @@ export class Stage {
       this.target.samples,
     );
     this.images = new LayerImages(
+      this.renderer,
+      this.target.width,
+      this.target.height,
+      this.targetScale,
+      (message) => this.events.report?.(message),
+      (scene) => this.verifyObject(scene),
+    );
+    this.dof = new DepthOfField(
       this.renderer,
       this.target.width,
       this.target.height,
@@ -258,6 +286,10 @@ export class Stage {
       d.target[1] = cfg.target[1];
       d.target[2] = cfg.target[2];
       d.projection = cfg.projection;
+      d.dof.enabled = cfg.dof.enabled;
+      d.dof.focus = cfg.dof.focus;
+      d.dof.depth = cfg.dof.depth;
+      d.dof.amount = cfg.dof.amount;
     }
     if (cfg.mode === '2d') {
       this.camera = this.orthoCamera;
@@ -336,12 +368,23 @@ export class Stage {
     if (this.contextLost) return;
     const now = performance.now();
     this.now = now;
-    if (this.collectCompose()) this.renderSegments(this.target, this.compose, this.composeCount, this.composePlan);
-    else {
-      this.renderer.setRenderTarget(this.target);
-      this.renderer.render(this.scene, this.camera);
+    const dof = this.camera !== this.orthoCamera && dofShows(this.displayedCamera, this.targetScale) && this.dof.usable();
+    if (dof && !this.depthTextured) {
+      this.depthTextured = true;
+      this.replaceTarget();
+    }
+    if (dof) this.holdScreenFixed();
+    try {
+      this.renderScene();
+      if (dof) {
+        this.writeMissingDepth();
+        this.dof.apply(this.target, this.camera, this.displayedCamera, now);
+      }
+    } finally {
+      if (dof) this.releaseHeld();
     }
     this.images.release(now);
+    this.dof.release(now);
     const warp = this.warpMaterial.uniforms;
     this.collectEffects();
     if (this.post.active(this.fx, this.fxCount)) {
@@ -359,6 +402,102 @@ export class Stage {
     if (this.fade < 1) this.background.getRGB(this.fadeColour, SRGBColorSpace);
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.warpScene, this.warpCamera);
+  }
+
+  /** The scene (its visible layers) into the target: one render, or in segments. */
+  private renderScene(): void {
+    if (this.collectCompose()) this.renderSegments(this.target, this.compose, this.composeCount, this.composePlan);
+    else {
+      this.renderer.setRenderTarget(this.target);
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  /** Hide the visible screen-fixed layers (depth of field), keeping them in `held`. */
+  private holdScreenFixed(): void {
+    const children = this.scene.children;
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]!;
+      if (!child.visible || !this.screenFixed(child)) continue;
+      child.visible = false;
+      this.held.push(child);
+    }
+  }
+
+  /** Show the held layers again and draw them over the target, in stack order. */
+  private releaseHeld(): void {
+    const held = this.held;
+    if (held.length === 0) return;
+    for (let i = 0; i < held.length; i++) held[i]!.visible = true;
+    try {
+      this.drawOnly(this.target, held, held.length, true);
+    } finally {
+      held.length = 0;
+    }
+  }
+
+  /**
+   * Depth of field: write the depth of visible layers that drew colour without it (text,
+   * labels, translucent layers, blurred layers) into the target, with every material of
+   * those layers forced to depth only for one render.
+   */
+  private writeMissingDepth(): void {
+    const children = this.scene.children;
+    const hidden = this.hiddenInner;
+    const forced = this.forced;
+    const state = this.forcedState;
+    hidden.length = 0;
+    try {
+      let any = false;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]!;
+        if (!child.visible) continue;
+        this.needsDepth = effectsOf(child)?.blur.enabled === true;
+        if (!this.needsDepth) child.traverseVisible(this.findMissingDepth);
+        if (this.needsDepth) {
+          any = true;
+          child.traverseVisible(this.forceDepthOnly);
+        } else {
+          child.visible = false;
+          hidden.push(child);
+        }
+      }
+      if (any) this.renderOver(this.target, this.camera);
+    } finally {
+      for (let i = 0; i < hidden.length; i++) hidden[i]!.visible = true;
+      hidden.length = 0;
+      for (let i = 0; i < forced.length; i++) {
+        const m = forced[i]!;
+        m.depthWrite = state[2 * i]!;
+        m.colorWrite = state[2 * i + 1]!;
+      }
+      forced.length = 0;
+      state.length = 0;
+    }
+  }
+
+  private readonly findMissingDepth = (object: Object3D): void => {
+    if (this.needsDepth) return;
+    const m = (object as { material?: Material | Material[] }).material;
+    if (!m) return;
+    if (Array.isArray(m)) {
+      for (let i = 0; i < m.length; i++) if (!m[i]!.depthWrite && m[i]!.depthTest) this.needsDepth = true;
+    } else if (!m.depthWrite && m.depthTest) this.needsDepth = true;
+  };
+
+  private readonly forceDepthOnly = (object: Object3D): void => {
+    const m = (object as { material?: Material | Material[] }).material;
+    if (!m) return;
+    if (Array.isArray(m)) for (let i = 0; i < m.length; i++) this.forceOne(m[i]!);
+    else this.forceOne(m);
+  };
+
+  private forceOne(m: Material): void {
+    if (!m.depthTest) return; // drawn over everything: no depth to give
+    this.forced.push(m);
+    this.forcedState.push(m.depthWrite, m.colorWrite);
+    m.depthWrite = true;
+    m.colorWrite = false;
   }
 
   /** True when a top-level object is fixed to the screen and the project camera is not the screen camera. */
@@ -400,7 +539,7 @@ export class Stage {
    * the caller) in segments (see shared/compose-plan.ts) into `target`, cleared to the
    * background first.
    */
-  private renderSegments(target: WebGLRenderTarget, layers: readonly ComposeLayer[], count: number, plan: ComposePlan): void {
+  private renderSegments(target: WebGLRenderTarget, layers: readonly ComposeLayer[], count: number, plan: ComposePlan, clear = true): void {
     const r = this.renderer;
     planCompose(layers, count, plan);
     const autoClear = r.autoClear;
@@ -411,9 +550,11 @@ export class Stage {
     try {
       r.autoClear = false;
       r.setRenderTarget(target);
-      r.setClearColor(this.background, 1);
-      r.clear(true, true, true);
-      r.setClearColor(this.savedClear, clearAlpha);
+      if (clear) {
+        r.setClearColor(this.background, 1);
+        r.clear(true, true, true);
+        r.setClearColor(this.savedClear, clearAlpha);
+      }
       for (let s = 0; s < plan.segmentCount; s++) {
         const seg = plan.segments[s]!;
         const camera = seg.screen ? this.orthoCamera : this.camera;
@@ -517,9 +658,10 @@ export class Stage {
   /**
    * Draw only `objects[0..count)` into `target`, cleared to the background (per-layer glow
    * and trails), then restore visibility. They are drawn as in the scene: screen-fixed ones
-   * with the screen camera, with their shadows, blurred when blurred.
+   * with the screen camera, with their shadows, blurred when blurred. With `over`, they are
+   * drawn over what `target` holds instead (no clear).
    */
-  private drawOnly(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number): void {
+  private drawOnly(target: WebGLRenderTarget, objects: readonly (Object3D | null)[], count: number, over = false): void {
     const hidden = this.hidden;
     hidden.length = 0;
     let n = 0;
@@ -538,7 +680,8 @@ export class Stage {
         child.visible = false;
         hidden.push(child);
       }
-      if (needsCompose(this.subset, n)) this.renderSegments(target, this.subset, n, this.subsetPlan);
+      if (needsCompose(this.subset, n)) this.renderSegments(target, this.subset, n, this.subsetPlan, !over);
+      else if (over) this.renderOver(target, this.camera);
       else {
         this.renderer.setRenderTarget(target);
         this.renderer.render(this.scene, this.camera);
@@ -550,10 +693,37 @@ export class Stage {
     }
   }
 
+  /** Render the scene over what `target` holds (no clear, no background). */
+  private renderOver(target: WebGLRenderTarget, camera: ThreeCamera): void {
+    const r = this.renderer;
+    const autoClear = r.autoClear;
+    this.scene.background = null;
+    try {
+      r.autoClear = false;
+      r.setRenderTarget(target);
+      r.render(this.scene, camera);
+    } finally {
+      r.autoClear = autoClear;
+      this.scene.background = this.background;
+    }
+  }
+
   private makeTarget(): WebGLRenderTarget {
     const w = Math.round(OUTPUT_WIDTH * this.targetScale);
     const h = Math.round(OUTPUT_HEIGHT * this.targetScale);
-    return new WebGLRenderTarget(w, h, { samples: this.targetScale < 1 ? 0 : 4, depthBuffer: true });
+    return new WebGLRenderTarget(w, h, {
+      samples: this.targetScale < 1 ? 0 : 4,
+      depthBuffer: true,
+      depthTexture: this.depthTextured ? new DepthTexture(w, h) : null,
+    });
+  }
+
+  /** A new scene target (depth of field needs one with a depth texture). */
+  private replaceTarget(): void {
+    this.target.depthTexture?.dispose();
+    this.target.dispose();
+    this.target = this.makeTarget();
+    this.warpMaterial.uniforms.uImage!.value = this.target.texture;
   }
 
   private onLost = (ev: Event): void => {
@@ -565,12 +735,11 @@ export class Stage {
   private onRestored = (): void => {
     // Three re-initialises its GL state; our own render target is recreated so nothing
     // references objects from the dead context, then the caller rebuilds the layers.
-    this.target.dispose();
-    this.target = this.makeTarget();
-    this.warpMaterial.uniforms.uImage!.value = this.target.texture;
+    this.replaceTarget();
     this.warpMaterial.uniforms.uBloom!.value = null;
     this.post.contextRestored();
     this.images.contextRestored();
+    this.dof.contextRestored();
     this.contextLost = false;
     this.events.restored();
   };

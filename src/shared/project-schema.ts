@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 12;
+export const CURRENT_VERSION = 13;
 
 
 export const DatasetSchema = z.object({
@@ -26,6 +26,23 @@ export const DatasetSchema = z.object({
  * yaw = pitch = 0 and distance = 1 the z = 0 plane fills the frame exactly, so a 2D layout
  * looks the same in both modes until the camera moves.
  */
+/**
+ * Depth of field (3D camera only): what is `depth` px deep around the focus plane stays sharp;
+ * beyond it the blur grows over another `depth` px (at least 50) to `amount` px at 1080p.
+ * `focus` moves the focus plane from the camera's target, + further away (px).
+ */
+export const DofSchema = z.object({
+  enabled: z.boolean(),
+  focus: z.number().min(-20_000).max(20_000),
+  depth: z.number().min(0).max(20_000),
+  amount: z.number().min(0).max(40),
+});
+export type Dof = z.infer<typeof DofSchema>;
+
+export function defaultDof(): Dof {
+  return { enabled: false, focus: 0, depth: 200, amount: 12 };
+}
+
 export const CameraSchema = z.object({
   mode: z.enum(['2d', '3d']),
   /** Vertical field of view, degrees (3D). */
@@ -43,6 +60,7 @@ export const CameraSchema = z.object({
    * scales the view instead of moving the camera.
    */
   projection: z.enum(['perspective', 'isometric']),
+  dof: DofSchema,
 });
 export type Camera = z.infer<typeof CameraSchema>;
 
@@ -127,7 +145,7 @@ export function defaultProject(name: string): Project {
 }
 
 export function defaultCamera(): Camera {
-  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective' };
+  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective', dof: defaultDof() };
 }
 
 type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
@@ -275,6 +293,13 @@ export const migrations: Record<number, Migration> = {
   },
   // v12: per-layer drop shadow and blur, "fixed to screen", camera projection, instancer
   // edge style (all off / perspective).
+  // v13: the camera (and each scene's) gets depth of field (off).
+  12: (doc) => {
+    const camera = (c: unknown): unknown =>
+      c && typeof c === 'object' ? { dof: { enabled: false, focus: 0, depth: 200, amount: 12 }, ...(c as Doc) } : c;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, camera: camera(doc.camera), scenes: scenes.map((sc) => ({ ...sc, camera: camera(sc.camera) })) };
+  },
   11: (doc) => {
     const layer = (l: Doc): Doc => {
       const fx = (l.effects ?? {}) as Doc;
