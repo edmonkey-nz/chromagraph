@@ -416,6 +416,12 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   - It animates with requestAnimationFrame only while the tab is shown, and rebuilds its DOM
     only when the structure (groups, lanes, kinds) changes. Per frame it moves the playhead
     lines and value dots, redraws the on-screen scopes, and updates readouts 10 times a second.
+  - The header's "range" switch scales curve lanes to the slider range or fits them to their
+    values (`laneRange`: padded, a minimum height, rounded outwards), remembered per viewer.
+  - A group's timeline tag opens an inline editor: follow the project or use an own timeline
+    (`ownTimelineOps`), and set duration, loop and playback. It re-anchors the transport
+    through `layerTimeline(id)` and `reanchor`, as the Timeline card does, so nothing jumps.
+  - The × on a lane asks before removing the modulator.
 - **Modulation is per owner.** `ModulationPanel` takes a scope (`{kind:'layer', layerId}` or
   camera) and shows only that owner's modulators, an "Add modulator" for its parameters, the
   data playhead (layers) and its own orphans. `LayersPanel` puts one in each card's last
