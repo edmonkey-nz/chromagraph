@@ -424,7 +424,7 @@ const fragmentShader = /* glsl */ `
         vec2 px = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1.0e-6));
         float d = min(px.x, px.y);                       // screen px to the face's border
         float edge = 1.0 - smoothstep(uEdgeWidth - 0.5, uEdgeWidth + 0.5, d);
-        float halo = uEdgeGlow * 0.6 * exp(-max(d - uEdgeWidth, 0.0) / (3.0 + 2.0 * uEdgeWidth));
+        float halo = uEdgeGlow * uEdgeGlow * 0.6 * exp(-max(d - uEdgeWidth, 0.0) / (3.0 + 2.0 * uEdgeWidth));
         vec3 lit = mix(uEdgeColour * (1.0 + 2.0 * uEdgeGlow), vec3(1.0), 0.35 * uEdgeGlow);
         // Edge over halo over face, composited premultiplied.
         float under = halo + (1.0 - halo) * uFaceOpacity;
