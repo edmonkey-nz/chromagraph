@@ -628,7 +628,29 @@ export const SurfaceLayerSchema = LayerBaseSchema.extend({
 });
 export type SurfaceLayer = z.infer<typeof SurfaceLayerSchema>;
 
-export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface'] as const;
+/**
+ * Reflection plane: a flat mirror in 3D space showing the rest of the scene reflected (a
+ * glossy floor under 3D bars). Before the layer transform it is a `size` px rectangle centred
+ * on the frame centre, in the frame plane and facing the viewer; the default transform turns
+ * it to lie flat (rotation x -90) at the bottom of the frame. It needs no dataset.
+ *   colour        the plane's own colour where nothing is reflected
+ *   reflectivity  0..1, how strongly the mirrored scene shows over the colour
+ *   blur          0..1, roughness: 0 is a sharp mirror, 1 a soft glossy smear
+ *   fade          px: the reflection fades out over this distance from the plane (0 = no fade)
+ * Only the 3D camera reflects; with the 2D camera (or fixed to the screen) the plane is drawn
+ * in its colour alone. Costs one extra scene render per frame at half resolution.
+ */
+export const ReflectorLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('reflector'),
+  size: vec2,
+  colour: hexColour,
+  reflectivity: z.number().min(0).max(1),
+  blur: z.number().min(0).max(1),
+  fade: z.number().min(0),
+});
+export type ReflectorLayer = z.infer<typeof ReflectorLayerSchema>;
+
+export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector'] as const;
 export type LayerType = (typeof LAYER_TYPES)[number];
 
 /** Union of all layer types. */
@@ -640,6 +662,7 @@ export const LayerSchema = z.discriminatedUnion('type', [
   SmallMultiplesLayerSchema,
   HierarchyLayerSchema,
   SurfaceLayerSchema,
+  ReflectorLayerSchema,
 ]);
 export type LayerConfig = z.infer<typeof LayerSchema>;
 
@@ -856,5 +879,23 @@ export function blankSurfaceLayer(id: string, name: string, datasetId: string | 
     lit: true,
     wireframe: false,
     wireColour: '#ffffff',
+  };
+}
+
+/** The default reflector's transform: lying flat (rotated -90 about x) along the bottom of the frame. */
+export function floorTransform(): LayerTransform {
+  return { position: [0, -FRAME_CENTRE[1], 0], rotation: [-90, 0, 0], scale: [1, 1, 1], pivot: [...FRAME_CENTRE] };
+}
+
+export function blankReflectorLayer(id: string, name: string): ReflectorLayer {
+  return {
+    ...base(id, name, null),
+    type: 'reflector',
+    transform: floorTransform(),
+    size: [1920, 1080],
+    colour: '#0a0d12',
+    reflectivity: 0.5,
+    blur: 0.2,
+    fade: 300,
   };
 }

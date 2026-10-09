@@ -1,5 +1,12 @@
 import type { Object3D } from 'three';
 
+/**
+ * userData flag on each layer's root object: whether the layer should be drawn (enabled, or
+ * kept visible by a morph, and not failed), whatever a render pass does with `visible` for
+ * the moment (passes that draw only some layers hide the others). Reflections use it.
+ */
+export const SHOWN_TAG = 'shown';
+
 export interface FrameContext {
   /** Seconds since the output started (float64, from the single output clock). */
   time: number;
@@ -104,6 +111,7 @@ export class LayerHost {
     if (!slot?.instance) return;
     slot.instance.object.renderOrder = order;
     slot.instance.object.visible = visible && !slot.error;
+    slot.instance.object.userData[SHOWN_TAG] = slot.instance.object.visible;
   }
 
   /** Slot lookup without a closure (runs per frame for modulated and morphing layers). */
@@ -153,7 +161,10 @@ export class LayerHost {
 
   private fail(slot: Slot, message: string): void {
     slot.error = message;
-    if (slot.instance) slot.instance.object.visible = false;
+    if (slot.instance) {
+      slot.instance.object.visible = false;
+      slot.instance.object.userData[SHOWN_TAG] = false;
+    }
     this.refreshErrors();
     try {
       this.onError(slot.id, message);

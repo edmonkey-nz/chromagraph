@@ -13,6 +13,7 @@ import { createInstancer, instancerCalendarReady } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
 import { createLine } from './layers/line.ts';
 import { createMultiples } from './layers/multiples.ts';
+import { createReflector } from './layers/reflector.ts';
 import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
@@ -88,6 +89,12 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     structureKey: (layer, timeZone) => surfaceStructureKey(layer, timeZone),
     needsData: true,
     create: (layer, data, mode) => createSurface(layer, required(data), mode),
+  },
+  reflector: {
+    // No data and no buffers to size: every field is applied in place.
+    structureKey: () => '',
+    needsData: false,
+    create: (layer, _data, mode) => createReflector(layer, mode),
   },
 };
 

@@ -16,6 +16,7 @@ import { layerTimeline, ownTimelineOps, TimelinePanel } from './timeline-panel.t
 import { buildLine } from './line-folders.ts';
 import { buildMultiples } from './multiples-folders.ts';
 import { buildSurface } from './surface-folders.ts';
+import { buildReflector } from './reflector-folders.ts';
 import { buildText } from './text-folders.ts';
 import { h, iconButton } from './ui.ts';
 
@@ -30,8 +31,8 @@ import { h, iconButton } from './ui.ts';
  * The GUI never holds authoritative state: every edit is sent to the server and the pane is
  * rebuilt from the synced document when the layer changes structurally or someone else edits
  * it. The per-type folders are built in instancer-folders.ts, line-folders.ts,
- * heatmap-folders.ts, text-folders.ts, multiples-folders.ts, hierarchy-folders.ts and
- * surface-folders.ts.
+ * heatmap-folders.ts, text-folders.ts, multiples-folders.ts, hierarchy-folders.ts,
+ * surface-folders.ts and reflector-folders.ts.
  *
  * Only the open layer has a pane (so `entries` holds at most one layer); the other rows are
  * plain DOM, retitled as their layers change. Opening a layer selects it (for the preview's
@@ -545,8 +546,8 @@ export class LayersPanel {
         break;
       }
     }
-    // Text can be static; every other type needs data to map.
-    if (type !== 'text') {
+    // Text can be static and a reflection plane has no data; every other type needs data to map.
+    if (type !== 'text' && type !== 'reflector') {
       if (datasets.length === 0) {
         this.deps.showError('Import a dataset before adding a layer.');
         return;
@@ -626,7 +627,7 @@ export class LayersPanel {
     if (!cur) return;
     const summary = cur.layer.datasetId === null ? null : this.deps.summary(cur.layer.datasetId);
     const dataset = cur.doc.project.datasets.find((d) => d.id === cur.layer.datasetId);
-    if (cur.layer.type !== 'text' && (!summary || !dataset)) return;
+    if (cur.layer.type !== 'text' && cur.layer.type !== 'reflector' && (!summary || !dataset)) return;
     const fitted = fitAnyLayer(cur.layer, summary, dataset?.timeZone ?? 'UTC');
     const entry = this.entries.get(id);
     if (this.send(id, diffChanges(cur.layer, fitted)) && entry) entry.forceRebuild = true;
@@ -691,7 +692,7 @@ export class LayersPanel {
       entry,
       doc,
       summary,
-      canFit: layer.type === 'text' || (summary !== null && dataset !== undefined),
+      canFit: layer.type === 'text' || layer.type === 'reflector' || (summary !== null && dataset !== undefined),
       folder: (parent, title, key, expanded) => this.folderIn(entry, parent, title, `${id}/${key}`, expanded),
       set: (path: Path, value: unknown) => void this.send(id, [{ path, value }]),
       send: (changes) => this.send(id, changes),
@@ -728,6 +729,9 @@ export class LayersPanel {
           break;
         case 'surface':
           buildSurface(ui, layer, titleOf);
+          break;
+        case 'reflector':
+          buildReflector(ui, layer, titleOf);
           break;
       }
     });
