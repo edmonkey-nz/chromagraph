@@ -121,8 +121,7 @@ the NVIDIA GPU.
 - **Control window:** the preview and camera on the left; the right side has tabs for
   **Scene** (scenes, timeline, background, projector calibration), **Datasets**, **Layers**
   and **Timeline**. Output windows, diagnostics, problems and the log are in the drawer
-  along the bottom.
-  Click a tab to open it, and click it again to close it.
+  along the bottom: click a drawer tab to open it, and click it again to close it.
 - **Scenes:** capture looks, then morph between them (0.1–10 s).
 - **Effects:** glow and motion trails, set per layer in each layer card's **Glow** and
   **Trails** folders. Layers with the same settings cost nothing extra; each layer with
