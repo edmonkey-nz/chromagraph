@@ -481,4 +481,5 @@ function copyCamera(src: Camera, out: Camera): void {
   out.target[0] = src.target[0];
   out.target[1] = src.target[1];
   out.target[2] = src.target[2];
+  out.projection = src.projection;
 }

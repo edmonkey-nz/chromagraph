@@ -83,6 +83,8 @@ export class PreviewEditor {
   private orbiting = false;
   private orbitMoved = false;
   private orbitRefYaw = 0;
+  /** The projection of the camera being orbited (kept: zooming an isometric view scales it). */
+  private orbitProjection: Camera['projection'] = 'perspective';
   private cameraOverride: Camera | null = null;
   private cameraUntil = 0;
   private cameraFinalTimer: ReturnType<typeof setTimeout> | null = null;
@@ -436,6 +438,7 @@ export class PreviewEditor {
     cam.lookAt(tools.orbit.target);
     cam.updateProjectionMatrix();
     this.orbitRefYaw = cfg.yaw;
+    this.orbitProjection = cfg.projection;
     this.orbiting = true;
   }
 
@@ -444,7 +447,7 @@ export class PreviewEditor {
     if (!tools || !this.orbiting) return;
     const p = tools.orbitCamera.position;
     const t = tools.orbit.target;
-    const cfg = cameraFromOrbit([p.x, p.y, p.z], [t.x, t.y, t.z], tools.orbitCamera.fov, this.orbitRefYaw);
+    const cfg = cameraFromOrbit([p.x, p.y, p.z], [t.x, t.y, t.z], tools.orbitCamera.fov, this.orbitRefYaw, this.orbitProjection);
     if (!cfg) return;
     this.orbitRefYaw = cfg.yaw;
     this.cameraOverride = cfg;

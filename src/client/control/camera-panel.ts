@@ -22,10 +22,17 @@ import { defaultCamera, type Camera, type SyncDoc } from '../../shared/project-s
  */
 
 const MODULATED_SUFFIX = ' ~';
+/** The classic isometric view: pitch atan(1 / sqrt 2), so the three axes look equally foreshortened. */
+const ISOMETRIC_VIEW: [keyof Camera, unknown][] = [
+  ['mode', '3d'],
+  ['projection', 'isometric'],
+  ['yaw', 45],
+  ['pitch', 35.26],
+];
 const FIELDS = ['fov', 'yaw', 'pitch', 'distance'] as const;
 
 export class CameraPanel {
-  private cam = { mode: '2d' as Camera['mode'], fov: 45, yaw: 0, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 } };
+  private cam = { mode: '2d' as Camera['mode'], projection: 'perspective' as Camera['projection'], fov: 45, yaw: 0, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 } };
   private quietDepth = 0;
   private dragging = false;
   private seen: Camera | null = null;
@@ -47,6 +54,15 @@ export class CameraPanel {
     root
       .addBinding(cam, 'mode', { options: [{ text: '2D', value: '2d' }, { text: '3D', value: '3d' }] })
       .on('change', (ev) => set('mode', ev.value));
+    root
+      .addBinding(cam, 'projection', {
+        options: [
+          { text: 'perspective', value: 'perspective' },
+          { text: 'isometric', value: 'isometric' },
+        ],
+      })
+      .on('change', (ev) => set('projection', ev.value)).element.title =
+      '3D only. Isometric is orthographic: parallel edges stay parallel and distance zooms the view';
     const ranges: Record<(typeof FIELDS)[number], { min: number; max: number; step: number }> = {
       fov: { min: 5, max: 120, step: 1 },
       yaw: { min: -180, max: 180, step: 0.5 },
@@ -60,6 +76,11 @@ export class CameraPanel {
     const target = root.addBinding(cam, 'target').on('change', (ev) => set('target', [ev.value.x, ev.value.y, ev.value.z]));
     this.labelled.push({ api: target, label: 'target', ids: [0, 1, 2].map((i) => `camera.target.${i}`) });
 
+    root.addButton({ title: 'Isometric view' }).on('click', () => {
+      const ops: PatchOp[] = [];
+      for (const [field, value] of ISOMETRIC_VIEW) ops.push({ op: 'set', path: ['project', 'camera', field], value });
+      this.sendPatch(ops);
+    }).element.title = '3D, isometric projection, yaw 45°, pitch 35.26° (the classic isometric angle)';
     root.addButton({ title: 'Reset view' }).on('click', () => {
       const d = defaultCamera();
       this.sendPatch((['fov', 'yaw', 'pitch', 'distance', 'target'] as const).map((f) => ({ op: 'set', path: ['project', 'camera', f], value: d[f] })));
@@ -128,7 +149,7 @@ export class CameraPanel {
       const a = document.activeElement;
       if (this.dragging || (a instanceof HTMLInputElement && this.root.element.contains(a))) return;
     }
-    Object.assign(this.cam, { mode: c.mode, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
+    Object.assign(this.cam, { mode: c.mode, projection: c.projection, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
     this.cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
     this.quietDepth++;
     try {
