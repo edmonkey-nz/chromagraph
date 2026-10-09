@@ -927,6 +927,21 @@
       .ds-head select {
         max-width: 200px;
       }
+      .ds-credits {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 4px 8px;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .ds-credits label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .ds-credits input {
+        width: 100%;
+        min-width: 0;
+      }
       .ds-body {
         overflow-x: auto;
       }

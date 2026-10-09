@@ -4,10 +4,13 @@ import { parseCsv } from '../../src/data/parse.ts';
 import {
   bindTemplate,
   compileTemplate,
+  creditLine,
   formatNumber,
   MISSING_TEXT,
   renderTemplate,
+  sameCredits,
   templateRow,
+  type TemplateCredits,
   type TemplateTable,
 } from '../../src/shared/text-template.ts';
 
@@ -86,6 +89,67 @@ describe('renderTemplate on the rainfall record', () => {
     expect(bound.dynamic).toBe(false);
     expect(renderTemplate(bound, 0)).toBe('Rain {?Rainfall [mm]} mm');
     expect(bindTemplate(compileTemplate('{Rainfall [mm]}'), table, NZ).dynamic).toBe(true);
+  });
+});
+
+describe('dataset credits', () => {
+  const niwa: TemplateCredits = { source: 'NIWA CliFlo', url: 'https://cliflo.niwa.co.nz', attribution: '© NIWA, CC BY 4.0' };
+  const none: TemplateCredits = { source: '', url: '', attribution: '' };
+  const credit = (src: string, credits: TemplateCredits | null, t: TemplateTable | null = table, loading = false) =>
+    renderTemplate(bindTemplate(compileTemplate(src), t, NZ, { credits, loading }), 0);
+
+  it('shows each field as typed (trimmed)', () => {
+    expect(credit('{@source}', niwa)).toBe('NIWA CliFlo');
+    expect(credit('{@url}', niwa)).toBe('https://cliflo.niwa.co.nz');
+    expect(credit('{@attribution}', niwa)).toBe('© NIWA, CC BY 4.0');
+    expect(credit('Data: {@source}', { ...none, source: '  NIWA  ' })).toBe('Data: NIWA');
+    expect(credit('{@source|upper}', niwa)).toBe('NIWA CLIFLO');
+  });
+
+  it('composes the credit line from the non-empty parts', () => {
+    expect(creditLine(niwa)).toBe('Source: NIWA CliFlo · © NIWA, CC BY 4.0');
+    expect(creditLine({ ...niwa, attribution: '' })).toBe('Source: NIWA CliFlo');
+    expect(creditLine({ ...niwa, source: ' ' })).toBe('© NIWA, CC BY 4.0');
+    expect(creditLine({ ...none, url: 'https://cliflo.niwa.co.nz' })).toBe(''); // the link is not part of it
+    expect(creditLine(none)).toBe('');
+    expect(creditLine(null)).toBe('');
+    expect(credit('{@credit}', niwa)).toBe('Source: NIWA CliFlo · © NIWA, CC BY 4.0');
+  });
+
+  it('renders empty credits and no dataset as nothing, not the dash', () => {
+    expect(credit('[{@source}{@url}{@attribution}{@credit}]', none)).toBe('[]');
+    expect(credit('[{@source}{@url}{@attribution}{@credit}]', null, null)).toBe('[]');
+  });
+
+  it('is static text, even with a dataset', () => {
+    const bound = bindTemplate(compileTemplate('{@credit}'), table, NZ, { credits: niwa });
+    expect(bound.dynamic).toBe(false);
+    expect(bound.pieces).toEqual(['Source: NIWA CliFlo · © NIWA, CC BY 4.0']);
+  });
+
+  it('keeps mistakes visible as for columns', () => {
+    expect(credit('{@nope}', niwa)).toBe('{?@nope}');
+    expect(credit('{@nope|upper}', niwa, null)).toBe('{?@nope|upper}');
+    expect(credit('{@source|date}', niwa)).toBe('{@source|?date}');
+    expect(credit('{@Source}', niwa)).toBe('{?@Source}'); // names are case-sensitive, like columns
+  });
+
+  it('leaves column fields alone, including columns named with "@"', () => {
+    expect(credit('{Rainfall [mm]} {@source}', niwa)).toBe('0.0 NIWA CliFlo');
+    const at: TemplateTable = { rowCount: 1, columns: [{ name: '@station', type: 'text', values: ['Taita'] }] };
+    expect(credit('{@station} {@source}', niwa, at)).toBe('Taita NIWA CliFlo');
+  });
+
+  it('shows column fields as the dash while the dataset loads', () => {
+    expect(credit('{Rainfall [mm]} · {@source}', niwa, null, true)).toBe(`${MISSING_TEXT} · NIWA CliFlo`);
+    expect(credit('{Rainfall [mm]}', niwa, null, false)).toBe('{?Rainfall [mm]}');
+  });
+
+  it('compares credits by their text', () => {
+    expect(sameCredits(niwa, { ...niwa })).toBe(true);
+    expect(sameCredits(niwa, { ...niwa, url: '' })).toBe(false);
+    expect(sameCredits(null, null)).toBe(true);
+    expect(sameCredits(niwa, null)).toBe(false);
   });
 });
 
