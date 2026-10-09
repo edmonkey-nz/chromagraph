@@ -1040,15 +1040,15 @@
 
       /* ---- workspace: columns of cards ------------------------------------------------------------- */
       /*
-       * Wide: [show] [preview / look] [layers x2]. The layers run the full height from the header
-       * to the drawer; each zone scrolls on its own, like strips on a desk. In edit mode the
-       * preview spans both left columns.
+       * Wide: [preview / camera] [right zone x2, in tabs: Scene, Datasets, Layers, Timeline]. The
+       * right zone runs the full height from the header to the drawer; each zone scrolls on its
+       * own. In edit mode the left column widens for a bigger preview.
        */
       .workspace {
         /* Body rows are header, banners, workspace, drawer; placed explicitly, since an empty banner bar is display: none. */
         grid-row: 3;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
         grid-template-rows: auto minmax(0, 1fr);
         gap: var(--gap);
         padding: var(--gap) 16px var(--gap);
@@ -1058,26 +1058,36 @@
         display: contents;
       }
       .workspace .preview-panel {
-        grid-column: 2;
+        grid-column: 1;
         grid-row: 1;
       }
-      #zone-show {
-        grid-column: 1;
-        grid-row: 1 / span 2;
-      }
       #zone-look {
-        grid-column: 2;
+        grid-column: 1;
         grid-row: 2;
       }
       #zone-layers {
-        grid-column: 3;
+        grid-column: 2;
         grid-row: 1 / span 2;
       }
-      body.editing .workspace .preview-panel {
-        grid-column: 1 / span 2;
+      body.editing .workspace {
+        grid-template-columns: minmax(0, 1.6fr) minmax(0, 2fr);
       }
-      body.editing #zone-show {
-        grid-row: 2;
+      /*
+       * Scene tab: its cards (Scenes, Timeline, Output, Calibration) flow down columns at least
+       * 400 px wide, so a short card never leaves a gap under it.
+       */
+      #zone-layers > #panel-scene {
+        display: block;
+        columns: 400px;
+        column-gap: var(--gap);
+      }
+      #panel-scene > .card {
+        break-inside: avoid;
+        margin-bottom: var(--gap);
+      }
+      /* Datasets tab: as the dataset list was laid out in the drawer. */
+      #zone-layers > #panel-data {
+        gap: 10px;
       }
       .zone {
         display: flex;
@@ -1778,8 +1788,9 @@
       /* ---- responsive --------------------------------------------------------------------------------- */
       /* Medium (about 1100–1500 px): two columns; show + look stacked on the left, layers on the right. */
       @media (max-width: 1499px) {
-        .workspace {
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+        .workspace,
+        body.editing .workspace {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
           grid-template-rows: minmax(0, 1fr);
         }
         #zone-layers {
@@ -1893,16 +1904,29 @@
             <div id="preview-off" hidden>Preview off. It frees the GPU while the output keeps running.</div>
           </div>
         </div>
-        <div class="zone" id="zone-show" aria-label="Scenes and timeline"></div>
-        <div class="zone" id="zone-look" aria-label="Output and camera"></div>
+        <div class="zone" id="zone-look" aria-label="Camera"></div>
       </div>
-      <!-- Right zone: the layer cards, or the timeline of the project, every layer and the camera. -->
-      <div class="zone" id="zone-layers" aria-label="Layers and timeline">
-        <div class="tablist zone-tabs" role="tablist" aria-label="Layers and timeline">
+      <!--
+        Right zone, in tabs: the scene (scenes, project timeline, output background, calibration),
+        the datasets, the layer cards, and the timeline of the project, every layer and the camera.
+      -->
+      <div class="zone" id="zone-layers" aria-label="Scene, datasets, layers and timeline">
+        <div class="tablist zone-tabs" role="tablist" aria-label="Scene, datasets, layers and timeline">
+          <button type="button" role="tab" id="tab-scene" aria-controls="panel-scene">Scene</button>
+          <button type="button" role="tab" id="tab-data" aria-controls="panel-data">Datasets <span id="badge-datasets" class="badge"></span></button>
           <button type="button" role="tab" id="tab-layers" aria-controls="panel-layers">Layers <span id="badge-layers" class="badge"></span></button>
           <button type="button" role="tab" id="tab-timeline" aria-controls="panel-timeline">Timeline <span id="badge-timeline" class="badge"></span></button>
         </div>
-        <div role="tabpanel" class="zone-panel" id="panel-layers" aria-labelledby="tab-layers"></div>
+        <div role="tabpanel" class="zone-panel" id="panel-scene" aria-labelledby="tab-scene"></div>
+        <div role="tabpanel" class="zone-panel" id="panel-data" aria-labelledby="tab-data" hidden>
+          <div class="ds-toolbar">
+            <button type="button" id="import-button" class="btn primary">Import file…</button>
+            <input id="import-file" type="file" accept=".csv,.tsv,.txt,.json" hidden />
+            <span class="muted">CSV, TSV or JSON. Copied into the project unchanged.</span>
+          </div>
+          <div id="datasets"></div>
+        </div>
+        <div role="tabpanel" class="zone-panel" id="panel-layers" aria-labelledby="tab-layers" hidden></div>
         <div role="tabpanel" class="zone-panel" id="panel-timeline" aria-labelledby="tab-timeline" hidden></div>
       </div>
     </main>
@@ -1911,9 +1935,7 @@
     <section class="drawer card" id="drawer" aria-label="Data and diagnostics">
       <div class="drawer-handle" id="drawer-handle" title="Drag to resize"></div>
       <div class="tablist" role="tablist" aria-label="Data and diagnostics">
-        <button type="button" role="tab" id="tab-datasets" aria-controls="panel-datasets">Datasets <span id="badge-datasets" class="badge"></span></button>
         <button type="button" role="tab" id="tab-outputs" aria-controls="panel-outputs">Output windows <span id="badge-outputs" class="badge"></span></button>
-        <button type="button" role="tab" id="tab-calibration" aria-controls="panel-calibration">Calibration</button>
         <button type="button" role="tab" id="tab-diagnostics" aria-controls="panel-diagnostics">Diagnostics</button>
         <button type="button" role="tab" id="tab-problems" aria-controls="panel-problems">Problems <span id="badge-problems" class="badge err"></span></button>
         <button type="button" role="tab" id="tab-log" aria-controls="panel-log">Log <span id="badge-log" class="badge warn"></span></button>
@@ -1923,19 +1945,8 @@
         </button>
       </div>
       <div class="tabpanels" id="drawer-panels">
-        <div role="tabpanel" id="panel-datasets" aria-labelledby="tab-datasets" tabindex="0">
-          <div class="ds-toolbar">
-            <button type="button" id="import-button" class="btn primary">Import file…</button>
-            <input id="import-file" type="file" accept=".csv,.tsv,.txt,.json" hidden />
-            <span class="muted">CSV, TSV or JSON. Copied into the project unchanged.</span>
-          </div>
-          <div id="datasets"></div>
-        </div>
         <div role="tabpanel" id="panel-outputs" aria-labelledby="tab-outputs" tabindex="0" hidden>
           <div id="outputs-body" class="muted">No output window connected.</div>
-        </div>
-        <div role="tabpanel" id="panel-calibration" aria-labelledby="tab-calibration" hidden>
-          <div id="calibration"></div>
         </div>
         <div role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics" tabindex="0" hidden>
           <div class="diagnostics">

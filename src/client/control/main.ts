@@ -28,14 +28,14 @@ import { Card, h, loadSetting, saveSetting } from './ui.ts';
  *
  *   header       project switcher, Save / Save as / Snapshots, save state, output buttons,
  *                connection pills
- *   workspace    cards in columns:
- *                  show    Scenes, Timeline                     (what changes over time)
- *                  look    live preview (with edit-mode tools), Output, Camera
- *                  right   two tabs, full height: Layers (one card per layer, two columns
- *                          when wide; each card has the layer's own Modulation folder) and
- *                          Timeline (the project, layer and camera timelines with their lanes)
- *   drawer       tabs along the bottom: Datasets, Output windows, Calibration, Diagnostics,
- *                Problems, Log. Closed it is just the tab strip; a tab opens it upwards.
+ *   workspace    two columns:
+ *                  left    live preview (with edit-mode tools), Camera
+ *                  right   tabs, full height: Scene (Scenes, Timeline, Output, Calibration),
+ *                          Datasets, Layers (one card per layer, two columns when wide; each
+ *                          card has the layer's own Modulation folder) and Timeline (the
+ *                          project, layer and camera timelines with their lanes)
+ *   drawer       tabs along the bottom: Output windows, Diagnostics, Problems, Log. Closed
+ *                it is just the tab strip; a tab opens it upwards.
  *
  * Each card has its own Tweakpane pane. GUI values are only ever sent as patches; the
  * renderer never reads them.
@@ -64,7 +64,7 @@ const el = {
   gizmoModes: $('gizmo-modes'),
   snapSelect: $<HTMLSelectElement>('snap-select'),
   editBadge: $('edit-badge'),
-  zoneShow: $('zone-show'),
+  panelScene: $('panel-scene'),
   zoneLook: $('zone-look'),
   panelLayers: $('panel-layers'),
   panelTimeline: $('panel-timeline'),
@@ -175,15 +175,17 @@ function paneIn(c: Card): Pane {
   return new Pane({ container: c.body });
 }
 
-// Show column: what changes over time.
-const scenesCard = card(el.zoneShow, 'scenes', 'Scenes');
+// Scene tab (right zone): the scene as a whole: scenes, the project timeline, the output
+// background, and the projector calibration (whose panel is built further down).
+const scenesCard = card(el.panelScene, 'scenes', 'Scenes');
 const scenesPanel = new ScenesPanel(scenesCard.body, { sendPatch, getDoc, showError });
-const timelineCard = card(el.zoneShow, 'timeline', 'Timeline');
+const timelineCard = card(el.panelScene, 'timeline', 'Timeline');
 const timelinePanel = new TimelinePanel(paneIn(timelineCard), { sendPatch, getDoc });
-
-// Look column: the whole frame.
-const outputCard = card(el.zoneLook, 'output', 'Output');
+const outputCard = card(el.panelScene, 'output', 'Output');
 const outputPanel = new OutputPanel(paneIn(outputCard), { sendPatch, getDoc });
+const calibrationCard = card(el.panelScene, 'calibration', 'Calibration');
+
+// Left column, under the preview: the camera.
 const cameraCard = card(el.zoneLook, 'camera', 'Camera');
 const cameraPane = paneIn(cameraCard);
 const cameraPanel = new CameraPanel(cameraPane, sendPatch);
@@ -270,7 +272,7 @@ const editMode = new EditMode(
 
 // ---- output calibration (phase 5) -------------------------------------------------------
 
-const calibrationPanel = new CalibrationPanel($('calibration'), sendPatch, (msg) => socket.send(msg), showError);
+const calibrationPanel = new CalibrationPanel(calibrationCard.body, sendPatch, (msg) => socket.send(msg), showError);
 
 // ---- output window buttons (header) ------------------------------------------------------
 // The server starts and closes the output's Chrome (`server/launcher.ts`), on the NVIDIA GPU.
@@ -375,7 +377,7 @@ function seenLog(): void {
 }
 
 const tabs = new Tabs(
-  $('tab-datasets').parentElement as HTMLElement,
+  $('tab-outputs').parentElement as HTMLElement,
   'tab',
   (panel) => {
     if (panel === 'panel-log' && drawer.classList.contains('open')) seenLog();

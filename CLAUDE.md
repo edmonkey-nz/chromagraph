@@ -381,15 +381,19 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 - `client/control/index.html` and `main.ts` lay the window out as a header (project
   switcher, Save, Save As, Snapshots, the save indicator, the output buttons), the
   workspace, and a drawer along the bottom.
-- **Workspace.** Cards in columns, each with its own Tweakpane pane themed through `--tp-*`
-  CSS variables. Shared card helpers are in `ui.ts`.
-  - Show: Scenes, Timeline.
-  - Look: the live preview, Output (background), Camera (with its own Modulation folder).
-    In edit mode the preview spans both left columns.
-  - Right zone (`#zone-layers`), full height, with two tabs (`Tabs`, remembered as
-    `right-tab`): **Layers** (`LayersPanel` in `#panel-layers`: one card per layer, two
-    columns when wide) and **Timeline** (`TimelineView` in `#panel-timeline`). The zone itself
-    doesn't scroll; each panel does.
+- **Workspace.** Two columns of cards, each card with its own Tweakpane pane themed through
+  `--tp-*` CSS variables. Shared card helpers are in `ui.ts`.
+  - Left: the live preview and Camera (with its own Modulation folder). In edit mode the
+    column widens for a bigger preview.
+  - Right zone (`#zone-layers`), full height, in tabs (`Tabs`, remembered as `right-tab`):
+    - **Scene** (`#panel-scene`): Scenes, Timeline, Output (background) and Calibration
+      cards, flowing down CSS columns at least 400 px wide.
+    - **Datasets** (`#panel-data`): the import button and `DatasetsPanel`.
+    - **Layers** (`LayersPanel` in `#panel-layers`): one card per layer, two columns when
+      wide.
+    - **Timeline** (`TimelineView` in `#panel-timeline`).
+    The zone itself doesn't scroll; each panel does.
+  - The drawer keeps Output windows, Diagnostics, Problems and Log.
   - Body rows are placed explicitly, because the banner bar is `display: none` when empty.
 - **Timeline tab** (`client/control/timeline-view.ts`, pure model and edits in
   `shared/timeline-view.ts`).

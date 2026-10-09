@@ -118,7 +118,10 @@ the NVIDIA GPU.
   A layer with its own timeline gets its own ruler and playhead. Drag keys (Shift locks one
   axis), double-click a lane to add a key, select one and press Delete to remove it, use the
   key button for a key at the playhead, and **Keyframe…** to animate another parameter.
-- **Data, outputs and diagnostics:** in the drawer along the bottom of the control window.
+- **Control window:** the preview and camera on the left; the right side has tabs for
+  **Scene** (scenes, timeline, background, projector calibration), **Datasets**, **Layers**
+  and **Timeline**. Output windows, diagnostics, problems and the log are in the drawer
+  along the bottom.
   Click a tab to open it, and click it again to close it.
 - **Scenes:** capture looks, then morph between them (0.1–10 s).
 - **Effects:** glow and motion trails, set per layer in each layer card's **Glow** and
