@@ -353,7 +353,7 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   `applyDoc` calls `reapplyBase()`.
 - **Control.** `timeline-panel.ts` and `modulation-panel.ts`, with pure helpers in
   `shared/modulation-helpers.ts`. The "data playhead" is ramp modulators on a layer's
-  `rows.0` and `rows.1`.
+  `rows.0` and `rows.1`. The Timeline tab (see Control window layout) shows them all as lanes.
 
 **Output profiles and keystone (phase 5).**
 - The active profile (`shared/output-profile.ts`) is the third root of `SyncDoc`
@@ -386,8 +386,32 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   - Show: Scenes, Timeline.
   - Look: the live preview, Output (background), Camera (with its own Modulation folder).
     In edit mode the preview spans both left columns.
-  - Layers: full height, one card per layer, two columns when wide.
+  - Right zone (`#zone-layers`), full height, with two tabs (`Tabs`, remembered as
+    `right-tab`): **Layers** (`LayersPanel` in `#panel-layers`: one card per layer, two
+    columns when wide) and **Timeline** (`TimelineView` in `#panel-timeline`). The zone itself
+    doesn't scroll; each panel does.
   - Body rows are placed explicitly, because the banner bar is `display: none` when empty.
+- **Timeline tab** (`client/control/timeline-view.ts`, pure model and edits in
+  `shared/timeline-view.ts`).
+  - A sticky header holds the project transport and ruler. Below it come one group per layer
+    (stack order) and the camera, each with a lane per modulated parameter.
+  - A group's x axis is phase 0..1 of the timeline that drives it. Groups that follow the
+    project line up with the master ruler. A layer with its own timeline gets its own ruler in
+    its own seconds, its own playhead line (accent colour) and Play/Pause.
+  - Ramps and keyframes are canvas curves. LFO and noise run on the wall clock, so their lanes
+    are hatched, sit above the playhead line and show a scope of the last few seconds.
+  - Transport actions use `playPauseEdit` / `seekEdit` from `timeline-panel.ts`, the same as
+    the Timeline card. Key edits (`moveKeyOps`, `addKeyOps`, `deleteKeyOps`, `moveRampOps`,
+    `keyAtPlayheadOps`) set the whole modulator and are validated against `ProjectSchema`
+    before sending. Adding a key to a ramp first turns it into keyframes with the same curve.
+  - A drag computes every step from the document at drag start, sends at most every 50 ms,
+    and resends the final step when the key is let go. Until then its lane ignores incoming
+    documents. The final step goes out with `sendPatch(ops, true)`, and `main.ts` then treats
+    its echo as external (the `ownEchoes` queue), so the layer cards' Modulation folders
+    refresh.
+  - It animates with requestAnimationFrame only while the tab is shown, and rebuilds its DOM
+    only when the structure (groups, lanes, kinds) changes. Per frame it moves the playhead
+    lines and value dots, redraws the on-screen scopes, and updates readouts 10 times a second.
 - **Modulation is per owner.** `ModulationPanel` takes a scope (`{kind:'layer', layerId}` or
   camera) and shows only that owner's modulators, an "Add modulator" for its parameters, the
   data playhead (layers) and its own orphans. `LayersPanel` puts one in each card's last

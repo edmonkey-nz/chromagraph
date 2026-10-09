@@ -93,8 +93,41 @@ export function ownTimelineOps(doc: SyncDoc, layerId: string, own: boolean, nowM
   ];
 }
 
+/** A transport change for a target: the transport to show until it echoes, and the ops to send. */
+export interface TransportEdit {
+  next: Transport;
+  ops: PatchOp[];
+}
+
+/**
+ * Play/Pause from `current` (the last transport known or sent). A finished, non-looping
+ * timeline starts again from the beginning. The project's also plays or pauses every layer's
+ * own timeline. Null when the target has no timeline.
+ */
+export function playPauseEdit(doc: SyncDoc, target: TimelineTarget, current: Transport, nowMs: number): TransportEdit | null {
+  const tl = target.timeline(doc);
+  if (!tl) return null;
+  const playing = !current.playing;
+  let next = setPlaying(current, playing, cycleSeconds(tl), tl.loop, nowMs);
+  if (playing && !tl.loop && next.anchorPhase >= 1) next = seek(next, 0, nowMs);
+  return { next, ops: [...(target.alsoOn?.(doc, playing ? 'play' : 'pause', nowMs) ?? []), ...target.transportOps(doc, next)] };
+}
+
+/**
+ * Seek the playhead to `phase` (a scrub: a ping-pong stays on its current leg), or Restart
+ * (the start of the cycle, which also restarts what the target drives with it).
+ */
+export function seekEdit(doc: SyncDoc, target: TimelineTarget, current: Transport, phase: number | 'restart', nowMs: number): TransportEdit | null {
+  const tl = target.timeline(doc);
+  if (!tl) return null;
+  const restart = phase === 'restart';
+  const u = restart ? 0 : progressFor(phase, tl.playback, cycleProgress(current, tl, nowMs));
+  const next = seek(current, u, nowMs);
+  return { next, ops: [...(restart ? (target.alsoOn?.(doc, 'restart', nowMs) ?? []) : []), ...target.transportOps(doc, next)] };
+}
+
 /** Minimum gap between seeks sent while the phase slider is being dragged. */
-const SCRUB_INTERVAL_MS = 50;
+export const SCRUB_INTERVAL_MS = 50;
 
 /** A binding, as far as this panel needs to know (its change handler is attached at creation). */
 type Refreshable = BladeApi & { refresh(): void };
@@ -253,10 +286,10 @@ export class TimelinePanel {
     return a instanceof HTMLInputElement && api.element.contains(a);
   }
 
-  private sendTransport(doc: SyncDoc, next: Transport, extra: PatchOp[] = []): void {
+  private sendTransport(next: Transport, ops: PatchOp[]): void {
     this.transport = next;
     this.playButton.title = next.playing ? 'Pause' : 'Play';
-    this.deps.sendPatch([...extra, ...this.target.transportOps(doc, next)]);
+    this.deps.sendPatch(ops);
   }
 
   /** Change duration or loop, re-anchoring the transport so the playhead does not jump. */
@@ -270,31 +303,20 @@ export class TimelinePanel {
     if (change.playback !== undefined && change.playback !== tl.playback) wanted.playback = change.playback;
     const ops = this.target.timelineOps(doc, wanted);
     if (ops.length === 0) return;
-    this.sendTransport(doc, reanchor(this.transport, tl, { ...tl, ...wanted }, wallMs()), ops);
+    const next = reanchor(this.transport, tl, { ...tl, ...wanted }, wallMs());
+    this.sendTransport(next, [...ops, ...this.target.transportOps(doc, next)]);
   }
 
   private togglePlay(): void {
     const doc = this.deps.getDoc();
-    const tl = doc ? this.target.timeline(doc) : null;
-    if (!doc || !tl || !this.transport) return;
-    const now = wallMs();
-    const playing = !this.transport.playing;
-    let next = setPlaying(this.transport, playing, cycleSeconds(tl), tl.loop, now);
-    // A finished, non-looping timeline starts again from the beginning.
-    if (playing && !tl.loop && next.anchorPhase >= 1) next = seek(next, 0, now);
-    this.sendTransport(doc, next, this.target.alsoOn?.(doc, playing ? 'play' : 'pause', now) ?? []);
+    const edit = doc && this.transport ? playPauseEdit(doc, this.target, this.transport, wallMs()) : null;
+    if (edit) this.sendTransport(edit.next, edit.ops);
   }
 
-  /**
-   * Seek the playhead to `phase` (the slider), or Restart (`restart`: the start of the
-   * cycle, which also restarts what the target drives with it).
-   */
+  /** Seek the playhead to `phase` (the slider), or Restart (`restart`). */
   private seekTo(phase: number, restart: boolean): void {
     const doc = this.deps.getDoc();
-    const tl = doc ? this.target.timeline(doc) : null;
-    if (!doc || !tl || !this.transport) return;
-    const now = wallMs();
-    const u = restart ? 0 : progressFor(phase, tl.playback, cycleProgress(this.transport, tl, now));
-    this.sendTransport(doc, seek(this.transport, u, now), restart ? (this.target.alsoOn?.(doc, 'restart', now) ?? []) : []);
+    const edit = doc && this.transport ? seekEdit(doc, this.target, this.transport, restart ? 'restart' : phase, wallMs()) : null;
+    if (edit) this.sendTransport(edit.next, edit.ops);
   }
 }

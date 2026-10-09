@@ -112,6 +112,12 @@ the NVIDIA GPU.
 - **Per-layer timelines:** in a layer card's **Timeline** folder, tick **own timeline** to
   give that layer its own duration, loop, play/pause and scrub. The project Timeline
   card's Play/Pause and Restart still drive every layer.
+- **Timeline tab:** the second tab on the right (next to **Layers**) shows the project
+  playhead and ruler (click or drag it to scrub), then each layer and the camera with a
+  lane per animated parameter: keyframe curves, ramps, and LFO/noise as free-running scopes.
+  A layer with its own timeline gets its own ruler and playhead. Drag keys (Shift locks one
+  axis), double-click a lane to add a key, select one and press Delete to remove it, use the
+  key button for a key at the playhead, and **Keyframe…** to animate another parameter.
 - **Data, outputs and diagnostics:** in the drawer along the bottom of the control window.
   Click a tab to open it, and click it again to close it.
 - **Scenes:** capture looks, then morph between them (0.1–10 s).

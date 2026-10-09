@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layerTimeline, ownTimelineOps, projectTimeline } from '../../src/client/control/timeline-panel.ts';
+import { layerTimeline, ownTimelineOps, playPauseEdit, projectTimeline, seekEdit } from '../../src/client/control/timeline-panel.ts';
 import { blankInstancerLayer } from '../../src/shared/layer-schema.ts';
 import { layerPhase, paramPhase } from '../../src/shared/modulation-helpers.ts';
 import { applyOps } from '../../src/shared/patch.ts';
@@ -60,5 +60,47 @@ describe('per-layer timelines', () => {
     expect(Object.keys(paused.session.layerTransports)).toEqual(['ly-a']); // layer B follows the project
     const restarted = checked(paused, projectTimeline.alsoOn!(paused, 'restart', now + 2000));
     expect(layerPhase(restarted.project, restarted.session, 'ly-a', now + 2000)).toBe(0);
+  });
+});
+
+describe('transport edits (shared by the Timeline card and the Timeline tab)', () => {
+  it('Play/Pause on the project also drives layers with their own timeline', () => {
+    const now = T0 + 25_000;
+    let d = checked(doc(), ownTimelineOps(doc(), 'ly-a', true, now));
+    const pause = playPauseEdit(d, projectTimeline, d.session.transport, now)!;
+    expect(pause.next).toEqual({ playing: false, anchorWallMs: now, anchorPhase: 0.25 });
+    d = checked(d, pause.ops);
+    expect(d.session.transport.playing).toBe(false);
+    expect(d.session.layerTransports['ly-a']!.playing).toBe(false);
+    const play = playPauseEdit(d, projectTimeline, d.session.transport, now + 1000)!;
+    d = checked(d, play.ops);
+    expect(d.session.transport.playing).toBe(true);
+    expect(d.session.layerTransports['ly-a']!.playing).toBe(true);
+  });
+
+  it('a finished non-looping timeline plays again from the start', () => {
+    const d = checked(doc(), [{ op: 'set', path: ['project', 'timeline', 'loop'], value: false }]);
+    const edit = playPauseEdit(d, projectTimeline, { playing: false, anchorWallMs: T0, anchorPhase: 1 }, T0)!;
+    expect(edit.next).toEqual({ playing: true, anchorWallMs: T0, anchorPhase: 0 });
+  });
+
+  it('seeks keep the ping-pong leg; Restart also restarts own timelines; a scrub does not', () => {
+    const now = T0 + 25_000;
+    let d = checked(doc(), ownTimelineOps(doc(), 'ly-a', true, now));
+    d = checked(d, [{ op: 'set', path: ['project', 'timeline', 'playback'], value: 'pingpong' }]);
+    // Three quarters through the ping-pong cycle: on the way back.
+    const back = { playing: true, anchorWallMs: T0, anchorPhase: 0.75 };
+    const scrub = seekEdit(d, projectTimeline, back, 0.2, T0)!;
+    expect(scrub.next.anchorPhase).toBeCloseTo(0.9);
+    expect(scrub.ops).toHaveLength(1);
+    const restart = seekEdit(d, projectTimeline, back, 'restart', T0)!;
+    expect(restart.next.anchorPhase).toBe(0);
+    expect(restart.ops.map((o) => o.path.join('.'))).toEqual(['session.layerTransports.ly-a', 'session.transport']);
+  });
+
+  it('a layer following the project has nothing to play', () => {
+    const d = doc();
+    expect(playPauseEdit(d, layerTimeline('ly-a'), d.session.transport, T0)).toBeNull();
+    expect(seekEdit(d, layerTimeline('ly-a'), d.session.transport, 0.5, T0)).toBeNull();
   });
 });
