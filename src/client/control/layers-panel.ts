@@ -2,11 +2,13 @@ import { Pane, type FolderApi } from 'tweakpane';
 import { defaultLayerOfType, fitAnyLayer, type DatasetSummary } from '../../shared/layer-defaults.ts';
 import { datasetSwitchChanges, diffChanges, instanceCount, LAYER_TYPE_TITLES, type LayerChange } from '../../shared/layer-helpers.ts';
 import { LAYER_TYPES, LayerSchema, type LayerConfig, type LayerType } from '../../shared/layer-schema.ts';
+import { randomiseLayer, seededRng, type RandomScope } from '../../shared/layer-random.ts';
 import { layerParamCopyOps, layerParamRemovalOps } from '../../shared/modulation-helpers.ts';
 import { wallMs } from '../../shared/modulators.ts';
 import { layerParamPrefix } from '../../shared/parameters.ts';
 import { applyOps, type Path, type PatchOp } from '../../shared/patch.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
+import { ChoiceMenu, type Choice } from './choice-menu.ts';
 import { buildHeatmap } from './heatmap-folders.ts';
 import { buildHierarchy } from './hierarchy-folders.ts';
 import { buildInstancer } from './instancer-folders.ts';
@@ -54,9 +56,33 @@ export interface LayersPanelDeps {
 
 /** Add-layer menu entry for a line layer preset (see the type menu). */
 const LINE_CHART = 'line-chart';
+type AddChoice = LayerType | typeof LINE_CHART;
+
+/** What each layer type draws, in one sentence, under its name in the add-layer menu. */
+const TYPE_DESCRIPTIONS: Record<LayerType, string> = {
+  instancer: 'One shape per row (point, square, bar, box or sphere), placed, sized and coloured by columns.',
+  line: 'A line through the rows, one point per row, with optional fill for ridgelines.',
+  heatmap: 'Cells coloured by value, as a grid or a year × day-of-year calendar.',
+  text: 'Titles, captions and live values or credits from the data.',
+  multiples: 'A grid of small charts, one per year, month, decade, category or block of rows.',
+  hierarchy: 'Rows grouped by time or category into a dendrogram, tree, sunburst or treemap.',
+  surface: 'A 3D terrain whose height and colour come from the values.',
+  reflector: 'A mirror floor or wall that reflects the other layers; needs no data.',
+  qr: "A scannable code for a link, such as the dataset's source; needs no data.",
+};
+
+const ADD_CHOICES: readonly Choice<AddChoice>[] = LAYER_TYPES.flatMap((t): Choice<AddChoice>[] => {
+  const choice = { value: t, label: LAYER_TYPE_TITLES[t], description: TYPE_DESCRIPTIONS[t] };
+  // A line layer preset after the plain line: monthly means (or means of 30 rows without a
+  // time column), which reads as a line chart rather than a spike per row.
+  return t !== 'line' ? [choice] : [choice, { value: LINE_CHART, label: 'line chart (aggregated)', description: 'A line of monthly means (or of every 30 rows), smoother than one point per row.' }];
+});
 
 /** Appended to the label of a field whose parameter has a modulator. */
 const MODULATED_SUFFIX = ' ~';
+
+/** Randomises of a layer that Back can step through. */
+const RANDOM_HISTORY = 10;
 
 /** One layer's row in the list. */
 interface Row {
@@ -117,7 +143,7 @@ export class LayersPanel {
   private rows = new Map<string, Row>();
   private list = h('div', { className: 'layer-list', role: 'list' });
   private countNote = h('div', { className: 'sub-head layer-list-head' });
-  private typeSelect = h('select');
+  private typeMenu = new ChoiceMenu<AddChoice>(ADD_CHOICES, 'instancer', 'Type of the new layer', (type) => (this.addModel.type = type));
   /** The open layer's settings: a card whose body holds the pane. */
   private settings = h('section', { className: 'card layer-card layer-settings' });
   private settingsBadge = h('span', { className: 'card-badge' });
@@ -136,7 +162,7 @@ export class LayersPanel {
   private quietDepth = 0;
   /** The modulators the field labels were last marked from. */
   private parameters: SyncDoc['project']['parameters'] | null = null;
-  private addModel: { type: LayerType | typeof LINE_CHART } = { type: 'instancer' };
+  private addModel: { type: AddChoice } = { type: 'instancer' };
   private selected: string | null = null;
   /** The open layer (shown on the right), or null with no layers. */
   private shown: string | null = null;
@@ -144,14 +170,10 @@ export class LayersPanel {
   private shownIndex = 0;
   /** A layer we just added or duplicated, to open once it arrives. */
   private pendingSelect: string | null = null;
+  /** Each layer's configs from before its last randomises (newest last), for Back. Kept in this window only. */
+  private randomHistory = new Map<string, LayerConfig[]>();
 
   constructor(zone: HTMLElement, private deps: LayersPanelDeps) {
-    this.typeSelect.append(...LAYER_TYPES.map((t) => h('option', { value: t, textContent: LAYER_TYPE_TITLES[t] })));
-    // A line layer preset: monthly means (or means of 30 rows without a time column), which reads
-    // as a line chart rather than a spike per row.
-    this.typeSelect.insertBefore(h('option', { value: LINE_CHART, textContent: 'line chart (aggregated)' }), this.typeSelect.querySelector('option[value=heatmap]'));
-    this.typeSelect.setAttribute('aria-label', 'Type of the new layer');
-    this.typeSelect.addEventListener('change', () => (this.addModel.type = this.typeSelect.value as LayerType | typeof LINE_CHART));
     const add = h('button', { type: 'button', className: 'btn primary', textContent: 'Add layer' });
     add.addEventListener('click', () => this.addLayer());
     this.list.setAttribute('aria-label', 'Layers in stack order');
@@ -169,7 +191,7 @@ export class LayersPanel {
     this.settings.addEventListener('focusin', select);
     this.settings.hidden = true;
     this.settingsCol.append(this.empty, this.settings);
-    const addRow = h('div', { className: 'layer-add' }, this.typeSelect, add);
+    const addRow = h('div', { className: 'layer-add' }, this.typeMenu.el, add);
     addRow.setAttribute('role', 'group');
     addRow.setAttribute('aria-label', 'Add layer');
     this.split.append(
@@ -639,6 +661,46 @@ export class LayersPanel {
     if (this.send(id, diffChanges(cur.layer, fitted)) && entry) entry.forceRebuild = true;
   }
 
+  /** Give layer `id` a random look (see layer-random.ts), keeping the old one for Back. */
+  private randomise(id: string, scope: RandomScope): void {
+    const cur = this.currentIndex(id);
+    if (!cur) return;
+    const summary = this.summaryFor(cur.layer);
+    const dataset = cur.doc.project.datasets.find((d) => d.id === cur.layer.datasetId);
+    if (cur.layer.type !== 'text' && cur.layer.type !== 'reflector' && cur.layer.type !== 'qr' && (!summary || !dataset)) return;
+    const seed = Math.floor(Math.random() * 2 ** 32);
+    const next = randomiseLayer(cur.layer, summary, dataset?.timeZone ?? 'UTC', cur.doc.project.output.background, scope, seededRng(seed));
+    const changes = diffChanges(cur.layer, next);
+    if (changes.length === 0 || !this.send(id, changes)) return;
+    const stack = this.randomHistory.get(id) ?? [];
+    stack.push(cur.layer);
+    if (stack.length > RANDOM_HISTORY) stack.shift();
+    this.randomHistory.set(id, stack);
+    const entry = this.entries.get(id);
+    if (entry) entry.forceRebuild = true;
+  }
+
+  /**
+   * Back to the look before the last randomise. Name, on/off, dataset, transform, timeline and
+   * fixed to screen stay as they are now (randomising never changes them; they may have been
+   * edited since). Forgotten when the layer's dataset has changed since.
+   */
+  private randomBack(id: string): void {
+    const cur = this.currentIndex(id);
+    const stack = this.randomHistory.get(id);
+    const prev = stack?.pop();
+    if (!cur || !prev) return;
+    if (prev.datasetId !== cur.layer.datasetId || prev.type !== cur.layer.type) {
+      this.randomHistory.delete(id);
+      return;
+    }
+    const { name, enabled, datasetId, transform, timeline, screenFixed } = cur.layer;
+    const restored = { ...prev, name, enabled, datasetId, transform, timeline, screenFixed } as LayerConfig;
+    this.send(id, diffChanges(cur.layer, restored));
+    const entry = this.entries.get(id);
+    if (entry) entry.forceRebuild = true;
+  }
+
   /** Switch dataset, dropping column references the new dataset doesn't have. */
   private changeDataset(id: string, datasetId: string | null): void {
     const cur = this.currentIndex(id);
@@ -658,6 +720,25 @@ export class LayersPanel {
   }
 
   // ---- building a layer's folder -------------------------------------------------------
+
+  /** Randomise look / Randomise all / Back, at the end of the layer's General folder. */
+  private addRandomButtons(entry: Entry, ui: LayerUi): void {
+    const id = ui.id;
+    const general = entry.folders.find((f) => f.key === `${id}/General`)?.api;
+    if (!general) return;
+    general.addBlade({ view: 'separator' });
+    const ready = ui.canFit;
+    const look = general.addButton({ title: ready ? 'Randomise look' : 'Randomise look (waiting for data)', label: 'random', disabled: !ready });
+    look.on('click', () => this.randomise(id, 'look'));
+    look.element.title = 'A new look from a few hand-made styles (colours, shapes, arrangement, glow), fitted to the output. The columns stay as they are';
+    const all = general.addButton({ title: 'Randomise all', label: '', disabled: !ready });
+    all.on('click', () => this.randomise(id, 'all'));
+    all.element.title = 'As Randomise look, and also picks which columns are shown (and how lines and small multiples group them)';
+    const depth = this.randomHistory.get(id)?.length ?? 0;
+    const back = general.addButton({ title: depth > 0 ? `Back (${depth})` : 'Back', label: '', disabled: depth === 0 });
+    back.on('click', () => this.randomBack(id));
+    back.element.title = 'The look before the last randomise (up to 10 back; forgotten when this window reloads)';
+  }
 
   private folderIn(entry: Entry, parent: FolderApi, title: string, key: string, def: boolean): FolderApi {
     const api = parent.addFolder({ title, expanded: this.expanded.get(key) ?? def });
@@ -744,6 +825,7 @@ export class LayersPanel {
           break;
       }
     });
+    this.addRandomButtons(entry, ui);
     this.applyMarks(entry, doc);
     // Last in the card: the layer's timeline, then its own modulators and data playhead.
     const timelineFolder = this.folderIn(entry, pane, 'Timeline', `${id}/timeline`, false);

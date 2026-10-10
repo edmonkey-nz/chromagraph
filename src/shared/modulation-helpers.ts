@@ -1,4 +1,5 @@
 import {
+  clockMs,
   cyclePosition,
   cycleSeconds,
   evaluate,
@@ -146,6 +147,14 @@ export function paramPhase(
 ): number {
   const m = /^layer\.([^.]+)\./.exec(paramId);
   return m ? layerPhase(project, session, m[1]!, nowMs) : projectPhase(project, session.transport, nowMs);
+}
+
+/**
+ * The time (ms) a parameter's LFO and noise run on: the camera clock for camera parameters
+ * (see ClockSchema), the wall clock `nowMs` for everything else.
+ */
+export function paramClockMs(session: Pick<Session, 'cameraClock'>, paramId: string, nowMs: number): number {
+  return paramId.startsWith('camera.') ? clockMs(session.cameraClock, nowMs) : nowMs;
 }
 
 /**

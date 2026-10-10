@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { hexColour, identityCloner, identityTransform, LayerSchema, PLAYBACKS, vec3 } from './layer-schema.ts';
-import { ParameterSchema, TransportSchema, type Transport } from './modulators.ts';
+import { ClockSchema, ParameterSchema, TransportSchema, WALL_CLOCK, type Clock, type Transport } from './modulators.ts';
 import type { OutputProfile } from './output-profile.ts';
 
 export { LayerSchema, type LayerConfig } from './layer-schema.ts';
@@ -406,6 +406,8 @@ export interface Session {
   transport: Transport;
   /** Transports of layers with their own timeline, by layer id (see LayerTimelineSchema). */
   layerTransports: Record<string, Transport>;
+  /** The clock the camera's LFO and noise modulators run on (see ClockSchema). */
+  cameraClock: Clock;
   /**
    * The most recent scene change. A control window sends it in the same patch that copies
    * the scene into the project; the output then morphs from what it was showing to the new
@@ -423,7 +425,7 @@ export interface Morph {
 }
 
 export function defaultSession(nowMs = 0): Session {
-  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 }, layerTransports: {}, morph: null };
+  return { testPattern: false, debugOverlay: false, transport: { playing: true, anchorWallMs: nowMs, anchorPhase: 0 }, layerTransports: {}, cameraClock: { ...WALL_CLOCK }, morph: null };
 }
 
 /**
@@ -450,6 +452,8 @@ export const SessionSchema = z.object({
   transport: TransportSchema,
   /** Transports of layers with their own timeline, by layer id (see LayerTimelineSchema). */
   layerTransports: z.record(z.string(), TransportSchema).default({}),
+  /** Sessions saved before camera clocks existed read as the wall clock, so nothing jumps. */
+  cameraClock: ClockSchema.default(() => ({ ...WALL_CLOCK })),
   morph: MorphSchema.nullable().default(null),
 });
 

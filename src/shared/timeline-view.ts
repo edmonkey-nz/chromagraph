@@ -1,5 +1,5 @@
 import type { LayerType } from './layer-schema.ts';
-import { formatClock, formatValue, layerTransport, MAX_KEYS, paramPhase } from './modulation-helpers.ts';
+import { formatClock, formatValue, layerTransport, MAX_KEYS, paramClockMs, paramPhase } from './modulation-helpers.ts';
 import { cycleProgress, evaluate, keyframeValue, playheadOf, sortKeys, type Modulator, type Parameter, type TimelineSettings, type Transport } from './modulators.ts';
 import { clampParam, layerParamPrefix, parameterDefs, readParam, type ParamDef } from './parameters.ts';
 import type { PatchOp } from './patch.ts';
@@ -288,7 +288,7 @@ export function timelineView(doc: SyncDoc, nowMs: number, samples = CURVE_SAMPLE
         continue;
       }
       const base = readParam(project, def.id) ?? def.min;
-      lanes.push(buildLane(def, p.modulator, base, nowMs, clock.playhead, samples, scale));
+      lanes.push(buildLane(def, p.modulator, base, paramClockMs(session, def.id, nowMs), clock.playhead, samples, scale));
     }
     return { settings, transport, clock, lanes, free };
   };

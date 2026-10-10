@@ -85,5 +85,28 @@ future improvements.
 24) review if this can be make an execuatable across windows/ubuntu/macos - explain first
    - Options written up in docs/packaging-options.md (portable folder, single executable,
      Electron, Tauri), with effort, signing costs and a suggested path. Nothing built.
-25) if i want to change project and repo name to 'datamotionz' whats involved?
-26) in the 'add instance' dropdown, under each option, add a simple 1 sentence max description in a slighty visual difference from the option name. 
+
+25) in the 'add instance' dropdown, under each option, add a simple 1 sentence max description in a slighty visual difference from the option name
+   - DONE (2026-10-10): Layers tab → the Add layer type menu shows a one-sentence
+     description, smaller and dimmer, under each type's name. Works with the keyboard too
+     (arrows, a letter to jump, Enter, Escape).
+
+26) in the camera > motion pane, i need a timeline slider with current positon for the camera, so i can jog or reset its camera timeline
+   - DONE (2026-10-10): Camera → Motion has a clock: Play/Pause, Reset (back to the start of
+     the move, the framing set above) and a position slider over one loop of the move (drag
+     to jog, or type seconds). It runs separately from the scene timeline. Presets were
+     retuned to loop cleanly (orbit + bob 60 s; fly-around 90 s; drift uses a 60 s window),
+     and a speed change no longer makes drift jump.
+
+27) add a basic CSV explorer/viewer in the 'dataset' pane
+   - DONE (2026-10-10): Datasets tab → View rows on each dataset: every row as parsed
+     (times in the dataset's timezone, missing values as a dim dash). Click a header to sort,
+     type a row number to jump; parse warnings that name a row have a "show row" link.
+
+28) add a 'random layer settings' button in the 'general' pane. make them sensible, and often will need to be 'fit to output' as a starting point. open to thoughts on this.
+   - DONE (2026-10-10): each layer's General folder has Randomise look (keeps the columns,
+     changes the style), Randomise all (also picks the columns, and how lines and small
+     multiples group them) and Back (steps back through the last 10, until the window
+     reloads). Looks come from a few hand-made styles per layer type, varied a little, then
+     fitted to the output. Colours keep contrast with the background, packed layers get no
+     additive glow, and clone counts stay within the frame budget.

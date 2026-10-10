@@ -4,6 +4,7 @@ import type { Cadence } from '../../data/gaps.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import { summarise, type DatasetSummary } from '../../shared/layer-defaults.ts';
 import { DatasetSchema, type Dataset } from '../../shared/project-schema.ts';
+import { TableViewer } from './table-viewer.ts';
 
 interface Report {
   file: string;
@@ -40,6 +41,9 @@ interface Card {
   head: HTMLElement;
   body: HTMLElement;
   credits: Record<CreditField, HTMLInputElement>;
+  /** The row viewer, made the first time it is opened, and whether it is shown. */
+  viewer: TableViewer | null;
+  viewing: boolean;
 }
 
 function timeZones(): string[] {
@@ -234,7 +238,7 @@ export class DatasetsPanel {
       credits[field] = this.creditInput(d.id, field, placeholder, hint);
       grid.append(h('label', { textContent: label, title: hint, htmlFor: credits[field].id }), credits[field]);
     }
-    const card: Card = { el: h('div', { className: 'dataset' }, head, grid, body), head, body, credits };
+    const card: Card = { el: h('div', { className: 'dataset' }, head, grid, body), head, body, credits, viewer: null, viewing: false };
     this.cards.set(d.id, card);
     return card;
   }
@@ -309,7 +313,11 @@ export class DatasetsPanel {
     });
 
     const { head, body } = card;
-    head.replaceChildren(label, h('span', { className: 'muted' }, d.file), tz, remove);
+    const loaded = report?.status === 'ok' ? report.loaded : undefined;
+    const view = h('button', { textContent: card.viewing ? 'Hide rows' : 'View rows', title: 'Browse the rows as parsed: sort by a column, go to a row' });
+    view.disabled = !loaded;
+    view.addEventListener('click', () => this.showRows(d, !card.viewing));
+    head.replaceChildren(label, h('span', { className: 'muted' }, d.file), tz, view, remove);
     body.replaceChildren();
 
     if (!report || report.status === 'loading') {
@@ -340,10 +348,40 @@ export class DatasetsPanel {
       body.append(t);
       if (rep.issues.length) {
         body.append(
-          h('ul', { className: 'issues' }, ...rep.issues.map((iss) => h('li', { className: iss.severity === 'error' ? 'error' : 'warn' }, iss.message))),
+          h(
+            'ul',
+            { className: 'issues' },
+            ...rep.issues.map((iss) => {
+              const li = h('li', { className: iss.severity === 'error' ? 'error' : 'warn' }, iss.message);
+              const row = iss.row;
+              if (row !== undefined) {
+                const show = h('button', { className: 'link-btn', textContent: `show row ${row + 1}`, title: 'Open the rows and go to this one' });
+                show.addEventListener('click', () => this.showRows(d, true, row));
+                li.append(' ', show);
+              }
+              return li;
+            }),
+          ),
         );
       }
     }
+    // The viewer is kept across renders (scroll position and sort stay put).
+    if (card.viewing && loaded) {
+      card.viewer ??= new TableViewer();
+      card.viewer.setTable(loaded.result.table, d.timeZone);
+      if (card.viewer.el.parentElement !== card.el) card.el.append(card.viewer.el);
+    } else {
+      card.viewer?.el.remove();
+    }
     return card.el;
+  }
+
+  /** Open or close a dataset's row viewer, and go to data row `row` (0-based) when given. */
+  private showRows(d: Dataset, open: boolean, row?: number): void {
+    const card = this.cards.get(d.id);
+    if (!card) return;
+    card.viewing = open;
+    this.render();
+    if (open && row !== undefined) card.viewer?.goTo(row);
   }
 }

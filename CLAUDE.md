@@ -236,7 +236,10 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
    `data/infer.ts`: no coercion, and only empty or whitespace values count as missing.
 4. The output keeps tables in `DatasetStore` (`client/output/datasets.ts`), which holds on
    to the last good table if a reload fails.
-5. Control shows the per-file report in `client/control/datasets-panel.ts`.
+5. Control shows the per-file report in `client/control/datasets-panel.ts`, and "View rows"
+   opens a `TableViewer` (`client/control/table-viewer.ts`): virtualised (only rows in view
+   are in the DOM), sortable by column, go to row. Cell text and sort order are pure and
+   tested in `data/table-view.ts`. Row numbers count data rows from 1, as parse messages do.
 
 **Rendering.**
 - `Stage` (`client/output/stage.ts`) draws the scene into a 1920x1080 MSAA target, using a
@@ -461,6 +464,9 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
       most one); rows are plain DOM. Clicking a row selects and opens that layer, and
       selecting one elsewhere (the preview, the Timeline tab) opens it too. Under 720 px wide
       the list stacks above the settings.
+      The Add layer type menu is a `ChoiceMenu` (`client/control/choice-menu.ts`): a popover
+      listbox with a description under each name, from `TYPE_DESCRIPTIONS` in `layers-panel.ts`
+      (a `Record<LayerType, …>`, so a new layer type must be given one).
     - **Timeline** (`TimelineView` in `#panel-timeline`).
     The zone itself doesn't scroll; each panel does.
   - The drawer keeps Output windows, Diagnostics, Problems and Log.
@@ -591,10 +597,31 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 - Presets (orbit, swing, zoom, pan, tilt, drift, fly-around) are plain LFO and noise
   modulators on `camera.*`, so the output needs nothing new and scenes capture them. A preset
   replaces every camera modulator, and choosing one switches the camera to 3D.
-- Speed divides LFO periods and multiplies noise speeds. On a speed change, the new LFO
-  gets the phase that continues the old cycle, so the camera doesn't jump.
+- Speed divides LFO periods and multiplies noise speeds.
+- **Camera clock** (`session.cameraClock`, `ClockSchema` in `shared/modulators.ts`): camera LFO
+  and noise run on it instead of the wall clock (`paramClockMs`; the output's camera owner,
+  the Modulation monitors and the Timeline tab's camera lanes all use it). It is seconds,
+  never wraps, and is persisted with the transports. A session saved without one gets
+  `WALL_CLOCK`, which reads exactly as the wall clock. The Motion folder has Play/Pause, Reset
+  and a position slider (seconds) over `cameraLoopSeconds` (the LFOs' common loop; 60 s for
+  noise only). At clock 0 every preset LFO is at its base value (saws start at phase 0.5).
+  A speed change rescales the clock by old / new speed, so the move (noise too) continues; a
+  new preset restarts the clock at 0. Project Play/Pause and Restart don't touch it.
 - The preset and speed aren't stored: `detectCameraMotion` reads them back from the
   modulators, ignoring phase. A hand-edited modulator reads as "custom".
+
+**Randomise** (`shared/layer-random.ts`, pure and seeded; buttons at the end of every layer's
+General folder, added by `LayersPanel.addRandomButtons`).
+- `randomiseLayer(layer, summary, timeZone, background, scope, rng)`: a recipe per layer type,
+  varied, then `fitAnyLayer`. `look` keeps the columns; `all` also picks them (preferring
+  numbers whose typical 5–95 % range varies and that are mostly filled in; `SummaryColumn`
+  carries `nullCount` and `typical` for this).
+- Kept: id, name, on/off, dataset, transform, timeline, fixed to screen. Effects restart from
+  off; only glow is used. Layers with more than `DENSE_MARKS` marks get no additive blend, a
+  soft high-threshold glow and no box edges. Colours keep 4.5:1 contrast with the background.
+  Clone counts are capped to `FRAME_BUDGET`.
+- Back: `LayersPanel.randomHistory` keeps the last 10 configs per layer, in the window only.
+  It restores the look but keeps the current name, on/off, dataset, transform and timeline.
 
 **Launching the output** (`server/launcher.ts`, pure parts in `server/launch-args.ts`).
 - The header's Output buttons POST to `/api/output/launch` (`projector` | `window`) and

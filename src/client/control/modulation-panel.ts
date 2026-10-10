@@ -10,6 +10,7 @@ import {
   orphanParamIds,
   PLAYHEAD_MODES,
   playheadKind,
+  paramClockMs,
   paramPhase,
   randomSeed,
   removeKeyframe,
@@ -153,7 +154,7 @@ export class ModulationPanel {
         const p = doc.project.parameters[e.id];
         if (!p) continue;
         const base = readParam(doc.project, e.id) ?? e.def.min;
-        e.monitor.value = modulatedValue(e.def, p.modulator, base, nowMs, paramPhase(doc.project, doc.session, e.id, nowMs));
+        e.monitor.value = modulatedValue(e.def, p.modulator, base, paramClockMs(doc.session, e.id, nowMs), paramPhase(doc.project, doc.session, e.id, nowMs));
         e.monitorApi.refresh();
       }
     });

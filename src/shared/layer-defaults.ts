@@ -60,6 +60,31 @@ export interface SummaryColumn {
   empty: boolean;
   /** Distinct values of a category column (undefined for other types or when unknown). */
   categories?: number;
+  /** Missing values (undefined when unknown). */
+  nullCount?: number;
+  /**
+   * Number columns: the 5th and 95th percentiles of the values (from a sample of at most
+   * 2048 rows), so a column that is nearly always one value (with rare outliers) can be told
+   * from one that varies. Undefined for other types or when unknown.
+   */
+  typical?: [number, number];
+}
+
+/** Rows sampled for a number column's typical range. */
+const TYPICAL_SAMPLE = 2048;
+
+/** 5th and 95th percentiles of a sample of the non-missing values, or undefined with none. */
+function typicalRange(values: Float32Array): [number, number] | undefined {
+  const step = Math.max(1, Math.floor(values.length / TYPICAL_SAMPLE));
+  const sample: number[] = [];
+  for (let i = 0; i < values.length; i += step) {
+    const v = values[i]!;
+    if (!Number.isNaN(v)) sample.push(v);
+  }
+  if (sample.length === 0) return undefined;
+  sample.sort((a, b) => a - b);
+  const at = (q: number) => sample[Math.min(sample.length - 1, Math.floor(q * (sample.length - 1)))]!;
+  return [at(0.05), at(0.95)];
 }
 
 /** What layer defaults and the control GUI need to know about a parsed dataset. */
@@ -76,8 +101,9 @@ export function summarise(table: Table, cadences: Record<string, { step: number 
   return {
     rowCount: table.rowCount,
     columns: table.columns.map((c) => {
-      const col: SummaryColumn = { name: c.name, type: c.type, min: c.min, max: c.max, empty: c.empty };
+      const col: SummaryColumn = { name: c.name, type: c.type, min: c.min, max: c.max, empty: c.empty, nullCount: c.nullCount };
       if (c.type === 'category') col.categories = c.dictionary.length;
+      if (c.type === 'number') col.typical = typicalRange(c.values);
       return col;
     }),
     cadences: steps,

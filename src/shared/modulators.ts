@@ -85,6 +85,38 @@ export const TransportSchema = z.object({
 export type Transport = z.infer<typeof TransportSchema>;
 
 /**
+ * A free-running clock in seconds (live session state, persisted like the transports). The
+ * camera's LFO and noise modulators run on one (session.cameraClock) instead of the wall
+ * clock, so its moves can be paused, jogged and reset. Time at wall time T while playing:
+ * anchorSeconds + (T - anchorWallMs) / 1000. It never wraps, so noise never jumps.
+ * WALL_CLOCK ({ playing, 0, 0 }) reads exactly as the wall clock.
+ */
+export const ClockSchema = z.object({
+  playing: z.boolean(),
+  anchorWallMs: z.number(),
+  anchorSeconds: z.number(),
+});
+export type Clock = z.infer<typeof ClockSchema>;
+
+/** A clock that reads as the wall clock (what camera moves ran on before they had a clock). */
+export const WALL_CLOCK: Clock = { playing: true, anchorWallMs: 0, anchorSeconds: 0 };
+
+/** The clock's time in ms at wall time `nowMs` (what modulators take as their time). */
+export function clockMs(c: Clock, nowMs: number): number {
+  return c.anchorSeconds * 1000 + (c.playing ? nowMs - c.anchorWallMs : 0);
+}
+
+/** Clock that keeps its time but starts or stops. */
+export function setClockPlaying(c: Clock, playing: boolean, nowMs: number): Clock {
+  return { playing, anchorWallMs: nowMs, anchorSeconds: clockMs(c, nowMs) / 1000 };
+}
+
+/** Clock moved to `seconds`, keeping play state. */
+export function seekClock(c: Clock, seconds: number, nowMs: number): Clock {
+  return { playing: c.playing, anchorWallMs: nowMs, anchorSeconds: Number.isFinite(seconds) ? seconds : 0 };
+}
+
+/**
  * Wall-clock ms for a high-resolution `performance.now()` reading: perfNow + an offset kept
  * in step with the system clock (`Date.now()`).
  *

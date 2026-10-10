@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clockMs,
+  seekClock,
+  setClockPlaying,
+  WALL_CLOCK,
   cycleProgress,
   playhead,
   progressFor,
@@ -159,5 +163,19 @@ describe('playback modes', () => {
     expect(progressFor(0.3, 'pingpong', coming)).toBeCloseTo(0.85);
     expect(progressFor(0.3, 'pingpong', 0.1)).toBeCloseTo(0.15);
     expect(progressFor(0.3, 'reverse', 0)).toBeCloseTo(0.7);
+  });
+});
+
+describe('clock (camera moves)', () => {
+  it('runs from its anchor while playing, holds while paused, and seeks', () => {
+    const c = { playing: true, anchorWallMs: 10_000, anchorSeconds: 5 };
+    expect(clockMs(c, 12_500)).toBe(7500);
+    const paused = setClockPlaying(c, false, 12_500);
+    expect(clockMs(paused, 99_000)).toBe(7500);
+    const resumed = setClockPlaying(paused, true, 20_000);
+    expect(clockMs(resumed, 21_000)).toBe(8500);
+    expect(clockMs(seekClock(resumed, 0, 21_000), 21_000)).toBe(0);
+    expect(seekClock(paused, 3, 1).playing).toBe(false);
+    expect(clockMs(WALL_CLOCK, 1_791_457_234_694.25)).toBe(1_791_457_234_694.25);
   });
 });

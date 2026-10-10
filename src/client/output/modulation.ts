@@ -1,5 +1,5 @@
 import type { LayerConfig } from '../../shared/layer-schema.ts';
-import { evaluate, playhead, sortKeys, type Modulator, type TimelineSettings } from '../../shared/modulators.ts';
+import { clockMs, evaluate, playhead, sortKeys, type Modulator, type TimelineSettings } from '../../shared/modulators.ts';
 import { clampParam, parameterDefs, parseParamId, readParam, type ParamDef } from '../../shared/parameters.ts';
 import type { Camera, Project, SyncDoc } from '../../shared/project-schema.ts';
 
@@ -22,6 +22,8 @@ interface Owner {
   timeline: TimelineSettings | null;
   /** Timeline phase for this owner's bindings, set at the start of each frame. */
   phase: number;
+  /** Time (ms) for this owner's LFO and noise: the camera clock for the camera, else the wall clock. */
+  timeMs: number;
 }
 
 export interface ModulationTargets {
@@ -106,6 +108,7 @@ export class ModulationEngine {
           dirty: false,
           timeline: own ? { duration: own.duration, loop: own.loop, playback: own.playback } : null,
           phase: 0,
+          timeMs: 0,
         });
         ownerIndex.set(key, index);
       }
@@ -134,11 +137,12 @@ export class ModulationEngine {
       const o = this.owners[i]!;
       const t = o.timeline;
       o.phase = t ? playhead(doc.session.layerTransports[o.layerId!] ?? doc.session.transport, t, nowMs) : this._phase;
+      o.timeMs = o.kind === 'camera' ? clockMs(doc.session.cameraClock, nowMs) : nowMs;
     }
     for (let i = 0; i < this.bindings.length; i++) {
       const b = this.bindings[i]!;
       const owner = this.owners[b.owner]!;
-      b.write(clampParam(b.def, evaluate(b.modulator, b.base, nowMs, owner.phase)));
+      b.write(clampParam(b.def, evaluate(b.modulator, b.base, owner.timeMs, owner.phase)));
       owner.dirty = true;
     }
     for (let i = 0; i < this.owners.length; i++) {

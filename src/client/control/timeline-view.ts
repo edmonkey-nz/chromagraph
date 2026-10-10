@@ -1,7 +1,7 @@
 import { LAYER_TYPE_TITLES } from '../../shared/layer-helpers.ts';
 import { PLAYBACKS, type Playback } from '../../shared/layer-schema.ts';
 import { clampDuration, formatClock, formatValue, MAX_DURATION, MIN_DURATION, paramTitle } from '../../shared/modulation-helpers.ts';
-import { cyclePosition, gapElapsed, type Parameter, type TimelineSettings, type Transport, wallMs } from '../../shared/modulators.ts';
+import { clockMs, cyclePosition, gapElapsed, type Parameter, type TimelineSettings, type Transport, wallMs } from '../../shared/modulators.ts';
 import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { ProjectSchema, type SyncDoc } from '../../shared/project-schema.ts';
 import {
@@ -1148,10 +1148,12 @@ export class TimelineView {
         }
         this.setPlayButton(gu.playBtn, (gu.track.local ?? gu.g.transport).playing);
       }
+      // The camera's LFO and noise run on the camera clock (paused, jogged or reset in its Motion folder).
+      const laneNow = gu.g.kind === 'camera' ? clockMs(doc.session.cameraClock, now) : now;
       for (const lu of gu.lanes) {
         const lane = lu.lane;
-        if ((lane.kind === 'lfo' || lane.kind === 'noise') && this.onScreen.has(lu.canvas)) this.drawWave(lu, now);
-        const v = laneValue(lane, now, phase);
+        if ((lane.kind === 'lfo' || lane.kind === 'noise') && this.onScreen.has(lu.canvas)) this.drawWave(lu, laneNow);
+        const v = laneValue(lane, laneNow, phase);
         if (lu.dot) {
           const dx = Math.round(xOf(phase, gu.width) * 2) / 2;
           const dy = Math.round(yOf(Math.min(Math.max(normalise(lane, v), 0), 1), CURVE_H) * 2) / 2;

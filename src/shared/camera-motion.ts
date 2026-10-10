@@ -1,4 +1,4 @@
-import type { Modulator, Parameter } from './modulators.ts';
+import { clockMs, seekClock, type Clock, type Modulator, type Parameter } from './modulators.ts';
 import type { PatchOp } from './patch.ts';
 import type { Project } from './project-schema.ts';
 
@@ -11,10 +11,15 @@ import type { Project } from './project-schema.ts';
  * the Camera card (or by dragging in the preview) stays the centre of the move. A preset owns
  * every camera.* modulator: applying one replaces them all.
  *
- * Speed scales every move: LFO periods are divided by it, noise speeds multiplied. LFO values
- * come from wall-clock time / period, so a new period alone would make the camera jump; the
- * new LFO gets the phase that continues the old one's cycle from `nowMs` instead. (Noise has
- * no phase, so the drift preset can shift slightly when its speed changes.)
+ * The moves run on the camera clock (session.cameraClock, see ClockSchema), which the Motion
+ * folder can pause, jog and reset. At clock 0 every LFO sits at the camera's base value, so a
+ * reset shows the framing set in the Camera card. Each preset's periods divide its longest,
+ * so the move loops cleanly over cameraLoopSeconds().
+ *
+ * Speed scales every move: LFO periods are divided by it, noise speeds multiplied. Every
+ * value is then a function of clock time × speed, so a speed change rescales the clock by
+ * old / new speed and the move carries on from the same point (noise included). Choosing a
+ * different preset starts it from clock 0.
  *
  * The preset and speed are not stored; detectCameraMotion() reads them back from the
  * modulators (ignoring phase), and reports 'custom' once a camera modulator has been edited
@@ -41,12 +46,13 @@ export const SPEED_MIN = 0.05;
 export const SPEED_MAX = 5;
 export const SPEED_STEP = 0.05;
 
+/** A saw starts half way (0.5), at its zero crossing, like a sine: so time 0 is the base value. */
 const lfo = (shape: 'sine' | 'saw', period: number, amount: number, speed: number): Modulator => ({
   kind: 'lfo',
   enabled: true,
   shape,
   period: period / speed,
-  phase: 0,
+  phase: shape === 'saw' ? 0.5 : 0,
   amount,
 });
 
@@ -72,7 +78,7 @@ export function cameraMotionModulators(motion: CameraMotion, speed: number): Rec
     case 'swing':
       return { 'camera.yaw': lfo('sine', 20, 35, s) };
     case 'orbit-bob':
-      return { 'camera.yaw': lfo('saw', 60, 180, s), 'camera.pitch': lfo('sine', 17, 12, s) };
+      return { 'camera.yaw': lfo('saw', 60, 180, s), 'camera.pitch': lfo('sine', 20, 12, s) };
     case 'zoom':
       return { 'camera.distance': lfo('sine', 16, 0.35, s) };
     case 'pan':
@@ -90,18 +96,10 @@ export function cameraMotionModulators(motion: CameraMotion, speed: number): Rec
     case 'fly-around':
       return {
         'camera.yaw': lfo('saw', 90, 180, s),
-        'camera.pitch': lfo('sine', 31, 20, s),
-        'camera.distance': lfo('sine', 23, 0.3, s),
+        'camera.pitch': lfo('sine', 30, 20, s),
+        'camera.distance': lfo('sine', 22.5, 0.3, s),
       };
   }
-}
-
-const fract = (x: number): number => x - Math.floor(x);
-
-/** Phase for an LFO of `period` that is at the same point of its cycle at `nowMs` as the old one (see evaluate). */
-export function continuedPhase(oldPeriod: number, oldPhase: number, period: number, nowMs: number): number {
-  const at = fract((nowMs % (oldPeriod * 1000)) / (oldPeriod * 1000) + oldPhase);
-  return fract(at - (nowMs % (period * 1000)) / (period * 1000));
 }
 
 export function clampSpeed(speed: number): number {
@@ -112,26 +110,43 @@ function isCameraParam(id: string): boolean {
   return id.startsWith('camera.');
 }
 
+/** Seconds the Motion folder's position slider spans when the camera has no LFO (noise only). */
+export const NOISE_WINDOW_SECONDS = 60;
+
+/**
+ * Seconds over which the camera's enabled LFOs repeat together: the longest period, or the
+ * smallest multiple of it (up to 12) that every other period divides. Without LFOs (drift,
+ * which is noise and never repeats) a fixed NOISE_WINDOW_SECONDS window. What the Motion
+ * folder's position slider spans.
+ */
+export function cameraLoopSeconds(parameters: Readonly<Record<string, Parameter>>): number {
+  const periods: number[] = [];
+  for (const [id, p] of Object.entries(parameters)) {
+    if (isCameraParam(id) && p.modulator.kind === 'lfo' && p.modulator.enabled) periods.push(p.modulator.period);
+  }
+  if (periods.length === 0) return NOISE_WINDOW_SECONDS;
+  const longest = Math.max(...periods);
+  for (let k = 1; k <= 12; k++) {
+    const loop = longest * k;
+    if (periods.every((p) => Math.abs(loop / p - Math.round(loop / p)) < 1e-6 * (loop / p))) return loop;
+  }
+  return longest;
+}
+
+/** The camera clock, for cameraMotionOps to carry the move across a speed change. */
+export interface ClockAt {
+  clock: Clock;
+  nowMs: number;
+}
+
 /**
  * Ops that make `motion` at `speed` the camera's only modulators. Choosing a move switches a
- * 2D camera to 3D, since the moves only show with the 3D camera. With `nowMs` (wall clock),
- * an LFO replacing one of the same shape and amount continues its cycle (no jump).
+ * 2D camera to 3D, since the moves only show with the 3D camera. With the camera clock
+ * (`at`): the same preset at a new speed rescales the clock so the move continues without a
+ * jump; a different preset restarts the clock at 0 (play state kept).
  */
-export function cameraMotionOps(
-  project: Pick<Project, 'parameters' | 'camera'>,
-  motion: CameraMotion,
-  speed: number,
-  nowMs: number | null = null,
-): PatchOp[] {
+export function cameraMotionOps(project: Pick<Project, 'parameters' | 'camera'>, motion: CameraMotion, speed: number, at: ClockAt | null = null): PatchOp[] {
   const want = cameraMotionModulators(motion, speed);
-  if (nowMs !== null) {
-    for (const [id, m] of Object.entries(want)) {
-      const old = project.parameters[id]?.modulator;
-      if (m.kind === 'lfo' && old?.kind === 'lfo' && old.enabled && old.shape === m.shape && old.amount === m.amount) {
-        m.phase = continuedPhase(old.period, old.phase, m.period, nowMs);
-      }
-    }
-  }
   const ops: PatchOp[] = [];
   for (const id of Object.keys(project.parameters)) {
     if (isCameraParam(id) && !(id in want)) ops.push({ op: 'remove', path: ['project', 'parameters', id] });
@@ -140,6 +155,11 @@ export function cameraMotionOps(
     ops.push({ op: 'set', path: ['project', 'parameters', id], value: { modulator } });
   }
   if (motion !== 'none' && project.camera.mode !== '3d') ops.push({ op: 'set', path: ['project', 'camera', 'mode'], value: '3d' });
+  if (at && motion !== 'none') {
+    const was = detectCameraMotion(project.parameters);
+    const seconds = was.motion === motion && was.speed !== null ? (clockMs(at.clock, at.nowMs) / 1000) * (was.speed / clampSpeed(speed)) : 0;
+    ops.push({ op: 'set', path: ['session', 'cameraClock'], value: seekClock(at.clock, seconds, at.nowMs) });
+  }
   return ops;
 }
 

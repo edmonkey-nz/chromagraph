@@ -226,6 +226,7 @@ setInterval(() => {
   timelinePanel.tick(now);
   layersPanel.tick(now);
   if (cameraModulationFolder.expanded) cameraModulation.tick(now);
+  cameraPanel.tick(now);
   scenesPanel.tick(now);
   projectBar.renderState(Date.now());
 }, LIVE_TICK_MS);
