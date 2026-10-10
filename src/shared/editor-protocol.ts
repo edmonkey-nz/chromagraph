@@ -37,7 +37,7 @@ export type PreviewToControl =
   | { t: 'camera'; camera: Camera; final: boolean }
   | { t: 'select'; layerId: string | null };
 
-const TAG = 'data-wrangler-editor';
+const TAG = 'chromagraph-editor';
 
 export function wrap<T>(msg: T): { tag: typeof TAG; msg: T } {
   return { tag: TAG, msg };

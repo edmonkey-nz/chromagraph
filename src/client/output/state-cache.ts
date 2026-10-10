@@ -1,6 +1,8 @@
 import type { SyncDoc } from '../../shared/project-schema.ts';
 
-const KEY = 'data-wrangler:output-state';
+const KEY = 'chromagraph:output-state';
+/** Before the rename to chromagraph: read once, then replaced by KEY. */
+const LEGACY_KEY = 'data-wrangler:output-state';
 const WRITE_DELAY_MS = 1_000;
 
 export interface CachedState {
@@ -12,7 +14,7 @@ export interface CachedState {
 /** Last full state, so the output can boot and keep rendering without the server. */
 export function readCache(): CachedState | null {
   try {
-    const text = localStorage.getItem(KEY);
+    const text = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY);
     if (!text) return null;
     const v = JSON.parse(text) as Partial<CachedState>;
     if (typeof v.projectName !== 'string' || typeof v.rev !== 'number') return null;
@@ -36,6 +38,7 @@ export function writeCache(projectName: string, rev: number, doc: SyncDoc): void
     if (!p) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(p));
+      localStorage.removeItem(LEGACY_KEY);
     } catch {
       // storage full or blocked: the live state still works, only cold boot loses out
     }

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-# data-wrangler
+# chromagraph
 
 Realtime data visualisation instrument. Loads static CSV/JSON files, maps columns onto
 instanced 2D/3D visuals in a layer stack, and outputs live to an HD projector. Used both
@@ -599,12 +599,19 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 **Launching the output** (`server/launcher.ts`, pure parts in `server/launch-args.ts`).
 - The header's Output buttons POST to `/api/output/launch` (`projector` | `window`) and
   `/api/output/close`. The server spawns Chrome detached (so it survives server restarts)
-  with its own profile (`~/.config/data-wrangler-output`), `--ozone-platform=x11` and PRIME
+  with its own profile (`~/.config/chromagraph-output`; a profile left in the old
+  `~/.config/data-wrangler-output` is moved there on the next launch), `--ozone-platform=x11` and PRIME
   offload when `/proc/driver/nvidia` exists.
 - The projector is the first non-primary monitor in `xrandr --listmonitors`. A launch first
   closes the running output Chrome, because a second launch would only open a tab in it.
 - Close finds the main process by scanning `/proc/*/cmdline`. Chrome rewrites its process
   title with spaces, not NULs.
+
+**Renamed from data-wrangler (2026-10-10).** Browser storage and the output's Chrome profile
+moved to `chromagraph` names. The old names are still read once and carried over, so nothing
+resets: the output state cache and remembered control settings (`state-cache.ts`, `ui.ts`),
+the service worker's offline cache (copied on activate) and the output profile folder
+(`launcher.ts`). Remove those fallbacks once every machine has run the new version.
 
 **Control window start-up order.** `client/control/main.ts` creates `SyncedState` before
 the panels, because some panels read `state.doc` while they are being built. In the

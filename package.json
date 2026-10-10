@@ -1,5 +1,5 @@
 {
-  "name": "data-wrangler",
+  "name": "chromagraph",
   "scripts": {
     "test": "vitest run",
     "dev": "tsx watch --clear-screen=false --ignore 'projects/**' --ignore 'src/client/**' src/server/index.ts",

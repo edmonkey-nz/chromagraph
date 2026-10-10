@@ -1,11 +1,11 @@
-# Packaging data-wrangler as an app for Windows, macOS and Linux
+# Packaging chromagraph as an app for Windows, macOS and Linux
 
-FUTURE.md item 24: can data-wrangler become something you download and double-click,
+FUTURE.md item 24: can chromagraph become something you download and double-click,
 on Windows, macOS and Ubuntu? This page compares the options. Nothing has been built yet.
 
 ## Where it stands today
 
-data-wrangler is three parts: a Node server, a control window and an output window. Both
+chromagraph is three parts: a Node server, a control window and an output window. Both
 windows are web pages shown in Chrome. To run it you need Node, `npm install`, then
 `npm run dev` (or `npm run build && npm start`), and Chrome open on two URLs.
 
@@ -31,7 +31,7 @@ today as well.
 
 | Work | Effort |
 |---|---|
-| Move projects, profiles and state to a per-user folder (e.g. `Documents/data-wrangler`), with a one-off move of existing projects | ½ day |
+| Move projects, profiles and state to a per-user folder (e.g. `Documents/chromagraph`), with a one-off move of existing projects | ½ day |
 | Build the server into plain JavaScript (one bundled file), with a cross-platform start | ½ day |
 | Bundle the sans font for offline use | 1 hour |
 | GPU check that knows dedicated from integrated GPUs on all vendors | 1–2 hours |

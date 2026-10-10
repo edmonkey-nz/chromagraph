@@ -1,4 +1,4 @@
-# data-wrangler
+# chromagraph
 
 A realtime data-visualisation instrument. It loads CSV/JSON files, maps their columns onto
 2D and 3D layers, and plays the result live to a projector or screen at 1920×1080. Use it
@@ -21,8 +21,8 @@ to explore data at a desk, or to run unattended installations for hours.
 ## Install and start
 
 ```bash
-git clone <this repository> data-wrangler
-cd data-wrangler
+git clone <this repository> chromagraph
+cd chromagraph
 npm install
 npm run dev
 ```

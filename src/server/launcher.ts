@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { access, readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile, rename } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -15,7 +15,9 @@ import type { Log } from './log.ts';
  * control window runs in, and it is detached so a server restart leaves it running.
  */
 
-const PROFILE_DIR = join(homedir(), '.config', 'data-wrangler-output');
+const PROFILE_DIR = join(homedir(), '.config', 'chromagraph-output');
+/** The profile's folder before the app was renamed to chromagraph: moved to PROFILE_DIR on the next launch. */
+const LEGACY_PROFILE_DIR = join(homedir(), '.config', 'data-wrangler-output');
 const CHROME_NAMES = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'];
 const CLOSE_WAIT_MS = 4000;
 
@@ -53,13 +55,14 @@ function listMonitors(): Promise<Monitor[]> {
   });
 }
 
-/** Pids of output Chrome main processes, found through /proc. */
+/** Pids of output Chrome main processes (either profile folder), found through /proc. */
 async function runningPids(): Promise<number[]> {
   const pids: number[] = [];
   for (const entry of await readdir('/proc')) {
     if (!/^\d+$/.test(entry)) continue;
     try {
-      if (isOutputBrowser(await readFile(`/proc/${entry}/cmdline`, 'utf8'), PROFILE_DIR)) pids.push(Number(entry));
+      const cmdline = await readFile(`/proc/${entry}/cmdline`, 'utf8');
+      if (isOutputBrowser(cmdline, PROFILE_DIR) || isOutputBrowser(cmdline, LEGACY_PROFILE_DIR)) pids.push(Number(entry));
     } catch {
       // the process exited while we looked
     }
@@ -100,6 +103,7 @@ export class OutputLauncher {
       // A second launch would only open a tab in the running instance with its old flags,
       // so close it first: "On projector" then also moves an open output to the projector.
       await this.closeNow();
+      await this.moveLegacyProfile();
       const chrome = await findChrome();
       if (!chrome) throw new Error('Chrome not found (tried google-chrome and chromium; set CHROME to its path)');
       const monitor = mode === 'projector' ? pickProjector(await listMonitors()) : null;
@@ -117,6 +121,17 @@ export class OutputLauncher {
       this.log.info(`output window started ${where}${nvidia ? ' (NVIDIA PRIME offload)' : '; NVIDIA driver not loaded'}`, 'launcher');
       return { monitor, nvidia };
     });
+  }
+
+  /** Carry the output's Chrome profile over from its old folder (after closeNow, so it is not in use). */
+  private async moveLegacyProfile(): Promise<void> {
+    if (existsSync(PROFILE_DIR) || !existsSync(LEGACY_PROFILE_DIR)) return;
+    try {
+      await rename(LEGACY_PROFILE_DIR, PROFILE_DIR);
+      this.log.info(`moved the output's Chrome profile to ${PROFILE_DIR}`, 'launcher');
+    } catch (err) {
+      this.log.warn(`could not move the old output profile (a new one is used): ${err instanceof Error ? err.message : String(err)}`, 'launcher');
+    }
   }
 
   private async closeNow(): Promise<number> {

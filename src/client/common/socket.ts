@@ -142,7 +142,7 @@ export function wsUrl(): string {
 }
 
 export function makeClientId(prefix: string): string {
-  const key = `data-wrangler:${prefix}-id`;
+  const key = `chromagraph:${prefix}-id`;
   try {
     const existing = sessionStorage.getItem(key);
     if (existing) return existing;

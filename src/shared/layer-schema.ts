@@ -807,7 +807,7 @@ export function blankTextLayer(id: string, name: string, datasetId: string | nul
   return {
     ...base(id, name, datasetId),
     type: 'text',
-    text: 'data-wrangler',
+    text: 'chromagraph',
     row: 0,
     position: [60, 1020, 0],
     fontSize: 48,

@@ -34,7 +34,7 @@ describe('pickProjector', () => {
 });
 
 describe('chromeLaunch', () => {
-  const base = { url: 'http://127.0.0.1:8080/output/', profileDir: '/home/x/.config/data-wrangler-output' };
+  const base = { url: 'http://127.0.0.1:8080/output/', profileDir: '/home/x/.config/chromagraph-output' };
   const projector = pickProjector(parseMonitors(WITH_PROJECTOR));
 
   it('kiosk on the projector, under X11, in its own profile, with PRIME offload', () => {
@@ -56,7 +56,7 @@ describe('chromeLaunch', () => {
 });
 
 describe('isOutputBrowser', () => {
-  const dir = '/home/x/.config/data-wrangler-output';
+  const dir = '/home/x/.config/chromagraph-output';
   it('matches the main process only, NUL- or space-separated', () => {
     expect(isOutputBrowser(`/opt/google/chrome/chrome\0--user-data-dir=${dir}\0--kiosk\0`, dir)).toBe(true);
     expect(isOutputBrowser(`/opt/google/chrome/chrome --ozone-platform=x11 --user-data-dir=${dir} --kiosk`, dir)).toBe(true);

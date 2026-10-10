@@ -2,10 +2,33 @@
 // Network first, cache fallback: while the server is up everything is fresh; if the
 // server is down when the output (re)loads, the last good page, bundle and data files
 // come from the cache so the output still boots and renders.
-const CACHE = 'data-wrangler-output-v1';
+const CACHE = 'chromagraph-output-v1';
+// The cache's name before the app was renamed to chromagraph: its entries are copied into
+// CACHE once, so an output that last loaded under the old name can still boot offline.
+const LEGACY_CACHE = 'data-wrangler-output-v1';
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (event) =>
+  event.waitUntil(
+    (async () => {
+      if (await caches.has(LEGACY_CACHE)) {
+        try {
+          const from = await caches.open(LEGACY_CACHE);
+          const to = await caches.open(CACHE);
+          for (const req of await from.keys()) {
+            if (await to.match(req)) continue;
+            const res = await from.match(req);
+            if (res) await to.put(req, res);
+          }
+          await caches.delete(LEGACY_CACHE);
+        } catch {
+          // best effort: the next online load fills CACHE anyway
+        }
+      }
+      await self.clients.claim();
+    })(),
+  ),
+);
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;

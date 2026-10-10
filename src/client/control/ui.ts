@@ -65,11 +65,13 @@ export function iconButton(name: IconName, label: string, onClick: () => void, c
 
 // ---- remembered settings ---------------------------------------------------------------------
 
-const PREFIX = 'data-wrangler.control.';
+const PREFIX = 'chromagraph.control.';
+/** Before the rename to chromagraph: still read, so remembered settings carry over. */
+const LEGACY_PREFIX = 'data-wrangler.control.';
 
 export function loadSetting(key: string): string | null {
   try {
-    return localStorage.getItem(PREFIX + key);
+    return localStorage.getItem(PREFIX + key) ?? localStorage.getItem(LEGACY_PREFIX + key);
   } catch {
     return null;
   }
@@ -78,6 +80,7 @@ export function loadSetting(key: string): string | null {
 export function saveSetting(key: string, value: string): void {
   try {
     localStorage.setItem(PREFIX + key, value);
+    localStorage.removeItem(LEGACY_PREFIX + key);
   } catch {
     // Storage unavailable (private window, blocked site data): the setting just isn't kept.
   }
