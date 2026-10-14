@@ -15,6 +15,7 @@ import {
   SCALE_TYPES,
 } from '../../shared/layer-schema.ts';
 import type { Path } from '../../shared/patch.ts';
+import type { AnimatePanel } from './animate-panel.ts';
 import type { ModulationPanel } from './modulation-panel.ts';
 import type { TimelinePanel } from './timeline-panel.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
@@ -55,7 +56,9 @@ export interface Entry {
   refreshReadout: (() => void) | null;
   /** Show a new title on the layer's card. */
   retitle(title: string): void;
-  /** The layer's own modulators (its "Modulation" folder). */
+  /** The layer's "Animate" folder: rows, how they play out, and the folders below. */
+  animate: AnimatePanel | null;
+  /** The layer's own modulators (the "Motion effects" folder, inside Animate). */
   modulation: ModulationPanel | null;
   modulationFolder: FolderApi | null;
   /** The layer's "Timeline" folder: the own-timeline switch and, when on, its controls. */
@@ -168,33 +171,6 @@ export function addTimeColumn(ui: LayerUi, f: FolderApi, current: string | null)
   return f
     .addBinding(m, 'timeColumn', { label: 'time column', options: columnOptions(timeColumns(ui.summary), current) })
     .on('change', (ev) => ui.set(['timeColumn'], ev.value || null));
-}
-
-/** Rows start/end sliders that keep start < end by pushing the other handle along. */
-export function addRows(ui: LayerUi, f: FolderApi, rows: readonly [number, number]): void {
-  const m = { rowStart: rows[0], rowEnd: rows[1] };
-  const start = ui.mark(f.addBinding(m, 'rowStart', { label: 'rows start', min: 0, max: 1, step: 0.001 }), 'rows start', 'rows.0');
-  const end = ui.mark(f.addBinding(m, 'rowEnd', { label: 'rows end', min: 0, max: 1, step: 0.001 }), 'rows end', 'rows.1');
-  const MIN_GAP = 0.001;
-  const sendRows = (moved: 'start' | 'end') => {
-    if (ui.isQuiet()) return;
-    if (m.rowStart > m.rowEnd - MIN_GAP) {
-      if (moved === 'start') {
-        m.rowEnd = Math.min(1, m.rowStart + MIN_GAP);
-        m.rowStart = Math.min(m.rowStart, m.rowEnd - MIN_GAP);
-      } else {
-        m.rowStart = Math.max(0, m.rowEnd - MIN_GAP);
-        m.rowEnd = Math.max(m.rowEnd, m.rowStart + MIN_GAP);
-      }
-      ui.quiet(() => {
-        start.refresh();
-        end.refresh();
-      });
-    }
-    ui.set(['rows'], [m.rowStart, m.rowEnd]);
-  };
-  start.on('change', () => sendRows('start'));
-  end.on('change', () => sendRows('end'));
 }
 
 /** A modulatable x/y/z field bound to a vec3 at `path` (parameter ids `<field>.0..2`). */

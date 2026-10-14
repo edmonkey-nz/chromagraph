@@ -13,7 +13,6 @@ import {
   addOpacityBlend,
   addPair,
   addPlain,
-  addRows,
   addScaleRamp,
   addValueColumn,
   addVec3,
@@ -52,7 +51,6 @@ export function buildMultiples(ui: LayerUi, layer: SmallMultiplesLayer, titleOf:
   buildSplitColumn(ui, g, layer);
   addNumber(ui, g, layer.chunkRows, 'rows per panel', ['chunkRows'], { min: 1, integer: true }).hidden = layer.splitBy !== 'rows';
   addValueColumn(ui, g, layer.valueColumn, numeric, () => domain);
-  addRows(ui, g, layer.rows);
 
   // ---- Layout: the panel grid ----
   const l = ui.folder(root, 'Layout', 'Layout', false);

@@ -4,7 +4,6 @@ import {
   addFitButton,
   addIdentity,
   addOpacityBlend,
-  addRows,
   addTimeColumn,
   addVec3,
   buildEffects,
@@ -63,7 +62,6 @@ export function buildHeatmap(ui: LayerUi, layer: HeatmapLayer, titleOf: (l: Laye
   } else {
     g.addButton({ title: 'Waiting for data…', label: 'value', disabled: true });
   }
-  addRows(ui, g, layer.rows);
 
   const l = ui.folder(root, 'Layout', 'Layout', false);
   addVec3(ui, l, layer.origin, 'top-left', ['origin'], 'origin').element.title = 'Top-left corner of the map (px, y up)';

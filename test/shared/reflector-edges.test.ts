@@ -4,8 +4,8 @@ import { applyLayerTransform } from '../../src/client/output/layers/transform.ts
 import { defaultLayerOfType, fitAnyLayer } from '../../src/shared/layer-defaults.ts';
 import { datasetSwitchChanges, edgePreset, LAYER_TYPE_TITLES } from '../../src/shared/layer-helpers.ts';
 import { blankInstancerLayer, blankReflectorLayer, FRAME_CENTRE, LayerSchema } from '../../src/shared/layer-schema.ts';
-import { playheadKind } from '../../src/shared/modulation-helpers.ts';
 import { parameterDefs } from '../../src/shared/parameters.ts';
+import { animateKind } from '../../src/shared/reveal.ts';
 import { defaultProject, ProjectSchema } from '../../src/shared/project-schema.ts';
 
 describe('reflection plane layer', () => {
@@ -42,7 +42,7 @@ describe('reflection plane layer', () => {
     expect(fitted.type === 'reflector' && fitted.size).toEqual([1920, 1080]);
     expect(fitted.transform).toEqual(layer.transform);
     expect(datasetSwitchChanges(layer, null, null)).toEqual([{ path: ['datasetId'], value: null }]);
-    expect(playheadKind(layer)).toBeNull();
+    expect(animateKind(layer)).toBeNull();
   });
 
   it('registers its modulatable numbers', () => {

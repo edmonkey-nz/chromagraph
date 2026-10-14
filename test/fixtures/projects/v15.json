@@ -1,0 +1,1284 @@
+{
+  "version": 15,
+  "name": "test",
+  "datasets": [
+    {
+      "id": "ds-cmyoe5",
+      "file": "3384__Rain__daily.csv",
+      "label": "3384__Rain__daily",
+      "timeZone": "Pacific/Auckland",
+      "source": "",
+      "url": "",
+      "attribution": ""
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-349cyjpw",
+      "name": "Layer 1",
+      "enabled": true,
+      "datasetId": "ds-cmyoe5",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": true,
+          "strength": 1.5,
+          "radius": 0.6,
+          "threshold": 0.1
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.9
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "multiples",
+      "splitBy": "year",
+      "splitColumn": "Observation time UTC",
+      "chunkRows": 365,
+      "valueColumn": "Rainfall [mm]",
+      "rows": [
+        0,
+        1
+      ],
+      "chart": "dots",
+      "columns": 12,
+      "origin": [
+        60,
+        1020,
+        0
+      ],
+      "panelSize": [
+        144.72,
+        90.816
+      ],
+      "gap": [
+        5.76,
+        5.76
+      ],
+      "domainMode": "shared",
+      "scale": "sqrt",
+      "domain": null,
+      "steps": 5,
+      "colour": "#e8e8e8",
+      "colourByValue": true,
+      "ramp": "viridis",
+      "reverse": false,
+      "markSize": 6.75,
+      "labelSize": 14,
+      "labelColour": "#9aa0a6",
+      "labelFont": "terminal",
+      "labelUppercase": false,
+      "labelPlacement": "outside",
+      "frame": false
+    },
+    {
+      "id": "ly-10enq0il",
+      "name": "Layer 2",
+      "enabled": true,
+      "datasetId": "ds-cmyoe5",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          436.6,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 1.5,
+          "radius": 0.6,
+          "threshold": 0.1
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.9
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "hierarchy",
+      "levels": [
+        {
+          "kind": "time",
+          "column": "Observation time UTC",
+          "unit": "year"
+        },
+        {
+          "kind": "time",
+          "column": "Observation time UTC",
+          "unit": "month"
+        }
+      ],
+      "valueColumn": "Rainfall [mm]",
+      "aggregate": "sum",
+      "rows": [
+        0,
+        1
+      ],
+      "layout": "radial-dendrogram",
+      "origin": [
+        480,
+        1020,
+        0
+      ],
+      "size": [
+        960,
+        960
+      ],
+      "innerRadius": 40,
+      "nodeSize": [
+        2,
+        46
+      ],
+      "colourBy": "value",
+      "colour": "#e8e8e8",
+      "scale": "linear",
+      "domain": null,
+      "steps": 5,
+      "ramp": "viridis",
+      "reverse": false,
+      "linkWidth": 2,
+      "linkColour": "#6b7280",
+      "linkOpacity": 0.6,
+      "padding": 1,
+      "labelDepth": 1,
+      "labelSize": 24,
+      "labelColour": "#d8dade",
+      "labelFont": "terminal",
+      "labelUppercase": false
+    },
+    {
+      "id": "ly-d9pqgdu0",
+      "name": "data ring",
+      "enabled": true,
+      "datasetId": "ds-cmyoe5",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": true,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "instancer",
+      "primitive": "square",
+      "xMode": "time",
+      "timeColumn": "Observation time UTC",
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": true,
+      "arrangement": "spiral",
+      "origin": [
+        60,
+        345.95906233587186,
+        0
+      ],
+      "step": [
+        4,
+        0,
+        0
+      ],
+      "gridColumns": 100,
+      "cell": [
+        4.918032786885246,
+        8.067226890756302
+      ],
+      "radius": 730.625,
+      "angleStep": 1,
+      "radiusStep": 0.01,
+      "size": [
+        4.918032786885246,
+        8.067226890756302,
+        8.067226890756302
+      ],
+      "heightAxis": "y",
+      "colour": "#e8e8e8",
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          12,
+          0
+        ],
+        "rotation": [
+          0,
+          50,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 0.98,
+        "dataStep": 365,
+        "colourByClone": false
+      },
+      "labels": {
+        "enabled": false,
+        "every": "year",
+        "rows": 365,
+        "text": "date",
+        "column": null,
+        "size": 24,
+        "offset": 16,
+        "orientation": "along",
+        "colour": "#e8e8e8",
+        "hidePoints": false,
+        "font": "terminal",
+        "uppercase": false
+      },
+      "edges": {
+        "enabled": false,
+        "colour": "#ff3030",
+        "width": 2,
+        "faceOpacity": 1,
+        "glow": 0
+      },
+      "axes": {
+        "colour": "#9aa0a6",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": false,
+        "values": {
+          "enabled": true,
+          "column": null,
+          "place": "above",
+          "size": 28,
+          "colour": "#e8e8e8",
+          "gap": 8,
+          "decimals": -1,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": true,
+          "line": true,
+          "column": null,
+          "every": 1,
+          "size": 24,
+          "colour": "#c8ccd2",
+          "angle": 0,
+          "gap": 10,
+          "title": ""
+        },
+        "y": {
+          "enabled": true,
+          "line": true,
+          "ticks": 5,
+          "grid": false,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 24,
+          "colour": "#c8ccd2",
+          "decimals": -1,
+          "suffix": "",
+          "title": ""
+        }
+      },
+      "channels": {
+        "y": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "z": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "height": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            2,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "size": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.5,
+            2
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "rotation": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            3.0274780273437507,
+            824.249267578125
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "opacity": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.1,
+            1
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "colour": {
+          "column": "Rainfall [mm]",
+          "scale": "sqrt",
+          "domain": null,
+          "ramp": "viridis",
+          "reverse": false,
+          "steps": 5
+        }
+      }
+    },
+    {
+      "id": "tx-1",
+      "name": "Title",
+      "enabled": true,
+      "datasetId": null,
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "text",
+      "text": "Rainfall",
+      "row": 0,
+      "position": [
+        80,
+        1000,
+        0
+      ],
+      "fontSize": 48,
+      "colour": "#ffffff",
+      "align": "left",
+      "anchorX": "left",
+      "anchorY": "top",
+      "maxWidth": 0,
+      "lineHeight": 1.2,
+      "letterSpacing": 0,
+      "outlineWidth": 0,
+      "outlineColour": "#000000",
+      "font": "terminal",
+      "uppercase": false
+    },
+    {
+      "id": "ln-1",
+      "name": "Line",
+      "enabled": true,
+      "datasetId": "ds-cmyoe5",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "line",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "origin": [
+        60,
+        140,
+        0
+      ],
+      "step": [
+        1,
+        0,
+        0
+      ],
+      "y": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          0,
+          300
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "z": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          0,
+          0
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "width": 2,
+      "colour": "#ffffff",
+      "colourMap": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "ramp": "viridis",
+        "reverse": false,
+        "steps": 5
+      },
+      "breakOnGaps": true,
+      "gapFactor": 1.5,
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "fill": {
+        "mode": "none",
+        "colour": "#000000",
+        "opacity": 1
+      },
+      "aggregate": {
+        "by": "none",
+        "rows": 30,
+        "fn": "mean"
+      }
+    }
+  ],
+  "parameters": {
+    "layer.ly-349cyjpw.effects.glow.strength": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "sine",
+        "period": 8,
+        "phase": 0,
+        "amount": 0.5
+      }
+    }
+  },
+  "timeline": {
+    "duration": 600,
+    "loop": true,
+    "playback": "forward",
+    "fadeIn": false,
+    "fadeOut": false,
+    "fadeLength": 1,
+    "gap": 0
+  },
+  "camera": {
+    "mode": "2d",
+    "fov": 45,
+    "yaw": 0,
+    "pitch": 0,
+    "distance": 1,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "projection": "perspective",
+    "dof": {
+      "enabled": false,
+      "focus": 0,
+      "depth": 200,
+      "amount": 12
+    }
+  },
+  "output": {
+    "background": "#050505"
+  },
+  "scenes": [
+    {
+      "id": "scene-a",
+      "name": "Scene A",
+      "layers": [
+        {
+          "id": "ly-349cyjpw",
+          "name": "Layer 1",
+          "enabled": true,
+          "datasetId": "ds-cmyoe5",
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ],
+            "pivot": [
+              960,
+              540,
+              0
+            ]
+          },
+          "effects": {
+            "glow": {
+              "enabled": false,
+              "strength": 0.8,
+              "radius": 0.4,
+              "threshold": 0.2
+            },
+            "trails": {
+              "enabled": true,
+              "persistence": 0.5
+            },
+            "shadow": {
+              "enabled": false,
+              "colour": "#000000",
+              "opacity": 0.6,
+              "spread": 8,
+              "offset": [
+                6,
+                -6
+              ]
+            },
+            "blur": {
+              "enabled": false,
+              "amount": 4
+            }
+          },
+          "timeline": {
+            "own": false,
+            "duration": 600,
+            "loop": true,
+            "playback": "forward"
+          },
+          "screenFixed": false,
+          "type": "multiples",
+          "splitBy": "year",
+          "splitColumn": "Observation time UTC",
+          "chunkRows": 365,
+          "valueColumn": "Rainfall [mm]",
+          "rows": [
+            0,
+            1
+          ],
+          "chart": "dots",
+          "columns": 12,
+          "origin": [
+            60,
+            1020,
+            0
+          ],
+          "panelSize": [
+            144.72,
+            90.816
+          ],
+          "gap": [
+            5.76,
+            5.76
+          ],
+          "domainMode": "shared",
+          "scale": "sqrt",
+          "domain": null,
+          "steps": 5,
+          "colour": "#e8e8e8",
+          "colourByValue": true,
+          "ramp": "viridis",
+          "reverse": false,
+          "markSize": 6.75,
+          "labelSize": 14,
+          "labelColour": "#9aa0a6",
+          "labelFont": "terminal",
+          "labelUppercase": false,
+          "labelPlacement": "outside",
+          "frame": false
+        },
+        {
+          "id": "ly-10enq0il",
+          "name": "Layer 2",
+          "enabled": true,
+          "datasetId": "ds-cmyoe5",
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "position": [
+              436.6,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ],
+            "pivot": [
+              960,
+              540,
+              0
+            ]
+          },
+          "effects": {
+            "glow": {
+              "enabled": false,
+              "strength": 0.8,
+              "radius": 0.4,
+              "threshold": 0.2
+            },
+            "trails": {
+              "enabled": true,
+              "persistence": 0.5
+            },
+            "shadow": {
+              "enabled": false,
+              "colour": "#000000",
+              "opacity": 0.6,
+              "spread": 8,
+              "offset": [
+                6,
+                -6
+              ]
+            },
+            "blur": {
+              "enabled": false,
+              "amount": 4
+            }
+          },
+          "timeline": {
+            "own": false,
+            "duration": 600,
+            "loop": true,
+            "playback": "forward"
+          },
+          "screenFixed": false,
+          "type": "hierarchy",
+          "levels": [
+            {
+              "kind": "time",
+              "column": "Observation time UTC",
+              "unit": "year"
+            },
+            {
+              "kind": "time",
+              "column": "Observation time UTC",
+              "unit": "month"
+            }
+          ],
+          "valueColumn": "Rainfall [mm]",
+          "aggregate": "sum",
+          "rows": [
+            0,
+            1
+          ],
+          "layout": "radial-dendrogram",
+          "origin": [
+            480,
+            1020,
+            0
+          ],
+          "size": [
+            960,
+            960
+          ],
+          "innerRadius": 40,
+          "nodeSize": [
+            2,
+            46
+          ],
+          "colourBy": "value",
+          "colour": "#e8e8e8",
+          "scale": "linear",
+          "domain": null,
+          "steps": 5,
+          "ramp": "viridis",
+          "reverse": false,
+          "linkWidth": 2,
+          "linkColour": "#6b7280",
+          "linkOpacity": 0.6,
+          "padding": 1,
+          "labelDepth": 1,
+          "labelSize": 24,
+          "labelColour": "#d8dade",
+          "labelFont": "terminal",
+          "labelUppercase": false
+        },
+        {
+          "id": "ly-d9pqgdu0",
+          "name": "data ring",
+          "enabled": true,
+          "datasetId": "ds-cmyoe5",
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ],
+            "pivot": [
+              960,
+              540,
+              0
+            ]
+          },
+          "effects": {
+            "glow": {
+              "enabled": false,
+              "strength": 0.8,
+              "radius": 0.4,
+              "threshold": 0.2
+            },
+            "trails": {
+              "enabled": false,
+              "persistence": 0.85
+            },
+            "shadow": {
+              "enabled": false,
+              "colour": "#000000",
+              "opacity": 0.6,
+              "spread": 8,
+              "offset": [
+                6,
+                -6
+              ]
+            },
+            "blur": {
+              "enabled": false,
+              "amount": 4
+            }
+          },
+          "timeline": {
+            "own": true,
+            "duration": 600,
+            "loop": true,
+            "playback": "forward"
+          },
+          "screenFixed": false,
+          "type": "instancer",
+          "primitive": "square",
+          "xMode": "time",
+          "timeColumn": "Observation time UTC",
+          "rows": [
+            0,
+            1
+          ],
+          "followRange": true,
+          "arrangement": "spiral",
+          "origin": [
+            60,
+            345.95906233587186,
+            0
+          ],
+          "step": [
+            4,
+            0,
+            0
+          ],
+          "gridColumns": 100,
+          "cell": [
+            4.918032786885246,
+            8.067226890756302
+          ],
+          "radius": 730.625,
+          "angleStep": 1,
+          "radiusStep": 0.01,
+          "size": [
+            4.918032786885246,
+            8.067226890756302,
+            8.067226890756302
+          ],
+          "heightAxis": "y",
+          "colour": "#e8e8e8",
+          "cloner": {
+            "count": 1,
+            "position": [
+              0,
+              12,
+              0
+            ],
+            "rotation": [
+              0,
+              50,
+              0
+            ],
+            "scale": [
+              0,
+              0,
+              0
+            ],
+            "orbit": [
+              0,
+              0,
+              0
+            ],
+            "fade": 0.98,
+            "dataStep": 365,
+            "colourByClone": false
+          },
+          "labels": {
+            "enabled": false,
+            "every": "year",
+            "rows": 365,
+            "text": "date",
+            "column": null,
+            "size": 24,
+            "offset": 16,
+            "orientation": "along",
+            "colour": "#e8e8e8",
+            "hidePoints": false,
+            "font": "terminal",
+            "uppercase": false
+          },
+          "edges": {
+            "enabled": false,
+            "colour": "#ff3030",
+            "width": 2,
+            "faceOpacity": 1,
+            "glow": 0
+          },
+          "axes": {
+            "colour": "#9aa0a6",
+            "lineWidth": 2,
+            "font": "terminal",
+            "uppercase": false,
+            "values": {
+              "enabled": false,
+              "column": null,
+              "place": "above",
+              "size": 28,
+              "colour": "#e8e8e8",
+              "gap": 8,
+              "decimals": -1,
+              "prefix": "",
+              "suffix": ""
+            },
+            "x": {
+              "enabled": false,
+              "line": true,
+              "column": null,
+              "every": 1,
+              "size": 24,
+              "colour": "#c8ccd2",
+              "angle": 0,
+              "gap": 10,
+              "title": ""
+            },
+            "y": {
+              "enabled": false,
+              "line": true,
+              "ticks": 5,
+              "grid": false,
+              "gridOpacity": 0.25,
+              "side": "left",
+              "size": 24,
+              "colour": "#c8ccd2",
+              "decimals": -1,
+              "suffix": "",
+              "title": ""
+            }
+          },
+          "channels": {
+            "y": {
+              "column": null,
+              "scale": "linear",
+              "domain": null,
+              "range": [
+                0,
+                300
+              ],
+              "steps": 5,
+              "clamp": true
+            },
+            "z": {
+              "column": null,
+              "scale": "linear",
+              "domain": null,
+              "range": [
+                0,
+                300
+              ],
+              "steps": 5,
+              "clamp": true
+            },
+            "height": {
+              "column": null,
+              "scale": "linear",
+              "domain": null,
+              "range": [
+                2,
+                300
+              ],
+              "steps": 5,
+              "clamp": true
+            },
+            "size": {
+              "column": null,
+              "scale": "linear",
+              "domain": null,
+              "range": [
+                0.5,
+                2
+              ],
+              "steps": 5,
+              "clamp": true
+            },
+            "rotation": {
+              "column": null,
+              "scale": "linear",
+              "domain": null,
+              "range": [
+                3.0274780273437507,
+                824.249267578125
+              ],
+              "steps": 5,
+              "clamp": true
+            },
+            "opacity": {
+              "column": null,
+              "scale": "linear",
+              "domain": null,
+              "range": [
+                0.1,
+                1
+              ],
+              "steps": 5,
+              "clamp": true
+            },
+            "colour": {
+              "column": "Rainfall [mm]",
+              "scale": "sqrt",
+              "domain": null,
+              "ramp": "viridis",
+              "reverse": false,
+              "steps": 5
+            }
+          }
+        }
+      ],
+      "camera": {
+        "mode": "2d",
+        "fov": 45,
+        "yaw": 0,
+        "pitch": 0,
+        "distance": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "projection": "perspective",
+        "dof": {
+          "enabled": false,
+          "focus": 0,
+          "depth": 200,
+          "amount": 12
+        }
+      },
+      "output": {
+        "background": "#000000"
+      },
+      "parameters": {},
+      "transition": null
+    }
+  ],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}

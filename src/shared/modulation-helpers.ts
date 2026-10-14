@@ -19,15 +19,14 @@ import {
   type Parameter,
   type Transport,
 } from './modulators.ts';
-import { clampParam, layerParamPrefix, paramPatchPath, parameterDefs, readParam, type ParamDef } from './parameters.ts';
+import { clampParam, layerParamPrefix, parameterDefs, type ParamDef } from './parameters.ts';
 import type { PatchOp } from './patch.ts';
-import type { LayerConfig } from './layer-schema.ts';
 import type { Project, Session } from './project-schema.ts';
 
 /**
  * Pure helpers for the control window's timeline and modulation panels: sensible defaults,
- * display formatting, and the patch ops for compound edits (data playhead, layer delete and
- * duplicate). No DOM, so they are tested in Node.
+ * display formatting, and the patch ops for compound edits (layer delete and duplicate). No
+ * DOM, so they are tested in Node.
  */
 
 export const MIN_DURATION = 1;
@@ -278,64 +277,4 @@ export function layerParamCopyOps(parameters: Readonly<Record<string, Parameter>
 export function orphanParamIds(project: Project, defs: readonly ParamDef[] = parameterDefs(project)): string[] {
   const known = new Set(defs.map((d) => d.id));
   return Object.keys(project.parameters).filter((id) => !known.has(id));
-}
-
-export const PLAYHEAD_MODES = ['reveal', 'window'] as const;
-export type PlayheadMode = (typeof PLAYHEAD_MODES)[number];
-export const MIN_WINDOW = 0.01;
-
-function ramp(from: number, to: number): Parameter {
-  return { modulator: { kind: 'ramp', enabled: true, from, to, easing: 'linear' } };
-}
-
-/**
- * How the data playhead drives a layer: `rows` (a row range to reveal or window through) for
- * every layer type with a row range (instancer, line, heat map, small multiples, hierarchy,
- * 3D surface); `row` (one current row to follow) for text layers. Null for a layer with
- * neither (a reflection plane), which the data playhead does not offer.
- */
-export function playheadKind(layer: LayerConfig): 'rows' | 'row' | null {
-  switch (layer.type) {
-    case 'text':
-      return 'row';
-    case 'instancer':
-    case 'line':
-    case 'heatmap':
-    case 'multiples':
-    case 'hierarchy':
-    case 'surface':
-      return 'rows';
-    case 'reflector':
-    case 'qr':
-      return null;
-  }
-}
-
-/**
- * Ops for a "data playhead", driven by the timeline phase. On a layer with a row range:
- *   reveal  rows end ramps 0 -> 1; rows start goes back to a plain base of 0
- *   window  rows end ramps 0 -> 1 and rows start ramps -w -> 1 - w, so a window of width w
- *           sweeps through the rows (the output clamps the negative start to 0)
- * replacing any modulators already on the two row parameters. On a text layer ("follow
- * playhead") its `row` ramps 0 -> 1 and `mode` is ignored. Null if the layer is missing.
- */
-export function dataPlayheadOps(project: Project, layerId: string, mode: PlayheadMode, width = 0.1): PatchOp[] | null {
-  const layer = project.layers.find((l) => l.id === layerId);
-  if (!layer) return null;
-  const kind = playheadKind(layer);
-  if (kind === null) return null;
-  if (kind === 'row') return [{ op: 'set', path: paramPath(`${layerParamPrefix(layerId)}row`), value: ramp(0, 1) }];
-  const startId = `${layerParamPrefix(layerId)}rows.0`;
-  const endId = `${layerParamPrefix(layerId)}rows.1`;
-  const ops: PatchOp[] = [{ op: 'set', path: paramPath(endId), value: ramp(0, 1) }];
-  if (mode === 'reveal') {
-    ops.push({ op: 'remove', path: paramPath(startId) });
-    const base = readParam(project, startId);
-    const path = paramPatchPath(project, startId);
-    if (base !== 0 && path) ops.push({ op: 'set', path, value: 0 });
-  } else {
-    const w = Math.min(Math.max(Number.isFinite(width) ? width : 0.1, MIN_WINDOW), 1);
-    ops.push({ op: 'set', path: paramPath(startId), value: ramp(-w, 1 - w) });
-  }
-  return ops;
 }

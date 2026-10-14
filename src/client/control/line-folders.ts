@@ -8,7 +8,6 @@ import {
   addNumber,
   addOpacityBlend,
   addPlain,
-  addRows,
   addTimeColumn,
   addVec3,
   buildEffects,
@@ -36,7 +35,6 @@ export function buildLine(ui: LayerUi, layer: LineLayer, titleOf: (l: LayerConfi
   };
   g.addBinding(m, 'xMode', { label: 'x mode', options: options(X_MODES) }).on('change', (ev) => ui.set(['xMode'], ev.value));
   addTimeColumn(ui, g, layer.timeColumn);
-  addRows(ui, g, layer.rows);
   g.addBinding(m, 'followRange', { label: 'follow range' }).on('change', (ev) => ui.set(['followRange'], ev.value));
 
   // Aggregate: one point per week / month / year / N rows, so dense data reads as a line chart.

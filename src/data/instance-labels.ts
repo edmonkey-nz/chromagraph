@@ -54,7 +54,8 @@ export class DateLabels {
   }
 }
 
-function columnText(c: Column, row: number, dates: DateLabels): string {
+/** A column's value at `row` as label text: numbers with the decimals the file writes, dates padded, missing as ''. */
+export function columnText(c: Column, row: number, dates: DateLabels): string {
   switch (c.type) {
     case 'number': {
       const v = c.values[row]!;

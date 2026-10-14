@@ -111,7 +111,8 @@ log, sqrt or stepped scales and colour ramps.
 - Modulators (LFO, noise, ramp, keyframes) on almost any number, on a looping timeline
   from seconds to 24 hours. It plays forward, in reverse or ping-pong, with optional fades
   and a gap before each restart.
-- A **data playhead** reveals a record over time. Layers can run on their own timelines.
+- Each layer's **Animate** folder reveals a record over time (build up, or a sliding
+  window), with its other motion effects underneath. Layers can run on their own timelines.
 - The **Timeline** tab shows every animated value as a lane you can edit.
 - **Scenes:** capture looks and morph between them (0.1–10 s).
 

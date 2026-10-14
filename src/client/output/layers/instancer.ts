@@ -5,6 +5,7 @@ import {
   Color,
   DataTexture,
   DoubleSide,
+  Float32BufferAttribute,
   FloatType,
   IcosahedronGeometry,
   InstancedBufferGeometry,
@@ -32,8 +33,9 @@ import {
   type ChannelName,
   type InstanceData,
 } from '../../../data/instance-data.ts';
+import { layoutAxes, type AxisSegment } from '../../../data/instance-axes.ts';
 import { DateLabels, emptyPlacement, labelRows, labelText, placeLabel, visibleLabels } from '../../../data/instance-labels.ts';
-import type { ColourMapping, InstancerLayer, Mapping, Primitive, ScaleType } from '../../../shared/layer-schema.ts';
+import type { ColourMapping, InstancerAxes, InstancerLayer, Mapping, Primitive, ScaleType } from '../../../shared/layer-schema.ts';
 import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
@@ -84,6 +86,8 @@ export interface InstancerInstance extends LayerInstance {
   setLayoutMix(mix: number): void;
   /** Drop the from layouts: positions are exactly the current layout again. */
   endLayoutMorph(): void;
+  /** Rows (fractions) of the layer's whole animation: what axes with span 'full' are laid out over. */
+  setRowsSpan(lo: number, hi: number): void;
 }
 
 /** Instancer fields that only move the marks (blended by position during a morph). */
@@ -389,10 +393,11 @@ const vertexShader = /* glsl */ `
 
 /**
  * Box edges (EDGES, box primitive only): each face's border is found from its own 0..1 UVs,
- * and fwidth turns the distance to the border into screen px, so edges are `width` px wide at
- * any distance or angle. Faces show at uFaceOpacity under the edges (0: outlines only), and
- * glow brightens the edge towards white and adds a soft halo inwards over the face, which the
- * layer's glow (bloom) then spreads for a neon look.
+ * and the UV gradient turns the distance to the border into screen px, so edges are `width` px
+ * wide at any distance or angle (thinner on faces under 4 × width across). Faces show at
+ * uFaceOpacity under the edges (0: outlines only), and glow brightens the edge towards white
+ * and adds a soft halo inwards over the face, which the layer's glow (bloom) then spreads for a
+ * neon look.
  */
 const fragmentShader = /* glsl */ `
   varying vec3 vColour;
@@ -412,7 +417,7 @@ const fragmentShader = /* glsl */ `
     vec3 col = vColour;
     #ifdef ROUND
       float r = length(vUv - 0.5);
-      float aa = fwidth(r);
+      float aa = length(vec2(dFdx(r), dFdy(r)));
       a *= 1.0 - smoothstep(0.5 - aa, 0.5, r);
     #endif
     #ifdef LIT
@@ -421,9 +426,16 @@ const fragmentShader = /* glsl */ `
     #endif
     #ifdef EDGES
       if (uEdges > 0.5) {
-        vec2 px = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1.0e-6));
-        float d = min(px.x, px.y);                       // screen px to the face's border
-        float edge = 1.0 - smoothstep(uEdgeWidth - 0.5, uEdgeWidth + 0.5, d);
+        // Gradient length, not fwidth (|dx| + |dy|), which is up to 41% too big on diagonal
+        // edges, so the width would change with the edge's angle as the camera turns.
+        vec2 g = max(vec2(length(vec2(dFdx(vUv.x), dFdy(vUv.x))), length(vec2(dFdx(vUv.y), dFdy(vUv.y)))), vec2(1.0e-6));
+        vec2 px = min(vUv, 1.0 - vUv) / g;              // screen px to the face's border, per axis
+        float d = min(px.x, px.y);
+        // A face narrower than four edge widths (edge-on, or tiny) gets thinner edges, so a
+        // sliver of side face doesn't fill with edge colour.
+        vec2 w = min(vec2(uEdgeWidth), 0.25 / g);
+        vec2 band = 1.0 - smoothstep(w - 0.5, w + 0.5, px);
+        float edge = max(band.x, band.y);
         float halo = uEdgeGlow * uEdgeGlow * 0.6 * exp(-max(d - uEdgeWidth, 0.0) / (3.0 + 2.0 * uEdgeWidth));
         vec3 lit = mix(uEdgeColour * (1.0 + 2.0 * uEdgeGlow), vec3(1.0), 0.35 * uEdgeGlow);
         // Edge over halo over face, composited premultiplied.
@@ -653,6 +665,7 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     material.depthWrite = mode === '3d' && !translucent;
     mesh.name = next.name;
     applyLabels(next, first, last, visible, tStart);
+    applyAxes(next, first, last, tStart);
   }
 
   // ---- labels at points of the arrangement (data/instance-labels.ts) ----
@@ -770,6 +783,180 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     labelBatch.visible = shown > 0;
   }
 
+  // ---- axes and value labels (data/instance-axes.ts) ----
+  // Lines are one non-indexed mesh of quads with RGBA vertex colours; texts a second
+  // BatchedText. Both are children of the mesh (so the transform applies) and are rebuilt
+  // only when something they depend on changes: the axes settings, or the numbers in
+  // `axisKey`, which apply() refills each call without allocating (it runs per frame when a
+  // layer is modulated).
+  const axisMaterial = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
+  const axisGeometry = new BufferGeometry();
+  const axisLines = new Mesh(axisGeometry, axisMaterial);
+  axisLines.frustumCulled = false;
+  axisLines.renderOrder = 2;
+  axisLines.visible = false;
+  mesh.add(axisLines);
+  const axisTextMaterial = new MeshBasicMaterial({ transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
+  const axisBatch = new BatchedText();
+  axisBatch.material = axisTextMaterial;
+  axisBatch.frustumCulled = false;
+  axisBatch.renderOrder = 2;
+  axisBatch.visible = false;
+  mesh.add(axisBatch);
+  /** One text object per AxisText key, so a label is only laid out again when its text changes. */
+  const axisTexts = new Map<string, Text>();
+  /** Texts whose key went away, cleared, for the next new key. */
+  const axisSpare: Text[] = [];
+  /** Rows [first, last] of the layer's whole animation (setRowsSpan), or -1 before one arrives. */
+  const span = { first: -1, last: -1 };
+  /** applyAxes' last arguments, so a new span can lay the axes out again (reused: apply runs per frame). */
+  const lastAxes = { next: null as InstancerLayer | null, first: 0, last: 0, tStart: 0 };
+  const axisKey = new Float64Array(48);
+  const axisSeen = new Float64Array(48).fill(Number.NaN);
+  let axisFor: InstancerAxes | null = null;
+  const axisColour = new Color();
+
+  /** The numbers the axes layout depends on (besides the axes settings), into `axisKey`. */
+  function fillAxisKey(next: InstancerLayer, first: number, last: number, tStart: number): void {
+    let i = 0;
+    const k = axisKey;
+    k[i++] = first;
+    k[i++] = last;
+    k[i++] = tStart;
+    k[i++] = span.first;
+    k[i++] = span.last;
+    k[i++] = next.opacity;
+    for (let j = 0; j < 16; j++) k[i++] = layout[j]!;
+    for (let j = 0; j < 3; j++) k[i++] = next.size[j]!;
+    k[i++] = next.heightAxis === 'z' ? 1 : 0;
+    for (const name of ['y', 'z', 'height', 'size'] as const) {
+      const m = next.channels[name];
+      const memo = domains.get(name);
+      const d = memo ? memo(m) : null;
+      k[i++] = m.range[0];
+      k[i++] = m.range[1];
+      k[i++] = d ? d[0] : Number.NaN;
+      k[i++] = d ? d[1] : Number.NaN;
+      k[i++] = m.clamp ? 1 : 0;
+    }
+  }
+
+  function sameAxisKey(): boolean {
+    for (let i = 0; i < axisKey.length; i++) {
+      const a = axisKey[i]!;
+      const b = axisSeen[i]!;
+      if (a !== b && !(Number.isNaN(a) && Number.isNaN(b))) return false;
+    }
+    return true;
+  }
+
+  /** Quads for the segments, `width` px across, coloured with the layer opacity applied. */
+  function buildAxisLines(segments: readonly AxisSegment[], opacity: number): void {
+    const pos = new Float32Array(segments.length * 18);
+    const col = new Float32Array(segments.length * 24);
+    let p = 0;
+    let c = 0;
+    for (const sg of segments) {
+      const [ax, ay, az] = sg.a;
+      const [bx, by, bz] = sg.b;
+      // Across the line in the x/y plane; a line straight along z widens along x.
+      let px = by - ay;
+      let py = -(bx - ax);
+      const len = Math.hypot(px, py);
+      if (len > 1e-9) {
+        px /= len;
+        py /= len;
+      } else {
+        px = 1;
+        py = 0;
+      }
+      const hw = sg.width / 2;
+      const corners = [
+        [ax - px * hw, ay - py * hw, az],
+        [bx - px * hw, by - py * hw, bz],
+        [bx + px * hw, by + py * hw, bz],
+        [ax - px * hw, ay - py * hw, az],
+        [bx + px * hw, by + py * hw, bz],
+        [ax + px * hw, ay + py * hw, az],
+      ];
+      axisColour.set(sg.colour);
+      for (const v of corners) {
+        pos[p++] = v[0]!;
+        pos[p++] = v[1]!;
+        pos[p++] = v[2]!;
+        col[c++] = axisColour.r;
+        col[c++] = axisColour.g;
+        col[c++] = axisColour.b;
+        col[c++] = sg.opacity * opacity;
+      }
+    }
+    axisGeometry.setAttribute('position', new Float32BufferAttribute(pos, 3));
+    axisGeometry.setAttribute('color', new Float32BufferAttribute(col, 4));
+    axisGeometry.computeBoundingSphere();
+    axisLines.visible = segments.length > 0;
+  }
+
+  function applyAxes(next: InstancerLayer, first: number, last: number, tStart: number): void {
+    lastAxes.next = next;
+    lastAxes.first = first;
+    lastAxes.last = last;
+    lastAxes.tStart = tStart;
+    const A = next.axes;
+    if (!A.values.enabled && !A.x.enabled && !A.y.enabled) {
+      axisLines.visible = false;
+      axisBatch.visible = false;
+      axisFor = A;
+      return;
+    }
+    fillAxisKey(next, first, last, tStart);
+    if (A === axisFor && sameAxisKey()) return;
+    axisFor = A;
+    axisSeen.set(axisKey);
+
+    const resolved: Partial<Record<'y' | 'z' | 'height' | 'size', readonly [number, number]>> = {};
+    for (const name of ['y', 'z', 'height', 'size'] as const) {
+      const memo = domains.get(name);
+      if (memo) resolved[name] = memo(next.channels[name]);
+    }
+    const spanRows = span.first >= 0 ? { first: span.first, last: span.last } : undefined;
+    const { segments, texts } = layoutAxes({ layer: next, data, table: source.table, domains: resolved, first, last, tStart, dates, span: spanRows });
+    buildAxisLines(segments, next.opacity);
+
+    // Keys that went away free their text (cleared, so nothing stale shows when it is reused).
+    const keep = new Set<string>();
+    for (const t of texts) keep.add(t.key);
+    for (const [key, text] of axisTexts) {
+      if (keep.has(key)) continue;
+      axisTexts.delete(key);
+      if (text.text !== '') text.text = '';
+      axisSpare.push(text);
+    }
+    const font = fontUrl(A.font);
+    for (const t of texts) {
+      let text = axisTexts.get(t.key);
+      if (!text) {
+        text = axisSpare.pop();
+        if (!text) {
+          text = new Text();
+          text.whiteSpace = 'nowrap';
+          axisBatch.addText(text);
+        }
+        axisTexts.set(t.key, text);
+      }
+      const shown = displayText(t.text, A.uppercase);
+      if (text.text !== shown) text.text = shown;
+      text.font = font;
+      text.fontSize = t.size;
+      text.color = t.colour;
+      text.fillOpacity = next.opacity;
+      text.anchorX = t.anchorX;
+      text.anchorY = t.anchorY;
+      text.position.set(t.x, t.y, t.z);
+      text.rotation.z = t.rotation;
+    }
+    axisBatch.visible = texts.length > 0;
+  }
+
   apply(layer, cameraMode);
 
   const layoutMix = uniforms.uLayoutMix!.value as Vector2;
@@ -804,6 +991,11 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
       set('uFromLevels', 0);
       set('uNeedCalendar', layout[0] === ARRANGEMENT_CODE.calendar ? 1 : 0);
     },
+    setRowsSpan(lo: number, hi: number) {
+      span.first = Math.max(0, Math.floor(lo * n));
+      span.last = Math.min(n - 1, Math.ceil(hi * n) - 1);
+      if (lastAxes.next) applyAxes(lastAxes.next, lastAxes.first, lastAxes.last, lastAxes.tStart);
+    },
     update(_ctx: FrameContext) {
       // Static between applies; modulators drive it through apply().
     },
@@ -818,6 +1010,14 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
       }
       labelBatch.dispose();
       labelMaterial.dispose();
+      for (const text of [...axisTexts.values(), ...axisSpare]) {
+        axisBatch.removeText(text);
+        text.dispose();
+      }
+      axisBatch.dispose();
+      axisTextMaterial.dispose();
+      axisGeometry.dispose();
+      axisMaterial.dispose();
     },
   };
 }

@@ -18,7 +18,7 @@ export function buildText(ui: LayerUi, layer: TextLayer, titleOf: (l: LayerConfi
     g.addBinding({ row: layer.row }, 'row', { label: 'row', min: 0, max: 1, step: 0.0001 }).on('change', (ev) => ui.set(['row'], ev.value)),
     'row',
     'row',
-  ).element.title = 'Current row, 0..1 of the row count; a 0 → 1 ramp on it follows the data playhead (Modulation → Data playhead)';
+  ).element.title = 'Current row, 0..1 of the row count. To step through the rows over the timeline, switch on Animate → follow timeline';
 
   const k = ui.folder(root, 'Look', 'Look', false);
   const m = {

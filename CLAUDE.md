@@ -284,6 +284,9 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   UVs. Face opacity below 1 makes the layer translucent. Edge glow brightens the edge and adds
   an inward halo, because the 8-bit scene target clamps above 1.0. Presets are `edgePreset`
   in `layer-helpers.ts`.
+  Width uses the UV gradient's length (not `fwidth`), and narrow faces get thinner edges. The
+  edge's outer side is a triangle edge, so its smoothness comes from the MSAA; that is why the
+  scene target uses 8× (measurements in `docs/LINE_QUALITY.md` §4).
 - `normalise()` in the same file is the tested twin of the GLSL scale maths in
   `client/output/layers/instancer.ts`. Change both together.
 - **Labels** (`InstancerLabelsSchema`, schema v9). An instancer can draw text at points of its
@@ -293,6 +296,26 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   - The labels are a troika `BatchedText` child of the mesh, so the transform, effects and
     visible rows (data playhead) apply. Slot k shows candidate k·stride; at most 500.
   - `hidePoints` draws the labels alone.
+- **Axes and value labels** (`InstancerAxesSchema`, schema v15; the "Axes & values" folder).
+  - `data/instance-axes.ts` (pure, tested) lays out line segments and texts in the layer's px
+    space: value labels at each visible mark (above, inside at the top or middle, or at the
+    base), and for the linear arrangement a category axis (baseline plus a label per row) and a
+    value axis (d3-scale ticks in the mapped column's units, optional gridlines).
+  - Mark extents are another CPU twin of the vertex shader (`placeLabel`, plus the y/z
+    offsets, height × size, bars and boxes grown from the base). Change them together.
+  - The output draws them as a quad mesh and a second `BatchedText`, both children of the
+    mesh, rebuilt only when the axes settings or the numbers in `axisKey` change.
+  - Every text has a stable `key` (`v:<row>`, `x:<row>`, `y:<tick text>`, `xt`, `yt`), and the
+    output keeps one troika `Text` per key. A new row then lays out only its own labels; with
+    texts assigned by list position, every label after it changed text and showed its old
+    glyphs at the new place for a frame or two (troika lays out asynchronously).
+  - `axes.span` (schema v16): 'full' lays the lines, ticks, gridlines and titles out over every
+    row the layer's animation reaches (`rowsSpan` in `shared/reveal.ts`, pushed by
+    `LayerManager` through `setRowsSpan`), so a reveal adds only the marks and their labels;
+    'visible' grows them with the rows. New layers get 'full'; older projects kept 'visible'.
+  - The "Bar chart" preset (`shared/chart-presets.ts`) lays out a linear bar chart with a
+    zero-based, rounded height domain, room for both axes, and the row-naming column
+    (`labelColumnFor`: a text column, a near-unique category, else the time column).
 - Calendar fields (year, day of year in the dataset's timezone) are computed in the parse
   worker. The output's `DatasetStore` reloads a dataset when its timezone changes.
 - On the control side, `shared/layer-defaults.ts` (`defaultLayerFor`, `fitLayer`) chooses
@@ -414,8 +437,16 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   numbers and calls `LayerManager.applyEffective`. When modulators are removed,
   `applyDoc` calls `reapplyBase()`.
 - **Control.** `timeline-panel.ts` and `modulation-panel.ts`, with pure helpers in
-  `shared/modulation-helpers.ts`. The "data playhead" is ramp modulators on a layer's
-  `rows.0` and `rows.1`. The Timeline tab (see Control window layout) shows them all as lanes.
+  `shared/modulation-helpers.ts`. The Timeline tab (see Control window layout) shows every
+  modulator as a lane.
+- **Animate folder (the data playhead).** Second in every layer card (`AnimatePanel`,
+  `client/control/animate-panel.ts`; pure read/write in `shared/reveal.ts`, tested): the rows
+  range ("rows from / to"), and "reveal": off, build up (a ramp on `rows.1` from "starts at" to
+  "rows to") or window (also a ramp on `rows.0`, a width behind). There is no schema for it:
+  `readReveal` reads the mode back from the modulators (anything else is "custom", left to
+  Motion effects), and `revealOps` writes the base range and the ramps together. Text layers
+  get "follow timeline" (a 0 -> 1 ramp on `row`). The layer's Timeline and Motion effects
+  (its `ModulationPanel`) folders sit inside it.
 
 **Output profiles and keystone (phase 5).**
 - The active profile (`shared/output-profile.ts`) is the third root of `SyncDoc`
@@ -499,9 +530,9 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
     through `layerTimeline(id)` and `reanchor`, as the Timeline card does, so nothing jumps.
   - The × on a lane asks before removing the modulator.
 - **Modulation is per owner.** `ModulationPanel` takes a scope (`{kind:'layer', layerId}` or
-  camera) and shows only that owner's modulators, an "Add modulator" for its parameters, the
-  data playhead (layers) and its own orphans. `LayersPanel` puts one in each card's last
-  folder, keeping its folder states across card rebuilds. Modulators of deleted layers are
+  camera) and shows only that owner's modulators, an "Add modulator" for its parameters and
+  its own orphans. `LayersPanel` puts one in each card's Animate folder ("Motion effects"),
+  keeping its folder states across card rebuilds. Modulators of deleted layers are
   listed, with Remove buttons, under Problems.
 - **Drawer** (`tabs.ts`: Datasets, Output windows, Calibration, Diagnostics, Problems, Log).
   Closed, it is just the tab strip with badges. A tab opens it upwards; clicking the shown

@@ -8,7 +8,6 @@ import {
   addOpacityBlend,
   addPair,
   addPlain,
-  addRows,
   addScaleRamp,
   addTimeColumn,
   addValueColumn,
@@ -41,7 +40,6 @@ export function buildSurface(ui: LayerUi, layer: SurfaceLayer, titleOf: (l: Laye
   const aggregate = addChoice(ui, g, layer.aggregate, 'same day', ['aggregate'], AGGREGATES);
   aggregate.element.title = 'How several rows on the same calendar day combine';
   aggregate.hidden = !calendar;
-  addRows(ui, g, layer.rows);
 
   const l = ui.folder(root, 'Layout', 'Layout', false);
   addVec3(ui, l, layer.origin, 'top-left', ['origin'], 'origin').element.title = 'Top-left corner of the grid (px, y up)';

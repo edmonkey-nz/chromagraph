@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hexColour, identityCloner, identityTransform, LayerSchema, PLAYBACKS, vec3 } from './layer-schema.ts';
+import { defaultAxes, hexColour, identityCloner, identityTransform, LayerSchema, PLAYBACKS, vec3 } from './layer-schema.ts';
 import { ClockSchema, ParameterSchema, TransportSchema, WALL_CLOCK, type Clock, type Transport } from './modulators.ts';
 import type { OutputProfile } from './output-profile.ts';
 
@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 14;
+export const CURRENT_VERSION = 16;
 
 
 export const DatasetSchema = z.object({
@@ -206,6 +206,25 @@ function perLayerEffects(look: Doc): Doc {
 
 /** migrations[n] upgrades a version-n document to version n + 1. */
 export const migrations: Record<number, Migration> = {
+  // v15: instancer layers get chart axes and value labels (all off).
+  14: (doc) => {
+    const withAxes = (layers: unknown): unknown =>
+      Array.isArray(layers) ? layers.map((l: Doc) => (l.type === 'instancer' && !l.axes ? { ...l, axes: defaultAxes() } : l)) : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withAxes(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withAxes(sc.layers) })) };
+  },
+  // v16: instancer axes get `span`; existing ones keep growing with the visible rows.
+  15: (doc) => {
+    const withSpan = (layers: unknown): unknown =>
+      Array.isArray(layers)
+        ? layers.map((l: Doc) => {
+            const axes = l.axes as Doc | undefined;
+            return l.type === 'instancer' && axes && axes.span === undefined ? { ...l, axes: { ...axes, span: 'visible' } } : l;
+          })
+        : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withSpan(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withSpan(sc.layers) })) };
+  },
   // v2: orbit camera replaces position/target; layers became typed (v1 never had any).
   1: (doc) => {
     const old = (doc.camera ?? {}) as { mode?: unknown; fov?: unknown };

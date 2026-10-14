@@ -516,9 +516,9 @@ export class TimelineView {
     // Which timeline drives it; on a layer, a button that opens the timeline editor.
     const tag = isLayer ? h('button', { type: 'button', className: `tl-tag edit${g.own ? ' own' : ''}`, textContent: tagText(g) }) : h('span', { className: 'tl-tag', textContent: tagText(g) });
     tag.title = g.own
-      ? 'This layer’s ramps, keyframes and data playhead run on its own timeline. Click to change it.'
+      ? 'This layer’s reveal, ramps and keyframes run on its own timeline. Click to change it.'
       : isLayer
-        ? 'This layer’s ramps, keyframes and data playhead run on the project timeline. Click to give it its own.'
+        ? 'This layer’s reveal, ramps and keyframes run on the project timeline. Click to give it its own.'
         : 'The camera’s ramps and keyframes run on the project timeline';
     if (isLayer) {
       tag.dataset.focus = `tag:${g.key}`;
@@ -627,7 +627,7 @@ export class TimelineView {
     const source = seg<'project' | 'own'>(
       'Timeline',
       [
-        { value: 'project', text: 'follow project', title: 'Its ramps, keyframes and data playhead run on the project timeline' },
+        { value: 'project', text: 'follow project', title: 'Its reveal, ramps and keyframes run on the project timeline' },
         { value: 'own', text: 'own timeline', title: 'Its own duration, loop, playback and Play/Pause. It starts where the project’s playhead is, so nothing jumps.' },
       ],
       (v) => this.setOwn(id, v === 'own'),
@@ -783,7 +783,7 @@ export class TimelineView {
     let dot: HTMLElement | null = null;
     if (wave) {
       track.append(h('span', { className: 'tl-free', textContent: `free-running · last ${formatValue(Math.round(lane.windowSec * 10) / 10)} s` }));
-      canvas.title = `${lane.kind === 'lfo' ? 'LFO' : 'Noise'}: runs on the wall clock, not the timeline. Edit it in the Modulation folder.`;
+      canvas.title = `${lane.kind === 'lfo' ? 'LFO' : 'Noise'}: runs on the wall clock, not the timeline. Edit it in the layer’s Motion effects folder (Animate), or the camera’s Modulation folder.`;
       this.waveObserver.observe(canvas);
     } else {
       dot = h('span', { className: 'tl-dot' });

@@ -711,8 +711,11 @@ export class Stage {
   private makeTarget(): WebGLRenderTarget {
     const w = Math.round(OUTPUT_WIDTH * this.targetScale);
     const h = Math.round(OUTPUT_HEIGHT * this.targetScale);
+    // 8× MSAA: thin box edges sit on triangle edges, where coverage comes from the samples, and
+    // at 4× they shimmer as the camera turns (twice the flicker, measured). About 2 ms a frame
+    // at 200k boxes on the GTX 1650; three clamps it to the GPU's MAX_SAMPLES.
     return new WebGLRenderTarget(w, h, {
-      samples: this.targetScale < 1 ? 0 : 4,
+      samples: this.targetScale < 1 ? 0 : 8,
       depthBuffer: true,
       depthTexture: this.depthTextured ? new DepthTexture(w, h) : null,
     });

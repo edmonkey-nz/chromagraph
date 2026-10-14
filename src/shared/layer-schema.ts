@@ -280,6 +280,89 @@ export function defaultInstancerLabels(): InstancerLabels {
   return { enabled: false, every: 'year', rows: 365, text: 'date', column: null, size: 24, offset: 16, orientation: 'along', colour: '#e8e8e8', hidePoints: false, font: 'terminal', uppercase: false };
 }
 
+export const VALUE_LABEL_PLACES = ['above', 'inside-top', 'inside-middle', 'base'] as const;
+export const AXIS_SIDES = ['left', 'right'] as const;
+/**
+ * What an instancer's axis lines, ticks, gridlines and titles span: the rows shown now
+ * ('visible', so they grow with a reveal), or every row the layer's row animation reaches
+ * ('full', so they are drawn in full from the start and only the marks and their labels appear).
+ */
+export const AXES_SPANS = ['visible', 'full'] as const;
+
+/**
+ * Chart furniture for an instancer (data/instance-axes.ts lays it out; it follows the layer's
+ * transform like the marks). Lines are `lineWidth` px (projection minimum 2), text is in px at
+ * 1080p (minimum 24 for projection).
+ *   values  each visible row's value as text at its mark: above it, inside at the top or
+ *           middle, or at its base (bars and boxes grow from the base, other marks are centred).
+ *           `column` null: the column height is mapped from (else y). `decimals` -1: as the
+ *           file writes them.
+ *   x       linear arrangement only: a baseline along the marks and every `every`-th row's
+ *           label below it (`column`; null: the time column as a date, else the row number),
+ *           turned by `angle` degrees, `gap` px under the line; `title` centred below.
+ *   y       linear arrangement only: a value axis beside the marks in the mapped column's
+ *           units, from the height mapping (bars and boxes) or else the y mapping, with about
+ *           `ticks` round ticks, optional gridlines across the marks, and `title` beside it.
+ *           `decimals` -1 picks from the tick step.
+ * At most MAX_LABELS value labels are drawn (every k-th beyond that).
+ */
+export const InstancerAxesSchema = z.object({
+  colour: hexColour,
+  lineWidth: z.number().min(1).max(20),
+  font: z.enum(FONTS),
+  uppercase: z.boolean(),
+  span: z.enum(AXES_SPANS),
+  values: z.object({
+    enabled: z.boolean(),
+    column: z.string().nullable(),
+    place: z.enum(VALUE_LABEL_PLACES),
+    size: z.number().min(6).max(200),
+    colour: hexColour,
+    gap: z.number().min(-200).max(200),
+    decimals: z.number().int().min(-1).max(10),
+    prefix: z.string().max(20),
+    suffix: z.string().max(20),
+  }),
+  x: z.object({
+    enabled: z.boolean(),
+    line: z.boolean(),
+    column: z.string().nullable(),
+    every: z.number().int().min(1),
+    size: z.number().min(6).max(200),
+    colour: hexColour,
+    angle: z.number().min(-90).max(90),
+    gap: z.number().min(0).max(200),
+    title: z.string().max(200),
+  }),
+  y: z.object({
+    enabled: z.boolean(),
+    line: z.boolean(),
+    ticks: z.number().int().min(2).max(20),
+    grid: z.boolean(),
+    gridOpacity: z.number().min(0).max(1),
+    side: z.enum(AXIS_SIDES),
+    size: z.number().min(6).max(200),
+    colour: hexColour,
+    decimals: z.number().int().min(-1).max(10),
+    suffix: z.string().max(20),
+    title: z.string().max(200),
+  }),
+});
+export type InstancerAxes = z.infer<typeof InstancerAxesSchema>;
+
+export function defaultAxes(): InstancerAxes {
+  return {
+    colour: '#9aa0a6',
+    lineWidth: 2,
+    font: 'terminal',
+    uppercase: false,
+    span: 'full',
+    values: { enabled: false, column: null, place: 'above', size: 28, colour: '#e8e8e8', gap: 8, decimals: -1, prefix: '', suffix: '' },
+    x: { enabled: false, line: true, column: null, every: 1, size: 24, colour: '#c8ccd2', angle: 0, gap: 10, title: '' },
+    y: { enabled: false, line: true, ticks: 5, grid: false, gridOpacity: 0.25, side: 'left', size: 24, colour: '#c8ccd2', decimals: -1, suffix: '', title: '' },
+  };
+}
+
 export function defaultEdges(): { enabled: boolean; colour: string; width: number; faceOpacity: number; glow: number } {
   return { enabled: false, colour: '#ff3030', width: 2, faceOpacity: 1, glow: 0 };
 }
@@ -343,6 +426,7 @@ export const InstancerLayerSchema = LayerBaseSchema.extend({
     faceOpacity: z.number().min(0).max(1),
     glow: z.number().min(0).max(1),
   }),
+  axes: InstancerAxesSchema,
 
   channels: z.object({
     y: MappingSchema,
@@ -750,6 +834,7 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     cloner: identityCloner(),
     labels: defaultInstancerLabels(),
     edges: defaultEdges(),
+    axes: defaultAxes(),
     channels: defaultChannels(),
   };
 }

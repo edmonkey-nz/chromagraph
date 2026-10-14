@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  blankHeatmapLayer,
-  blankHierarchyLayer,
-  blankInstancerLayer,
-  blankLineLayer,
-  blankMultiplesLayer,
-  blankSurfaceLayer,
-  blankTextLayer,
-  type InstancerLayer,
-} from '../../src/shared/layer-schema.ts';
+import { blankInstancerLayer, type InstancerLayer } from '../../src/shared/layer-schema.ts';
 import {
   addKeyframe,
   clampDuration,
-  dataPlayheadOps,
   defaultModulator,
   formatClock,
   formatPosition,
@@ -21,14 +11,13 @@ import {
   modulatedValue,
   orphanParamIds,
   paramTitle,
-  playheadKind,
   reanchor,
   removeKeyframe,
 } from '../../src/shared/modulation-helpers.ts';
 import { MODULATOR_KINDS, ModulatorSchema, playhead, timelinePhase, type Parameter } from '../../src/shared/modulators.ts';
 import { parameterDefs } from '../../src/shared/parameters.ts';
 import { applyOps } from '../../src/shared/patch.ts';
-import { defaultProject, ProjectSchema, type Project } from '../../src/shared/project-schema.ts';
+import { defaultProject, type Project } from '../../src/shared/project-schema.ts';
 
 const ramp = (from: number, to: number): Parameter => ({ modulator: { kind: 'ramp', enabled: true, from, to, easing: 'linear' } });
 
@@ -188,74 +177,6 @@ describe('layer patches', () => {
     p.parameters['layer.gone.opacity'] = ramp(0, 1);
     p.parameters['layer.ly-a.channels.y.range.0'] = ramp(0, 1); // channel not mapped
     expect(orphanParamIds(p, parameterDefs(p)).sort()).toEqual(['layer.gone.opacity', 'layer.ly-a.channels.y.range.0']);
-  });
-});
-
-describe('data playhead', () => {
-  it('reveal ramps rows end and resets rows start to a plain 0', () => {
-    const p = project();
-    p.parameters['layer.ly-a.rows.0'] = ramp(0.5, 0.5);
-    const ops = dataPlayheadOps(p, 'ly-a', 'reveal');
-    expect(ops).not.toBeNull();
-    const next = applyOps({ project: p }, ops!).project;
-    expect(next.parameters['layer.ly-a.rows.1']).toEqual(ramp(0, 1));
-    expect(next.parameters['layer.ly-a.rows.0']).toBeUndefined();
-    expect((next.layers[0] as InstancerLayer).rows).toEqual([0, 0.75]);
-    expect(ProjectSchema.safeParse(next).success).toBe(true);
-  });
-
-  it('window sweeps a window of width w', () => {
-    const p = project();
-    const next = applyOps({ project: p }, dataPlayheadOps(p, 'ly-b', 'window', 0.25)!).project;
-    expect(next.parameters['layer.ly-b.rows.1']).toEqual(ramp(0, 1));
-    expect(next.parameters['layer.ly-b.rows.0']).toEqual(ramp(-0.25, 0.75));
-    expect(ProjectSchema.safeParse(next).success).toBe(true);
-    // Width is clamped to 0.01..1.
-    const tiny = applyOps({ project: p }, dataPlayheadOps(p, 'ly-b', 'window', 0)!).project;
-    expect(tiny.parameters['layer.ly-b.rows.0']).toEqual(ramp(-0.01, 0.99));
-  });
-
-  it('returns null for a missing layer', () => {
-    expect(dataPlayheadOps(project(), 'nope', 'reveal')).toBeNull();
-  });
-
-  it('sweeps rows on line and heat map layers too', () => {
-    const p = project();
-    p.layers.push(blankLineLayer('ly-l', 'Line', 'ds'), blankHeatmapLayer('ly-h', 'Heat', 'ds'));
-    expect(playheadKind(p.layers[2]!)).toBe('rows');
-    expect(playheadKind(p.layers[3]!)).toBe('rows');
-    const next = applyOps({ project: p }, [...dataPlayheadOps(p, 'ly-l', 'reveal')!, ...dataPlayheadOps(p, 'ly-h', 'window', 0.2)!]).project;
-    expect(next.parameters['layer.ly-l.rows.1']).toEqual(ramp(0, 1));
-    expect(next.parameters['layer.ly-h.rows.0']).toEqual(ramp(-0.2, 0.8));
-    expect(ProjectSchema.safeParse(next).success).toBe(true);
-  });
-
-  it('sweeps rows on small multiples, hierarchy and surface layers, with valid parameters', () => {
-    const p = project();
-    p.layers.push(blankMultiplesLayer('ly-m', 'Years', 'ds'), blankHierarchyLayer('ly-x', 'Tree', 'ds'), blankSurfaceLayer('ly-s', 'Relief', 'ds'));
-    const ops = [];
-    for (const id of ['ly-m', 'ly-x', 'ly-s']) {
-      expect(playheadKind(p.layers.find((l) => l.id === id)!)).toBe('rows');
-      ops.push(...dataPlayheadOps(p, id, 'window', 0.1)!);
-    }
-    const next = applyOps({ project: p }, ops).project;
-    expect(ProjectSchema.safeParse(next).success).toBe(true);
-    for (const id of ['ly-m', 'ly-x', 'ly-s']) expect(next.parameters[`layer.${id}.rows.1`]).toEqual(ramp(0, 1));
-    expect(orphanParamIds(next)).toEqual([]);
-  });
-
-  it('follows the playhead on a text layer with a ramp on its row, whatever the mode', () => {
-    const p = project();
-    p.layers.push(blankTextLayer('ly-t', 'Caption', 'ds'));
-    expect(playheadKind(p.layers[2]!)).toBe('row');
-    for (const mode of ['reveal', 'window'] as const) {
-      const ops = dataPlayheadOps(p, 'ly-t', mode)!;
-      expect(ops).toEqual([{ op: 'set', path: ['project', 'parameters', 'layer.ly-t.row'], value: ramp(0, 1) }]);
-      const next = applyOps({ project: p }, ops).project;
-      expect(ProjectSchema.safeParse(next).success).toBe(true);
-      expect(parameterDefs(next).some((d) => d.id === 'layer.ly-t.row')).toBe(true);
-      expect(orphanParamIds(next)).toEqual([]);
-    }
   });
 });
 

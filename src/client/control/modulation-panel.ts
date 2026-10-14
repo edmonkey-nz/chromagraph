@@ -1,20 +1,15 @@
 import type { BladeApi, FolderApi, ListParamsOptions } from 'tweakpane';
 import {
   addKeyframe,
-  dataPlayheadOps,
   defaultModulator,
   formatValue,
   MAX_KEYS,
-  MIN_WINDOW,
   modulatedValue,
   orphanParamIds,
-  PLAYHEAD_MODES,
-  playheadKind,
   paramClockMs,
   paramPhase,
   randomSeed,
   removeKeyframe,
-  type PlayheadMode,
 } from '../../shared/modulation-helpers.ts';
 import {
   EASINGS,
@@ -32,11 +27,10 @@ import { applyOps, type PatchOp } from '../../shared/patch.ts';
 import { ProjectSchema, type SyncDoc } from '../../shared/project-schema.ts';
 
 /**
- * Modulation for one owner: a layer (the "Modulation" folder in its card) or the camera
- * (in the Camera card). Add a modulator to one of the owner's parameters, edit or remove
- * it, sweep a layer's rows with the data playhead helper, and clean up the owner's
- * modulators whose parameter has gone (modulators of deleted layers are listed under
- * Problems instead). Like the layers panel, the GUI holds no authoritative state: every
+ * Modulation for one owner: a layer (the "Motion effects" folder in its card's Animate
+ * folder) or the camera (in the Camera card). Add a modulator to one of the owner's
+ * parameters, edit or remove it, and clean up the owner's modulators whose parameter has
+ * gone (modulators of deleted layers are listed under Problems instead). Like the layers panel, the GUI holds no authoritative state: every
  * edit is a patch, and the folder is rebuilt from the synced document on structural or
  * remote changes only, so a drag is never interrupted by our own echo.
  */
@@ -101,7 +95,6 @@ export class ModulationPanel {
   private builtParams = new Map<string, Parameter>();
   /** Selections in the helper sections, kept across rebuilds. */
   private addModel = { param: '', kind: 'lfo' as ModulatorKind };
-  private playheadModel = { mode: 'reveal' as PlayheadMode, width: 0.1 };
   private quietDepth = 0;
   private readonly prefix: string;
 
@@ -181,7 +174,6 @@ export class ModulationPanel {
         if (p) this.buildEntry(doc, def, p.modulator);
       }
       this.buildAdd(doc, defs);
-      this.buildPlayhead(doc);
       this.buildOrphans(doc);
     });
     for (const [id, p] of this.builtParams) this.builtShapes.set(id, shapeKey(p.modulator));
@@ -268,27 +260,6 @@ export class ModulationPanel {
     this.deps.sendPatch([{ op: 'remove', path: ['project', 'parameters', id] }]);
   }
 
-  private createPlayhead(): void {
-    const doc = this.deps.getDoc();
-    if (!doc || this.scope.kind !== 'layer') return;
-    const layer = this.scope.layerId;
-    const { mode, width } = this.playheadModel;
-    const ops = dataPlayheadOps(doc.project, layer, mode, width);
-    if (!ops) {
-      this.deps.showError('Pick a layer for the data playhead.');
-      return;
-    }
-    const target = doc.project.layers.find((l) => l.id === layer);
-    const k = `${this.prefix}mod/layer.${layer}`;
-    if (target && playheadKind(target) === 'row') {
-      this.expanded.set(`${k}.row`, true);
-    } else {
-      this.expanded.set(`${k}.rows.1`, true);
-      if (mode === 'window') this.expanded.set(`${k}.rows.0`, true);
-    }
-    this.sendChecked(ops, 'Data playhead');
-  }
-
   // ---- building ---------------------------------------------------------------------------
 
   private buildAdd(doc: SyncDoc, defs: ParamDef[]): void {
@@ -303,36 +274,6 @@ export class ModulationPanel {
     f.addBinding(m, 'param', { label: 'parameter', options: free.map((d) => ({ text: d.label, value: d.id })) });
     f.addBinding(m, 'kind', { options: MODULATOR_KINDS.map((k) => ({ text: KIND_TITLES[k], value: k })) });
     f.addButton({ title: 'Add' }).on('click', () => this.addModulator());
-  }
-
-  /**
-   * The data playhead for this layer. Layers with a row range (instancer, line, heat map,
-   * small multiples, hierarchy, 3D surface) get reveal/window sweeps of `rows`; text
-   * layers, which show one row, get "Follow playhead" (a 0 -> 1 ramp on `row`).
-   */
-  private buildPlayhead(doc: SyncDoc): void {
-    if (this.scope.kind !== 'layer') return;
-    const layerId = this.scope.layerId;
-    const layer = doc.project.layers.find((l) => l.id === layerId);
-    const kind = layer ? playheadKind(layer) : null;
-    if (!kind) return;
-    const f = this.folder(this.root, 'Data playhead', 'playhead', false);
-    const m = this.playheadModel;
-    const follow = kind === 'row';
-    if (!follow) {
-      const mode = f.addBinding(m, 'mode', {
-        options: PLAYHEAD_MODES.map((v) => ({ text: v === 'reveal' ? 'reveal (rows grow)' : 'window (rows slide)', value: v })),
-      });
-      const width = f.addBinding(m, 'width', { label: 'window width', min: MIN_WINDOW, max: 1, step: 0.01 });
-      const show = () => (width.hidden = m.mode !== 'window');
-      mode.on('change', show);
-      show();
-    }
-    const create = f.addButton({ title: follow ? 'Follow playhead' : 'Create' });
-    create.element.title = follow
-      ? 'Ramp the text layer’s row 0 → 1 over the timeline, so it shows the row under the playhead'
-      : 'Sweep this layer’s rows over the timeline';
-    create.on('click', () => this.createPlayhead());
   }
 
   private titleOf(def: ParamDef, m: Modulator): string {

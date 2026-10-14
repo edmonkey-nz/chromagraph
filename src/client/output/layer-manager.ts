@@ -8,6 +8,7 @@ import { qrText } from '../../data/qr-data.ts';
 import { surfaceStructureKey } from '../../data/surface-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
+import { rowsSpan } from '../../shared/reveal.ts';
 import type { TemplateCredits } from '../../shared/text-template.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
 import { createHeatmap } from './layers/heatmap.ts';
@@ -34,6 +35,11 @@ export interface ApplicableLayer<L> extends LayerInstance {
   apply(layer: L, cameraMode: CameraMode): void;
   /** Layers that show their dataset's credits (text) take changes to them here. */
   setCredits?(credits: TemplateCredits | null): void;
+  /**
+   * Every row the layer shows over its animation, as fractions (see rowsSpan); instancer axes
+   * with span 'full' are laid out over it. Pushed after build and whenever it changes.
+   */
+  setRowsSpan?(lo: number, hi: number): void;
 }
 
 /**
@@ -157,6 +163,8 @@ export class LayerManager {
   private orders = new Map<string, number>();
   /** The dataset entry last given to each layer as its credits (compared by reference). */
   private credits = new Map<string, Dataset | null>();
+  /** The row span last given to each layer (see ApplicableLayer.setRowsSpan). */
+  private spans = new Map<string, [number, number]>();
   private enabled = new Map<string, boolean>();
   /** Layers kept visible while a morph fades them, whatever their `enabled` says. */
   private forcedVisible = new Set<string>();
@@ -195,6 +203,7 @@ export class LayerManager {
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
         this.credits.set(layer.id, credits);
+        this.spans.delete(layer.id);
         this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode), credits));
       } else if (layer !== this.applied.get(layer.id) || cameraChanged) {
         this.applied.set(layer.id, layer);
@@ -204,6 +213,12 @@ export class LayerManager {
       if (credits !== this.credits.get(layer.id)) {
         this.credits.set(layer.id, credits);
         this.host.call<ApplicableLayer<LayerConfig>>(layer.id, (inst) => inst.setCredits?.(credits));
+      }
+      const span = rowsSpan(doc.project, layer);
+      const spanWas = this.spans.get(layer.id);
+      if (span && (!spanWas || spanWas[0] !== span[0] || spanWas[1] !== span[1])) {
+        this.spans.set(layer.id, span);
+        this.host.call<ApplicableLayer<LayerConfig>>(layer.id, (inst) => inst.setRowsSpan?.(span[0], span[1]));
       }
       this.orders.set(layer.id, LAYER_ORDER_BASE + index);
       this.enabled.set(layer.id, layer.enabled);
@@ -263,6 +278,7 @@ export class LayerManager {
     this.applied.delete(id);
     this.displayed.delete(id);
     this.credits.delete(id);
+    this.spans.delete(id);
     if (!instance) this.host.remove(id);
     return instance as ApplicableLayer<LayerConfig> | null;
   }
@@ -329,6 +345,7 @@ export class LayerManager {
     this.applied.delete(id);
     this.displayed.delete(id);
     this.credits.delete(id);
+    this.spans.delete(id);
     this.host.remove(id);
   }
 }

@@ -13,6 +13,7 @@ import { buildHeatmap } from './heatmap-folders.ts';
 import { buildHierarchy } from './hierarchy-folders.ts';
 import { buildInstancer } from './instancer-folders.ts';
 import type { Entry, Labelled, LayerUi } from './layer-ui.ts';
+import { AnimatePanel } from './animate-panel.ts';
 import { ModulationPanel } from './modulation-panel.ts';
 import { layerTimeline, ownTimelineOps, TimelinePanel } from './timeline-panel.ts';
 import { buildLine } from './line-folders.ts';
@@ -105,8 +106,9 @@ function randomId(): string {
 function shapeKey(layer: LayerConfig): string {
   switch (layer.type) {
     case 'instancer':
-      // The primitive too: the Edges folder is for boxes only.
-      return `instancer:${layer.arrangement}:${layer.primitive}`;
+      // The primitive too: the Edges folder is for boxes only. Whether height or y is mapped
+      // decides the Axes & values notes.
+      return `instancer:${layer.arrangement}:${layer.primitive}:${layer.channels.height.column !== null}:${layer.channels.y.column !== null}`;
     case 'heatmap':
       return `heatmap:${layer.layout}`;
     case 'surface':
@@ -423,6 +425,7 @@ export class LayersPanel {
     }
     if (built) return;
     entry.refreshReadout?.();
+    entry.animate?.update(doc, external);
     this.updateTimeline(entry, doc);
     this.updateModulation(entry, doc, external);
   }
@@ -451,7 +454,7 @@ export class LayersPanel {
     const m = entry.modulation;
     if (!m || !entry.modulationFolder) return;
     m.update(doc, external);
-    entry.modulationFolder.title = m.count > 0 ? `Modulation (${m.count})` : 'Modulation';
+    entry.modulationFolder.title = m.count > 0 ? `Motion effects (${m.count})` : 'Motion effects';
   }
 
   /** Label each modulatable field " ~" when any of its parameters has a modulator. */
@@ -740,8 +743,8 @@ export class LayersPanel {
     back.element.title = 'The look before the last randomise (up to 10 back; forgotten when this window reloads)';
   }
 
-  private folderIn(entry: Entry, parent: FolderApi, title: string, key: string, def: boolean): FolderApi {
-    const api = parent.addFolder({ title, expanded: this.expanded.get(key) ?? def });
+  private folderIn(entry: Entry, parent: FolderApi, title: string, key: string, def: boolean, index?: number): FolderApi {
+    const api = parent.addFolder({ title, expanded: this.expanded.get(key) ?? def, index });
     entry.folders.push({ key, api });
     return api;
   }
@@ -768,6 +771,7 @@ export class LayersPanel {
         const row = this.rows.get(id);
         if (row) this.retitleRow(row, title);
       },
+      animate: null,
       modulation: null,
       modulationFolder: null,
       timeline: null,
@@ -827,20 +831,25 @@ export class LayersPanel {
     });
     this.addRandomButtons(entry, ui);
     this.applyMarks(entry, doc);
-    // Last in the card: the layer's timeline, then its own modulators and data playhead.
-    const timelineFolder = this.folderIn(entry, pane, 'Timeline', `${id}/timeline`, false);
+    // Second in the card, after General: which rows show and how they play out, then the
+    // layer's timeline and its own modulators ("motion effects").
+    const animated = Object.keys(doc.project.parameters).some((p) => p.startsWith(layerParamPrefix(id)));
+    const animateFolder = this.folderIn(entry, pane, 'Animate', `${id}/animate`, animated, 1);
+    entry.animate = new AnimatePanel(animateFolder, id, { sendPatch: this.deps.sendPatch, getDoc: this.deps.getDoc, showError: this.deps.showError }, doc);
+    if (animateFolder.children.length > 0) animateFolder.addBlade({ view: 'separator' });
+    const timelineFolder = this.folderIn(entry, animateFolder, 'Timeline', `${id}/timeline`, false);
     const own = { value: layer.timeline.own };
     const ownApi = timelineFolder.addBinding(own, 'value', { label: 'own timeline' }).on('change', (ev) => {
       if (this.quietDepth > 0) return;
       const doc = this.deps.getDoc();
       if (doc) this.deps.sendPatch(ownTimelineOps(doc, id, ev.value, wallMs()));
     });
-    ownApi.element.title = 'Off: this layer’s ramps, keyframes and data playhead follow the project timeline. On: its own duration, loop and transport.';
+    ownApi.element.title = 'Off: this layer’s reveal, ramps and keyframes follow the project timeline. On: its own duration, loop and transport.';
     const timelinePanel = new TimelinePanel(timelineFolder, { sendPatch: this.deps.sendPatch, getDoc: this.deps.getDoc }, layerTimeline(id));
     entry.timeline = { panel: timelinePanel, own, ownApi, folder: timelineFolder };
     this.updateTimeline(entry, doc);
 
-    const folder = this.folderIn(entry, pane, 'Modulation', `${id}/modulation`, false);
+    const folder = this.folderIn(entry, animateFolder, 'Motion effects', `${id}/modulation`, false);
     entry.modulationFolder = folder;
     entry.modulation = new ModulationPanel(
       folder,

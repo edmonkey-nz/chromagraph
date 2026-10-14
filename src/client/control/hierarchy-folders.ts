@@ -18,7 +18,6 @@ import {
   addOpacityBlend,
   addPair,
   addPlain,
-  addRows,
   addScaleRamp,
   addValueColumn,
   addVec3,
@@ -56,7 +55,6 @@ export function buildHierarchy(ui: LayerUi, layer: HierarchyLayer, titleOf: (l: 
   addValueColumn(ui, g, layer.valueColumn, numeric, () => domain);
   addChoice(ui, g, layer.aggregate, 'aggregate', ['aggregate'], AGGREGATES).element.title =
     'How a leaf combines its rows, and a parent its children (sum adds up; min/max take the extreme). Rows with no value are left out and counted.';
-  addRows(ui, g, layer.rows);
 
   buildLevels(ui, root, layer);
 
