@@ -34,6 +34,7 @@ export const LAYER_TYPE_TITLES: Record<LayerType, string> = {
   surface: '3D surface',
   reflector: 'reflection plane',
   qr: 'QR code',
+  density: 'density map',
 };
 
 /** Instances the output can draw at 60 fps across all layers on the target laptop. */
@@ -201,6 +202,8 @@ export function diffChanges(before: unknown, after: unknown, path: Path = []): L
  */
 export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | null, summary: DatasetSummary | null): LayerChange[] {
   const changes: LayerChange[] = [{ path: ['datasetId'], value: datasetId }];
+  // A filter names the old dataset's columns and values.
+  if (layer.filter.length > 0 && datasetId !== layer.datasetId) changes.push({ path: ['filter'], value: [] });
   if (!summary || layer.type === 'text' || layer.type === 'reflector' || layer.type === 'qr') return changes;
   const times = timeColumns(summary);
   const timeNames = times.map((c) => c.name);
@@ -240,6 +243,13 @@ export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | nul
       const levels = repairLevels(layer.levels, summary);
       if (JSON.stringify(levels) !== JSON.stringify(layer.levels)) changes.push({ path: ['levels'], value: levels });
       dropValue(layer.valueColumn);
+      return changes;
+    }
+    case 'density': {
+      const usable = new Set(summary.columns.filter((c) => !c.empty && (c.type === 'number' || c.type === 'time')).map((c) => c.name));
+      if (layer.xColumn !== null && !usable.has(layer.xColumn)) changes.push({ path: ['xColumn'], value: null }, { path: ['xDomain'], value: null });
+      if (layer.yColumn !== null && !usable.has(layer.yColumn)) changes.push({ path: ['yColumn'], value: null }, { path: ['yDomain'], value: null });
+      if (layer.zColumn !== null && !usable.has(layer.zColumn)) changes.push({ path: ['zColumn'], value: null }, { path: ['zDomain'], value: null });
       return changes;
     }
     case 'instancer':

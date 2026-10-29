@@ -12,6 +12,10 @@
  * takes its mapped values from data row `row + k * dataStep`. Where that row is outside the
  * data, or one of its mapped values is missing, clone k breaks there (`clonePointDrawable`).
  * With the fill on, each drawn segment also gets an area down to the clone's baseline.
+ *
+ * Band (fill 'band', aggregated lines with y mapped): each bucket also keeps the lowest and
+ * highest y of its rows (`band`), and the fill spans them instead of reaching the baseline.
+ * The y auto domain then covers the band, so it is never clipped.
  */
 import type { LineLayer, ScaleType } from '../shared/layer-schema.ts';
 import type { CalendarFields } from './calendar.ts';
@@ -54,6 +58,18 @@ export interface LineData {
    * aggregated (so the gap rule measures gaps in buckets; see segmentBroken).
    */
   gapUnit: number;
+  /** Lowest and highest raw y per row (bucket) for a band fill, MISSING where none; else null. */
+  band: { lo: Float32Array; hi: Float32Array } | null;
+  /**
+   * Aggregated: the table rows of bucket b are bucketStarts[b] .. bucketStarts[b + 1] - 1 (one
+   * entry more than there are buckets). Null for raw rows (a point's row is a table row).
+   */
+  bucketStarts: Int32Array | null;
+}
+
+/** True when the layer draws a min-max band (needs aggregation and a y column). */
+export function wantsBand(layer: LineLayer): boolean {
+  return layer.fill.mode === 'band' && layer.aggregate.by !== 'none' && layer.y.column !== null;
 }
 
 /** Fields whose change needs new point arrays (everything else is a uniform update). */
@@ -67,6 +83,8 @@ export function lineStructureKey(layer: LineLayer): string {
     layer.colourMap.column,
     layer.aggregate.by,
     layer.aggregate.by === 'none' ? null : [layer.aggregate.fn, layer.aggregate.by === 'rows' ? layer.aggregate.rows : null, layer.timeColumn],
+    wantsBand(layer),
+    layer.split.column,
   ]);
 }
 
@@ -108,7 +126,7 @@ function channelValues(c: Column, allowCategory: boolean, what: string): Channel
 }
 
 function emptyLine(rowCount: number, timeMode: boolean): LineData {
-  return { count: 0, points: new Float32Array(0), rowCount, timeMode, y: null, z: null, colour: null, gapUnit: 1 };
+  return { count: 0, points: new Float32Array(0), rowCount, timeMode, y: null, z: null, colour: null, gapUnit: 1, band: null, bucketStarts: null };
 }
 
 /**
@@ -169,7 +187,7 @@ export function buildLineData(
     points[o + P_COLOUR] = colour ? colour.values[i]! : 0;
     k++;
   }
-  return { count, points, rowCount: n, timeMode, y, z, colour, gapUnit: 1 };
+  return { count, points, rowCount: n, timeMode, y, z, colour, gapUnit: 1, band: null, bucketStarts: null };
 }
 
 const NOMINAL_DAYS = { week: 7, month: 365.25 / 12, year: 365.25 } as const;
@@ -252,7 +270,17 @@ function aggregateLine(
     return { values: out, autoDomain: domain, categories: c.categories };
   };
   // Categories have no mean: a colour-by-category line takes each bucket's last value.
-  const yb = reduce(y, fn);
+  let yb = reduce(y, fn);
+  let band: LineData['band'] = null;
+  if (wantsBand(layer) && y && yb) {
+    const lo = reduce(y, 'min')!;
+    const hi = reduce(y, 'max')!;
+    band = { lo: lo.values, hi: hi.values };
+    // The domain covers the band (an empty band keeps the line's own domain).
+    if (Number.isFinite(lo.autoDomain[0]) && Number.isFinite(hi.autoDomain[1])) {
+      yb = { ...yb, autoDomain: [Math.min(yb.autoDomain[0], lo.autoDomain[0]), Math.max(yb.autoDomain[1], hi.autoDomain[1])] };
+    }
+  }
   const zb = reduce(z, fn);
   const cb = reduce(colour, colour && colour.categories > 0 ? 'last' : fn);
 
@@ -287,7 +315,10 @@ function aggregateLine(
     k++;
   }
   const gapUnit = by === 'rows' ? size : timeMode ? (NOMINAL_DAYS[by as keyof typeof NOMINAL_DAYS] * DAY_MS) / unitMs : 1;
-  return { count, points, rowCount: buckets, timeMode, y: yb, z: zb, colour: cb, gapUnit };
+  const bucketStarts = new Int32Array(buckets + 1);
+  bucketStarts.set(starts);
+  bucketStarts[buckets] = n;
+  return { count, points, rowCount: buckets, timeMode, y: yb, z: zb, colour: cb, gapUnit, band, bucketStarts };
 }
 
 /** Visible rows [first, last] (inclusive) for `rows` fractions, as the instancer computes them. */
@@ -362,6 +393,33 @@ export function linePositions(data: LineData, layer: LineLayer): Float32Array {
     out[k * 3 + 2] = z;
   }
   return out;
+}
+
+/**
+ * px position of the last drawable point in the visible rows (clone 0), written to `out`
+ * (x, y, z); false when no point is visible. Allocation-free, so split line labels can follow
+ * a modulated layer every frame. CPU twin of the vertex shader's placement, as linePositions.
+ */
+export function lastVisiblePoint(data: LineData, layer: LineLayer, out: number[]): boolean {
+  if (data.count === 0) return false;
+  const [first, last] = rowRange(layer.rows, data.rowCount);
+  const k = firstPointAtOrAfter(data, last + 1) - 1;
+  if (k < 0 || data.points[k * POINT_STRIDE + P_ROW]! < first) return false;
+  const o = k * POINT_STRIDE;
+  const t = data.points[o + P_T]! - lineTStart(data, layer.followRange, first);
+  out[0] = layer.origin[0] + t * layer.step[0];
+  out[1] = layer.origin[1] + t * layer.step[1];
+  out[2] = layer.origin[2] + t * layer.step[2];
+  if (data.y) out[1] += mapValue(data.points[o + P_Y]!, domainOf(layer.y, data.y), layer.y);
+  if (data.z) out[2] += mapValue(data.points[o + P_Z]!, domainOf(layer.z, data.z), layer.z);
+  return true;
+}
+
+/** resolveDomain without allocating, except for the log scale's search. */
+function domainOf(m: LineLayer['y'], c: ChannelData): [number, number] {
+  if (m.domain) return m.domain;
+  if (m.scale === 'log' || !Number.isFinite(c.autoDomain[0]) || !Number.isFinite(c.autoDomain[1])) return resolveDomain(m, c);
+  return c.autoDomain;
 }
 
 function mapValue(v: number, domain: [number, number], m: { scale: ScaleType; steps: number; clamp: boolean; range: [number, number] }): number {

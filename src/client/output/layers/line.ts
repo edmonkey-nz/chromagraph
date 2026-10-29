@@ -34,6 +34,7 @@ import {
 } from '../../../data/line-data.ts';
 import type { ColourMapping, LineLayer, Mapping, ScaleType } from '../../../shared/layer-schema.ts';
 import { OUTPUT_HEIGHT, OUTPUT_WIDTH } from '../stage.ts';
+import { createLineAxes } from './line-axes-view.ts';
 import type { FrameContext, LayerInstance } from './layer.ts';
 import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
 
@@ -67,6 +68,9 @@ import { paletteTexture, PALETTE, rampTexture } from './ramps.ts';
  * order), so a nearer clone's opaque fill hides the lines behind it: Joy Division style
  * ridgelines, which in 2D (no depth test) rely on exactly this order. In 3D the line is
  * nudged a hair towards the camera so it never z-fights with its own fill.
+ *
+ * Band ('band', aggregated): the fill pieces span each bucket's lowest to highest y instead,
+ * read from a third texture (lo, hi per bucket), drawn under the line in the fill colour.
  */
 
 export interface LineSource {
@@ -74,10 +78,14 @@ export interface LineSource {
   cadences: Record<string, Cadence>;
   /** Calendar fields per time column (for week / month / year aggregation). */
   calendars?: Record<string, CalendarFields>;
+  /** The dataset's display timezone (axis dates); UTC without one. */
+  timeZone?: string;
 }
 
 export interface LineInstance extends LayerInstance {
   apply(layer: LineLayer, cameraMode: '2d' | '3d'): void;
+  /** Rows fractions the layer's animation reaches (axes span 'full'). */
+  setRowsSpan?(lo: number, hi: number): void;
 }
 
 const TEX_WIDTH = 4096;
@@ -90,6 +98,9 @@ const vertexShader = /* glsl */ `
 
   uniform highp sampler2D uPoints; // t, source row
   uniform highp sampler2D uValues; // raw y, z, colour per table row
+  #ifdef BAND
+    uniform highp sampler2D uBand; // lowest, highest raw y per row (bucket)
+  #endif
   uniform int uSegFirst;
   uniform int uSegCount;
   uniform int uClones;
@@ -247,10 +258,18 @@ const vertexShader = /* glsl */ `
     if (cn >= 0.0 && uReverse > 0.5) cn = 1.0 - cn;
 
     if (isFill) {
-      // Area from the line down to the baseline (origin.y), then cloned like the line.
       bool atEnd = position.x > 0.5;
-      vec3 top = atEnd ? pb : pa;
-      vec3 p = position.y > 0.0 ? top : vec3(top.x, uOrigin.y, top.z);
+      #ifdef BAND
+        // From the bucket's lowest to its highest value.
+        vec4 bnd = fetchAt(uBand, atEnd ? rb : ra);
+        if (bnd.x < MISSING_TEST || bnd.y < MISSING_TEST) { hide(); return; }
+        vec4 vv = atEnd ? vb : va;
+        vec3 p = place(atEnd ? b.x : a.x, vec4(position.y > 0.0 ? bnd.y : bnd.x, vv.yzw));
+      #else
+        // Area from the line down to the baseline (origin.y), then cloned like the line.
+        vec3 top = atEnd ? pb : pa;
+        vec3 p = position.y > 0.0 ? top : vec3(top.x, uOrigin.y, top.z);
+      #endif
       gl_Position = projectionMatrix * modelViewMatrix * vec4(cloneOf(p, fk, orbit, orbiting), 1.0);
       vLocal = vec4(0.0, 0.0, 1.0, 0.0);
       vRamp = vec2(cn);
@@ -374,7 +393,15 @@ function dataTexture(n: number, fill: (out: Float32Array) => void): DataTexture 
 }
 
 export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d' | '3d'): LineInstance {
-  const data: LineData = buildLineData(layer, source.table, source.cadences, source.calendars);
+  const data = buildLineData(layer, source.table, source.cadences, source.calendars);
+  return createLineFromData(layer, data, cameraMode, { table: source.table, timeZone: source.timeZone ?? 'UTC' });
+}
+
+/**
+ * A line from points already built (split lines build every series first to share domains).
+ * With `axesFrom` the line draws its own axes; a split line draws one set for all its series.
+ */
+export function createLineFromData(layer: LineLayer, data: LineData, cameraMode: '2d' | '3d', axesFrom?: { table: Table; timeZone: string }): LineInstance {
   const root = new Group();
   root.name = layer.name;
 
@@ -397,6 +424,15 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
       for (let i = 0; i < data.rowCount; i++) out[i * 4 + c] = v[i]!;
     }
   });
+  const bandData = data.band;
+  const band = bandData
+    ? dataTexture(data.rowCount, (out) => {
+        for (let i = 0; i < data.rowCount; i++) {
+          out[i * 4] = bandData.lo[i]!;
+          out[i * 4 + 1] = bandData.hi[i]!;
+        }
+      })
+    : null;
 
   // Quad corners: x = 0 at the start, 1 at the end; y = side (-1 / +1). For a fill piece,
   // y -1 is the baseline and +1 the line.
@@ -405,7 +441,7 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
   geometry.setIndex([0, 1, 2, 0, 2, 3]);
   geometry.instanceCount = 0;
 
-  const defines: Record<string, string> = {};
+  const defines: Record<string, string> = band ? { BAND: '' } : {};
   const categories = data.colour?.categories ?? 0;
   const uniforms: Record<string, IUniform> = {
     uPoints: { value: points },
@@ -437,6 +473,7 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
     uFillColour: { value: new Color() },
     uFillOpacity: { value: 1 },
   };
+  if (band) uniforms.uBand = { value: band };
   const yDomain = data.y ? domainMemo(data.y) : null;
   const zDomain = data.z ? domainMemo(data.z) : null;
   const colourDomain = data.colour ? domainMemo(data.colour) : null;
@@ -492,7 +529,8 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
     set('uOpacity', next.opacity);
 
     const cl = next.cloner;
-    const fill = next.fill.mode === 'below';
+    // A band needs its texture (built for 'band'); 'below' draws down to the baseline.
+    const fill = band ? next.fill.mode === 'band' : next.fill.mode === 'below';
     const perClone = segCount * (fill ? 2 : 1);
     const clones = lineCloneCount(cl.count, perClone);
     set('uSegFirst', segFirst);
@@ -532,17 +570,25 @@ export function createLine(layer: LineLayer, source: LineSource, cameraMode: '2d
     root.name = next.name;
   }
 
-  apply(layer, cameraMode);
+  const axes = axesFrom ? createLineAxes(root, [{ data, table: axesFrom.table }], axesFrom.timeZone) : null;
+  const applyAll = (next: LineLayer, mode: '2d' | '3d'): void => {
+    apply(next, mode);
+    axes?.apply(next);
+  };
+  applyAll(layer, cameraMode);
 
   return {
     object: root,
-    apply,
+    apply: applyAll,
+    setRowsSpan: (lo, hi) => axes?.setRowsSpan(lo, hi),
     update(_ctx: FrameContext) {},
     dispose() {
+      axes?.dispose();
       geometry.dispose();
       material.dispose();
       points.dispose();
       values.dispose();
+      band?.dispose();
     },
   };
 }

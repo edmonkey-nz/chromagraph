@@ -1,8 +1,10 @@
 import type { Column } from '../../data/columns.ts';
 import { dataUrl, DatasetLoader, type LoadedFile } from '../../data/dataset-loader.ts';
 import type { Cadence } from '../../data/gaps.ts';
+import { applyRowFilter, filterKey } from '../../data/row-filter.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import { summarise, type DatasetSummary } from '../../shared/layer-defaults.ts';
+import type { RowFilter } from '../../shared/layer-schema.ts';
 import { DatasetSchema, type Dataset } from '../../shared/project-schema.ts';
 import { TableViewer } from './table-viewer.ts';
 
@@ -12,6 +14,8 @@ interface Report {
   loaded?: LoadedFile;
   /** Built once when the parse finishes; its identity changes only when the file is reloaded. */
   summary?: DatasetSummary;
+  /** Summaries of the rows layers' filters keep, by filter key (null: the filter can't run). */
+  filtered?: Map<string, DatasetSummary | null>;
   error?: string;
 }
 
@@ -146,9 +150,33 @@ export class DatasetsPanel {
     fileInput.addEventListener('change', () => void this.upload());
   }
 
-  /** Column summary of a parsed dataset, or null while it is loading, failed or unknown. */
-  summary(datasetId: string): DatasetSummary | null {
-    return this.reports.get(datasetId)?.summary ?? null;
+  /**
+   * Column summary of a parsed dataset, or null while it is loading, failed or unknown. With a
+   * row filter, the summary of the rows it keeps (null when it can't run or keeps none). The
+   * same filter gives the same object until the file is reloaded.
+   */
+  summary(datasetId: string, filter: readonly RowFilter[] = []): DatasetSummary | null {
+    const report = this.reports.get(datasetId);
+    if (!report?.summary || filter.length === 0) return report?.summary ?? null;
+    const key = filterKey(filter);
+    report.filtered ??= new Map();
+    let summary = report.filtered.get(key);
+    if (summary === undefined) {
+      summary = null;
+      const loaded = report.loaded;
+      if (loaded) {
+        try {
+          const view = applyRowFilter({ table: loaded.result.table, cadences: loaded.cadences, calendars: loaded.calendars }, filter);
+          summary = summarise(view.table, view.cadences);
+        } catch {
+          // Reported by the output, which fails the layer with the reason.
+        }
+      }
+      // Bounded: one entry per filter tried in this session, cleared when the file reloads.
+      if (report.filtered.size > 64) report.filtered.clear();
+      report.filtered.set(key, summary);
+    }
+    return summary;
   }
 
   update(projectName: string, datasets: readonly Dataset[]): void {

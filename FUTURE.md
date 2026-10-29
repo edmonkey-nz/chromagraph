@@ -93,4 +93,26 @@ future improvements.
 27) add a basic CSV explorer/viewer in the 'dataset' pane
 
 28) add a 'random layer settings' button in the 'general' pane. make them sensible, and often will need to be 'fit to output' as a starting point. open to thoughts on this.
-29) 
+29) chart modes for large datasets and long-format files (suggested 2026-10-29, best first):
+   a) line layers: split by a category column, one line per value (e.g. Male / Female),
+      coloured by category, instead of one layer per filter.
+      - DONE (2026-10-29): line card → Split: one line per value, a colour each, names at the
+        line ends. Lines share axes. Filter first if a column has more than 24 values.
+   b) aggregated lines: a shaded min-to-max band behind the mean, so averaging doesn't
+      hide the extremes.
+      - DONE (2026-10-29): Fill → mode "min–max band (aggregated)".
+   c) instancer: x from any number column (true scatter plots), not just row index or time.
+      - DONE (2026-10-29): Channels → x offset. Set the step to 0 for a scatter plot; the x
+        axis then shows the x column's values.
+   d) density map (hexbin / 2D histogram): every row splatted on the GPU and coloured by
+      count, so 100k overlapping points read as a field, not a blob.
+      - DONE (2026-10-29): Add layer → density map. x and y columns (numbers or dates), bins,
+        smoothing, scale, ramp and threshold; a data playhead builds it up. Counted on the
+        CPU (about 3 ms a frame while the rows move at 100k rows).
+      - 3D (2026-10-29): Dots (3D) folder: draw as dots in 3D, with an optional z column (a
+        3D cloud) or rising by count; dot size, depth and scatter.
+   e) horizon chart: a long series folded into stacked colour bands, so decades of daily
+      data fit a thin strip and several series stack up the screen.
+   f) stacked area / streamgraph from a category split.
+   g) histogram, and box or violin plots per category.
+   h) parallel coordinates: one faint polyline per row across several number columns.

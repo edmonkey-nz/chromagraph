@@ -12,6 +12,7 @@
 
 import type { ColumnType, Table } from '../data/columns.ts';
 import {
+  blankDensityLayer,
   blankHeatmapLayer,
   blankHierarchyLayer,
   blankInstancerLayer,
@@ -22,6 +23,7 @@ import {
   blankSurfaceLayer,
   blankTextLayer,
   unmapped,
+  type DensityLayer,
   type HeatmapLayer,
   type HierarchyLayer,
   type HierarchyLevel,
@@ -68,6 +70,25 @@ export interface SummaryColumn {
    * from one that varies. Undefined for other types or when unknown.
    */
   typical?: [number, number];
+  /**
+   * Distinct values, in first-seen order, of a category column, or of a text column with at
+   * most FILTER_VALUES of them: the choices a row filter offers. Undefined otherwise.
+   */
+  values?: string[];
+}
+
+/** Most distinct values of a text column listed as row filter choices. */
+export const FILTER_VALUES = 100;
+
+/** Distinct non-missing texts in first-seen order, or undefined past FILTER_VALUES. */
+function distinctTexts(values: readonly (string | null)[]): string[] | undefined {
+  const seen = new Set<string>();
+  for (const v of values) {
+    if (v === null || seen.has(v)) continue;
+    if (seen.size === FILTER_VALUES) return undefined;
+    seen.add(v);
+  }
+  return [...seen];
 }
 
 /** Rows sampled for a number column's typical range. */
@@ -102,7 +123,11 @@ export function summarise(table: Table, cadences: Record<string, { step: number 
     rowCount: table.rowCount,
     columns: table.columns.map((c) => {
       const col: SummaryColumn = { name: c.name, type: c.type, min: c.min, max: c.max, empty: c.empty, nullCount: c.nullCount };
-      if (c.type === 'category') col.categories = c.dictionary.length;
+      if (c.type === 'category') {
+        col.categories = c.dictionary.length;
+        col.values = [...c.dictionary];
+      }
+      if (c.type === 'text' && !c.empty) col.values = distinctTexts(c.values);
       if (c.type === 'number') col.typical = typicalRange(c.values);
       return col;
     }),
@@ -314,6 +339,7 @@ function copyLayer(layer: InstancerLayer): InstancerLayer {
     cell: [layer.cell[0], layer.cell[1]],
     size: [layer.size[0], layer.size[1], layer.size[2]],
     channels: {
+      x: copyMapping(layer.channels.x),
       y: copyMapping(layer.channels.y),
       z: copyMapping(layer.channels.z),
       height: copyMapping(layer.channels.height),
@@ -387,15 +413,25 @@ export const LINE_Y_RANGE: [number, number] = [-300, 300];
  * Copy of a line layer with origin and step chosen so the visible rows run across the usable
  * width, with the line's zero (origin) at mid-frame. The y range is left alone.
  */
+/** A line chart with axes (x or y axis on): the line spans CHART_LEFT .. frame - CHART_RIGHT over CHART_BASE .. + CHART_HEIGHT. */
+export const CHART_LEFT = 200;
+const CHART_RIGHT = 80;
+export const CHART_BASE = 170;
+export const CHART_HEIGHT = 720;
+
 export function fitLineLayer(layer: LineLayer, summary: DatasetSummary): LineLayer {
   const out = structuredClone(layer);
   const tSpan = tSpanOf(layer, summary);
   const [s, e] = visibleFractions(layer);
   const span = Math.max(1, tSpan * (e - s));
   const tStart = layer.followRange ? 0 : tSpan * s;
-  const sx = USABLE_W / span;
-  out.origin = [finite(MARGIN - tStart * sx, MARGIN), FRAME_H / 2, 0];
+  // With axes on, leave room for them: the value axis on the left, labels below the baseline.
+  const charted = layer.axes.x.enabled || layer.axes.y.enabled;
+  const left = charted ? CHART_LEFT : MARGIN;
+  const sx = (charted ? FRAME_W - CHART_LEFT - CHART_RIGHT : USABLE_W) / span;
+  out.origin = [finite(left - tStart * sx, left), charted ? CHART_BASE : FRAME_H / 2, 0];
   out.step = [finite(sx, 1), 0, 0];
+  if (charted) out.y = { ...out.y, range: [0, CHART_HEIGHT] };
   return out;
 }
 
@@ -773,6 +809,7 @@ export function defaultLayerOfType(
     const datasetId = dataset?.id ?? null;
     if (type === 'line') return blankLineLayer(id, name, datasetId);
     if (type === 'heatmap') return blankHeatmapLayer(id, name, datasetId);
+    if (type === 'density') return blankDensityLayer(id, name, datasetId);
     if (type === 'multiples') return blankMultiplesLayer(id, name, datasetId);
     if (type === 'hierarchy') return blankHierarchyLayer(id, name, datasetId);
     if (type === 'surface') return blankSurfaceLayer(id, name, datasetId);
@@ -783,6 +820,7 @@ export function defaultLayerOfType(
   if (type === 'surface') return defaultSurfaceLayerFor(id, name, dataset, summary);
   if (type === 'line') return defaultLineLayerFor(id, name, dataset, summary);
   if (type === 'heatmap') return defaultHeatmapLayerFor(id, name, dataset, summary);
+  if (type === 'density') return defaultDensityLayerFor(id, name, dataset, summary);
   return defaultLayerFor(id, name, dataset, summary);
 }
 
@@ -808,5 +846,41 @@ export function fitAnyLayer(layer: LayerConfig, summary: DatasetSummary | null, 
       return fitHierarchyLayer(layer);
     case 'surface':
       return fitSurfaceLayer(layer, summary, timeZone);
+    case 'density':
+      return fitDensityLayer(layer, summary);
   }
+}
+
+/** px between a density map and the frame edge (room for axes or a title). */
+const DENSITY_MARGIN = 120;
+/** Bins across a fitted density map (down follows the map's aspect). */
+const DENSITY_BINS_X = 320;
+
+/**
+ * Density map fit: the frame less DENSITY_MARGIN all round, square bins, and columns when none
+ * are set: x the time column (else the first varying number), y the first other varying number.
+ */
+export function fitDensityLayer(layer: DensityLayer, summary: DatasetSummary): DensityLayer {
+  const out = structuredClone(layer);
+  const names = new Set(summary.columns.filter((c) => !c.empty && (c.type === 'number' || c.type === 'time')).map((c) => c.name));
+  const varying = summary.columns.filter((c) => c.type === 'number' && !c.empty && Number.isFinite(c.min) && c.max > c.min).map((c) => c.name);
+  if (out.xColumn === null || !names.has(out.xColumn)) out.xColumn = timeColumns(summary)[0]?.name ?? varying[0] ?? null;
+  if (out.yColumn === null || !names.has(out.yColumn)) out.yColumn = varying.find((n) => n !== out.xColumn) ?? null;
+  const w = FRAME_W - 2 * DENSITY_MARGIN;
+  const h = FRAME_H - 2 * DENSITY_MARGIN;
+  out.origin = [DENSITY_MARGIN, DENSITY_MARGIN, 0];
+  out.size = [w, h];
+  if (out.zColumn !== null && !names.has(out.zColumn)) out.zColumn = null;
+  // Dots are coarser than a flat map's pixels; 3D bins coarser still (they cost cells × depth).
+  const across = out.mode === 'flat' ? DENSITY_BINS_X : out.zColumn === null ? 96 : 64;
+  out.bins = [across, Math.max(4, Math.round((across * h) / w))];
+  if (out.mode === 'dots' && out.zColumn !== null) {
+    out.binsZ = Math.max(2, Math.round((across * out.depth) / w));
+    out.origin = [DENSITY_MARGIN, DENSITY_MARGIN, -out.depth / 2];
+  }
+  return out;
+}
+
+export function defaultDensityLayerFor(id: string, name: string, dataset: Dataset, summary: DatasetSummary): DensityLayer {
+  return fitDensityLayer(blankDensityLayer(id, name, dataset.id), summary);
 }

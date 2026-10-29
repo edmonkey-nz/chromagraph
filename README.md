@@ -1,3 +1,5 @@
+![ai-code](https://img.shields.io/badge/AI%20coded-YES-orange)
+
 # chromagraph
 
 A realtime data-visualisation instrument. It loads CSV/JSON files, maps their columns onto

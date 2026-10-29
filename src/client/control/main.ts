@@ -209,7 +209,7 @@ el.importButton.addEventListener('click', () => el.importFile.click());
 const layersPanel = new LayersPanel(el.panelLayers, {
   sendPatch,
   getDoc,
-  summary: (id) => datasetsPanel.summary(id),
+  summary: (id, filter) => datasetsPanel.summary(id, filter),
   showError,
   select: (id) => editMode.select(id),
 });

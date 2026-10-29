@@ -1,11 +1,14 @@
 import type { FolderApi } from 'tweakpane';
+import { lineChartPreset } from '../../shared/chart-presets.ts';
+import { buildAxesFolder } from './axes-folder.ts';
 import { budgetReadout, diffChanges, lineSegmentCount, ridgelineLine } from '../../shared/layer-helpers.ts';
-import { AGGREGATES, type LayerConfig, type LineLayer, X_MODES } from '../../shared/layer-schema.ts';
+import { AGGREGATES, LINE_FILLS, MAX_SPLIT, seriesColour, type LayerConfig, type LineLayer, X_MODES } from '../../shared/layer-schema.ts';
 import {
   addChoice,
   addFitButton,
   addIdentity,
   addNumber,
+  addFontCase,
   addOpacityBlend,
   addPlain,
   addTimeColumn,
@@ -19,7 +22,7 @@ import {
   options,
 } from './layer-ui.ts';
 
-/** Line folders: General, Layout, Look, Mapping, Cloner, Fill, Transform. */
+/** Line folders: General, Aggregate, Split, Layout, Look, Mapping, Axes & values, Cloner, Fill, Transform. */
 export function buildLine(ui: LayerUi, layer: LineLayer, titleOf: (l: LayerConfig) => string): void {
   const root = ui.entry.folder;
 
@@ -68,6 +71,8 @@ export function buildLine(ui: LayerUi, layer: LineLayer, titleOf: (l: LayerConfi
   nRows.on('change', (ev) => ui.set(['aggregate', 'rows'], Math.max(1, Math.round(ev.value))));
   fn.on('change', (ev) => ui.set(['aggregate', 'fn'], ev.value));
 
+  buildSplit(ui, root, layer);
+
   const l = ui.folder(root, 'Layout', 'Layout', false);
   addVec3(ui, l, layer.origin, 'origin', ['origin'], 'origin').element.title = 'Position of t = 0, and the zero of the y mapping';
   addVec3(ui, l, layer.step, 'step', ['step'], 'step').element.title = 'px per unit of t (per row, or per cadence step in time mode)';
@@ -92,10 +97,32 @@ export function buildLine(ui: LayerUi, layer: LineLayer, titleOf: (l: LayerConfi
   gap.hidden = !m.breakOnGaps;
 
   buildMappings(ui, root, layer);
+  buildLineAxes(ui, root, layer);
   buildCloner(ui, root, layer);
   buildFill(ui, root, layer);
   buildEffects(ui, root, layer);
   buildTransform(ui, root, layer.transform);
+}
+
+/** "Axes & values" for a line (shared builder in axes-folder.ts), with the Line chart preset. */
+function buildLineAxes(ui: LayerUi, parent: FolderApi, layer: LineLayer): void {
+  const aggregated = layer.aggregate.by !== 'none';
+  buildAxesFolder(ui, parent, layer.axes, {
+    preset: {
+      title: 'Line chart',
+      hint: 'Aggregated (monthly with a time column, else every 30 rows), each point named along the bottom, a value axis with gridlines, fitted with room for both',
+      make: (current, summary) => (current.type === 'line' ? lineChartPreset(current, summary) : null),
+    },
+    xTitle: 'x axis',
+    xNone: aggregated ? (layer.aggregate.by === 'month' || layer.aggregate.by === 'year' ? '(the period)' : '(the middle row’s date or rows)') : layer.timeColumn ? '(the date)' : '(row number)',
+    xHint: 'A baseline under the line and a label per point (thinned so labels never overlap)',
+    everyHint: aggregated ? 'Label every N-th point (period); labels are thinned further if they would overlap' : 'Label every N-th point; labels are thinned further if they would overlap',
+    valuesHint: aggregated ? 'Each point’s combined value as text at it' : 'Each point’s value as text at it',
+    valuesColumnHint: aggregated ? 'Aggregated lines always show the combined value' : 'What the labels say: the y value, or any other column',
+    xNote: null,
+    yNote: layer.y.column === null ? 'Map y in Mapping to get a value axis.' : null,
+    valuesNote: layer.y.column === null ? 'Map y in Mapping first.' : null,
+  });
 }
 
 const DATA_STEP_HINT =
@@ -169,13 +196,59 @@ function buildCloner(ui: LayerUi, parent: FolderApi, layer: LineLayer): void {
   refresh();
 }
 
-/** "Fill" folder: area between the line and each clone's baseline. */
+/**
+ * "Split" folder: one line per value of a category or text column (e.g. Male / Female), each
+ * in its own colour, with an optional name label at the end of each line.
+ */
+function buildSplit(ui: LayerUi, parent: FolderApi, layer: LineLayer): void {
+  const split = layer.split;
+  const f = ui.folder(parent, 'Split', 'Split', split.column !== null);
+  if (!ui.summary) {
+    f.addButton({ title: 'Waiting for data…', disabled: true });
+    return;
+  }
+  const choices = ui.summary.columns.filter((c) => c.values !== undefined && c.values.length > 0);
+  const m = { column: split.column ?? '' };
+  const options = [{ text: 'none (one line)', value: '' }, ...choices.map((c) => ({ text: `${c.name} (${c.values!.length})`, value: c.name }))];
+  if (split.column !== null && !choices.some((c) => c.name === split.column)) options.push({ text: `${split.column} (missing)`, value: split.column });
+  f.addBinding(m, 'column', { label: 'one line per', options }).on('change', (ev) => {
+    ui.entry.forceRebuild = ui.send([{ path: ['split', 'column'], value: ev.value === '' ? null : ev.value }]);
+  }).element.title = `Draw one line for each value of a category column, on shared axes (at most ${MAX_SPLIT}). Filter first to leave some out.`;
+  const column = choices.find((c) => c.name === split.column);
+  if (!column) return;
+
+  const values = column.values!;
+  if (values.length > MAX_SPLIT) {
+    f.addButton({ title: `${values.length} values: filter to ${MAX_SPLIT} or fewer`, label: '', disabled: true });
+  }
+  values.slice(0, MAX_SPLIT).forEach((value, i) => {
+    const c = { v: seriesColour(split, value, i) };
+    f.addBinding(c, 'v', { label: value === '' ? '(blank)' : value }).on('change', (ev) => ui.set(['split', 'colours', value], ev.value));
+  });
+  f.addButton({ title: 'Default colours', label: '' }).on('click', () => {
+    ui.entry.forceRebuild = ui.send([{ path: ['split', 'colours'], value: {} }]);
+  });
+
+  const L = split.labels;
+  addPlain(ui, f, L.enabled, 'labels', ['split', 'labels', 'enabled']).element.title = 'Name each line at its last visible point, in its colour';
+  addNumber(ui, f, L.size, 'label size', ['split', 'labels', 'size'], { min: 6, max: 200, step: 1 });
+  addNumber(ui, f, L.gap, 'label gap', ['split', 'labels', 'gap'], { min: -200, max: 200, step: 1, hint: 'px from the end of the line' });
+  addFontCase(ui, f, L.font, L.uppercase, ['split', 'labels', 'font'], ['split', 'labels', 'uppercase']);
+}
+
+const FILL_TITLES = { none: 'none', below: 'below the line', band: 'min–max band (aggregated)' } as const;
+
+/** "Fill" folder: area between the line and each clone's baseline, or the min-max band. */
 function buildFill(ui: LayerUi, parent: FolderApi, layer: LineLayer): void {
   const f = ui.folder(parent, 'Fill', 'Fill', false);
   const fill = layer.fill;
-  const mode = addChoice(ui, f, fill.mode, 'mode', ['fill', 'mode'], ['none', 'below'] as const, { none: 'none', below: 'below the line' });
+  const mode = addChoice(ui, f, fill.mode, 'mode', ['fill', 'mode'], LINE_FILLS, FILL_TITLES);
   mode.element.title =
-    'Fill between the line and its baseline (origin y plus the clone’s offset). An opaque fill in the background colour hides the clones behind.';
+    'Below: fill between the line and its baseline (origin y plus the clone’s offset); an opaque fill in the background colour hides the clones behind. ' +
+    'Band: with aggregation on, a shaded area from each period’s lowest to highest value, so averaging doesn’t hide the extremes (split lines use their own colours).';
+  if (fill.mode === 'band' && (layer.aggregate.by === 'none' || layer.y.column === null)) {
+    f.addButton({ title: 'Band needs aggregation and a y column', label: '', disabled: true });
+  }
   const colour = addPlain(ui, f, fill.colour, 'colour', ['fill', 'colour']);
   const opacity = addNumber(ui, f, fill.opacity, 'opacity', ['fill', 'opacity'], { min: 0, max: 1, step: 0.01, field: 'fill.opacity' });
   const show = (m: string) => {

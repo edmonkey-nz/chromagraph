@@ -14,6 +14,7 @@ import {
   HIERARCHY_LAYOUTS,
   identityCloner,
   type ColourRamp,
+  type DensityLayer,
   type HeatmapLayer,
   type HierarchyLayer,
   type InstancerLayer,
@@ -244,11 +245,11 @@ function instancer(layer: InstancerLayer, ctx: Ctx): InstancerLayer {
     const cats = categoryColumns(summary).filter((c) => (c.categories ?? 0) >= 3 && (c.categories ?? 0) <= 12);
     const value = nums.length > 0 ? pick(rng, nums).name : null;
     const colourCol = cats.length > 0 && chance(rng, 0.25) ? pick(rng, cats).name : nums.length > 0 && chance(rng, 0.5) ? pick(rng, nums).name : value;
-    for (const ch of ['y', 'z', 'size', 'rotation', 'opacity'] as const) out.channels[ch].column = null;
+    for (const ch of ['x', 'y', 'z', 'size', 'rotation', 'opacity'] as const) out.channels[ch].column = null;
     out.channels.height.column = HEIGHT_RECIPES.includes(recipe) ? value : null;
     out.channels.colour.column = colourCol;
   }
-  for (const ch of ['height', 'size', 'y', 'z', 'opacity'] as const) out.channels[ch].domain = null;
+  for (const ch of ['height', 'size', 'x', 'y', 'z', 'opacity'] as const) out.channels[ch].domain = null;
   out.channels.colour.domain = null;
   out.channels.height.scale = scaleFor(ctx, column(summary, out.channels.height.column));
   out.channels.colour.scale = scaleFor(ctx, column(summary, out.channels.colour.column));
@@ -373,6 +374,18 @@ function heatmap(layer: HeatmapLayer, ctx: Ctx): HeatmapLayer {
   out.missing = chance(rng, 0.3) ? 'colour' : 'transparent';
   out.missingColour = ctx.dark ? '#1c1f26' : '#d9dce2';
   if (ctx.scope === 'all') out.aggregate = pick(rng, ['mean', 'max', 'sum'] as const);
+  return out;
+}
+
+function density(layer: DensityLayer, ctx: Ctx): DensityLayer {
+  const { rng } = ctx;
+  const out = structuredClone(layer);
+  out.domain = null;
+  out.scale = pick(rng, ['sqrt', 'log', 'linear'] as const);
+  out.ramp = pick(rng, RAMPS);
+  out.reverse = false;
+  out.radius = round(between(rng, 0.5, 4), 0.5);
+  out.threshold = round(between(rng, 0, 0.08), 0.01);
   return out;
 }
 
@@ -556,6 +569,9 @@ export function randomiseLayer(
       break;
     case 'qr':
       out = qr(plain, ctx);
+      break;
+    case 'density':
+      out = density(plain, ctx);
       break;
   }
 

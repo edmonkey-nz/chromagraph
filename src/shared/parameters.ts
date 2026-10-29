@@ -45,7 +45,7 @@ const CAMERA_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   fov: { label: 'field of view', min: 5, max: 120, hardMin: 5, hardMax: 120 },
   yaw: { label: 'yaw', min: -180, max: 180 },
   pitch: { label: 'pitch', min: -89, max: 89, hardMin: -89, hardMax: 89 },
-  distance: { label: 'distance', min: 0.2, max: 5, hardMin: 0.01 },
+  distance: { label: 'distance', min: 0.1, max: 100, hardMin: 0.01 },
   target: AXES.map((a) => ({ label: `target ${a}`, min: -2000, max: 2000 })),
   'dof.focus': { label: 'focus', min: -2000, max: 2000, hardMin: -20_000, hardMax: 20_000 },
   'dof.depth': { label: 'sharp depth', min: 0, max: 2000, hardMin: 0, hardMax: 20_000 },
@@ -135,6 +135,20 @@ const HEATMAP_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   gridColumns: { label: 'grid columns', min: 1, max: 2000, hardMin: 1, integer: true },
 };
 
+const DENSITY_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  rows: ROWS,
+  origin: ORIGIN,
+  size: [
+    { label: 'width', min: 10, max: 3840, hardMin: 1 },
+    { label: 'height', min: 10, max: 2160, hardMin: 1 },
+  ],
+  radius: { label: 'smoothing', min: 0, max: 20, hardMin: 0, hardMax: 20 },
+  threshold: { label: 'threshold', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+  depth: { label: 'depth', min: 0, max: 2000, hardMin: 0, hardMax: 4000 },
+  dotSize: { label: 'dot size', min: 0.5, max: 100, hardMin: 0.5, hardMax: 200 },
+  jitter: { label: 'scatter', min: 0, max: 1, hardMin: 0, hardMax: 1 },
+};
+
 const MULTIPLES_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   rows: ROWS,
   origin: ORIGIN,
@@ -206,6 +220,7 @@ const REFLECTOR_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
 };
 
 const CHANNEL_RANGE: Record<string, [number, number, number?, number?]> = {
+  x: [-4000, 4000],
   y: [-2000, 2000],
   z: [-2000, 2000],
   height: [-1000, 1000],
@@ -261,7 +276,7 @@ function mappingDefs(out: ParamDef[], prefix: string, group: string, name: strin
 function instancerDefs(out: ParamDef[], layer: InstancerLayer, prefix: string, group: string): void {
   addFields(out, prefix, group, LAYER_FIELDS);
   addFields(out, `${prefix}.cloner`, group, CLONER_FIELDS);
-  for (const ch of ['y', 'z', 'height', 'size', 'rotation', 'opacity'] as const) {
+  for (const ch of ['x', 'y', 'z', 'height', 'size', 'rotation', 'opacity'] as const) {
     mappingDefs(out, `${prefix}.channels.${ch}`, group, ch, layer.channels[ch], CHANNEL_RANGE[ch]);
   }
   mappingDefs(out, `${prefix}.channels.colour`, group, 'colour', layer.channels.colour);
@@ -311,6 +326,10 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
       break;
     case 'qr':
       addFields(out, prefix, group, QR_FIELDS);
+      break;
+    case 'density':
+      addFields(out, prefix, group, DENSITY_FIELDS);
+      if (layer.domain) mappingDefs(out, prefix, group, 'count', { column: 'count', domain: layer.domain });
       break;
   }
   return out;

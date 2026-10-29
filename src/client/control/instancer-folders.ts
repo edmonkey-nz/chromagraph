@@ -1,10 +1,9 @@
 import type { BladeApi, FolderApi } from 'tweakpane';
 import { barChartPreset } from '../../shared/chart-presets.ts';
+import { buildAxesFolder } from './axes-folder.ts';
 import { budgetReadout, diffChanges, edgePreset, ridgelineCloner, visibleRowCount } from '../../shared/layer-helpers.ts';
 import {
   ARRANGEMENTS,
-  AXIS_SIDES,
-  VALUE_LABEL_PLACES,
   LABEL_ORIENTATIONS,
   NUMERIC_CHANNELS,
   PRIMITIVES,
@@ -14,7 +13,6 @@ import {
   type NumericChannel,
 } from '../../shared/layer-schema.ts';
 import {
-  addChoice,
   addFitButton,
   addFontCase,
   addNumber,
@@ -39,6 +37,7 @@ import {
 /** Instancer folders: General, Layout, Look, Edges, Channels, Cloner, Labels, Axes & values, Glow, Trails, Transform. */
 
 const CHANNEL_TITLES: Record<NumericChannel | 'colour', string> = {
+  x: 'x offset',
   y: 'y offset',
   z: 'z offset',
   height: 'height',
@@ -261,94 +260,26 @@ function buildLabels(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): voi
 }
 
 /** A read-only note line in a folder. */
-function note(f: FolderApi, text: string): BladeApi {
-  return f.addBlade({ view: 'text', label: '', parse: (v: string) => v, value: text, disabled: true });
-}
-
-/**
- * "Axes & values": value labels at the marks, and for a linear arrangement a category axis
- * and a value axis (InstancerAxesSchema, laid out by data/instance-axes.ts), plus the Bar chart
- * preset that sets up all three on a zero-based height.
- */
+/** "Axes & values" for an instancer (shared builder in axes-folder.ts), with the Bar chart preset. */
 function buildAxes(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void {
-  const A = layer.axes;
-  const f = ui.folder(parent, 'Axes & values', 'Axes', A.values.enabled || A.x.enabled || A.y.enabled);
-  const columns = ui.summary?.columns.filter((c) => !c.empty) ?? [];
-  const columnList = (none: string) => [{ text: none, value: '' }, ...columns.map((c) => ({ text: c.name, value: c.name }))];
   const linear = layer.arrangement === 'linear';
   const valued = layer.channels.height.column !== null || layer.channels.y.column !== null;
-
-  f.addButton({ title: ui.canFit ? 'Bar chart' : 'Bar chart (waiting for data)', label: 'preset', disabled: !ui.canFit }).on('click', () => {
-    const current = ui.entry.layer;
-    const doc = ui.getDoc();
-    const dataset = doc?.project.datasets.find((d) => d.id === current.datasetId);
-    if (current.type !== 'instancer' || !ui.summary || !dataset) return;
-    ui.entry.forceRebuild = ui.send(diffChanges(current, barChartPreset(current, ui.summary, dataset.timeZone)));
-  }).element.title =
-    'Bars in a line with heights from zero (proportional to the values), room for the axes, value labels on top, the rows named along the bottom and a value axis with gridlines';
-  addPlain(ui, f, A.colour, 'line colour', ['axes', 'colour']).element.title = 'Colour of the axis lines, ticks and gridlines';
-  addNumber(ui, f, A.lineWidth, 'line width', ['axes', 'lineWidth'], { min: 1, max: 8, step: 0.5, hardMax: 20, hint: 'px; 2 is the projection minimum' });
-  addFontCase(ui, f, A.font, A.uppercase, ['axes', 'font'], ['axes', 'uppercase']);
-
-  // ---- value labels ----
-  const v = ui.folder(f, 'Value labels', 'Axes/values', A.values.enabled);
-  addPlain(ui, v, A.values.enabled, 'on', ['axes', 'values', 'enabled']).element.title = 'Each row’s value as text at its mark';
-  const vm = { column: A.values.column ?? '' };
-  v.addBinding(vm, 'column', { label: 'column', options: columnList('(the mapped value)') }).on('change', (ev) =>
-    ui.set(['axes', 'values', 'column'], ev.value === '' ? null : ev.value),
-  ).element.title = 'What the labels say: the column the height (or y) is mapped from, or any other column';
-  addChoice(ui, v, A.values.place, 'place', ['axes', 'values', 'place'], VALUE_LABEL_PLACES, {
-    above: 'above',
-    'inside-top': 'inside, at the top',
-    'inside-middle': 'inside, in the middle',
-    base: 'at the base',
+  buildAxesFolder(ui, parent, layer.axes, {
+    preset: {
+      title: 'Bar chart',
+      hint: 'Bars in a line with heights from zero (proportional to the values), room for the axes, value labels on top, the rows named along the bottom and a value axis with gridlines',
+      make: (current, summary, timeZone) => (current.type === 'instancer' ? barChartPreset(current, summary, timeZone) : null),
+    },
+    xTitle: 'Category axis',
+    xNone: layer.timeColumn ? '(the date)' : '(row number)',
+    xHint: 'A baseline under the marks and a label for each row',
+    everyHint: 'Label every N-th row (rows whose number is a multiple of N)',
+    valuesHint: 'Each row’s value as text at its mark',
+    valuesColumnHint: 'What the labels say: the column the height (or y) is mapped from, or any other column',
+    xNote: linear ? null : 'Axes need the linear arrangement (Layout).',
+    yNote: !linear ? 'Axes need the linear arrangement (Layout).' : valued ? null : 'Map height (or y) in Channels to get a value axis.',
+    valuesNote: valued || layer.axes.values.column !== null ? null : 'Map height (or y) in Channels, or choose a column.',
   });
-  addNumber(ui, v, A.values.size, 'size', ['axes', 'values', 'size'], { min: 6, max: 120, step: 1, hardMax: 200, hint: 'px at 1080p; 24 is the projection minimum' });
-  addPlain(ui, v, A.values.colour, 'colour', ['axes', 'values', 'colour']);
-  addNumber(ui, v, A.values.gap, 'gap', ['axes', 'values', 'gap'], { min: -50, max: 100, step: 1, hardMin: -200, hardMax: 200, hint: 'px from the end of the mark' });
-  addNumber(ui, v, A.values.decimals, 'decimals', ['axes', 'values', 'decimals'], {
-    min: -1,
-    max: 6,
-    step: 1,
-    hardMax: 10,
-    integer: true,
-    hint: '-1 shows the values as the file writes them; 0 or more rounds to that many decimals',
-  });
-  addPlain(ui, v, A.values.prefix, 'prefix', ['axes', 'values', 'prefix']).element.title = 'Text before each value, e.g. $';
-  addPlain(ui, v, A.values.suffix, 'suffix', ['axes', 'values', 'suffix']).element.title = 'Text after each value, e.g. %';
-  if (!valued && A.values.column === null) note(v, 'Map height (or y) in Channels, or choose a column.');
-
-  // ---- category axis ----
-  const x = ui.folder(f, 'Category axis', 'Axes/x', A.x.enabled);
-  if (!linear) note(x, 'Axes need the linear arrangement (Layout).');
-  addPlain(ui, x, A.x.enabled, 'on', ['axes', 'x', 'enabled']).element.title = 'A baseline under the marks and a label for each row';
-  addPlain(ui, x, A.x.line, 'baseline', ['axes', 'x', 'line']);
-  const xm = { column: A.x.column ?? '' };
-  x.addBinding(xm, 'column', { label: 'labels', options: columnList(layer.timeColumn ? '(the date)' : '(row number)') }).on('change', (ev) =>
-    ui.set(['axes', 'x', 'column'], ev.value === '' ? null : ev.value),
-  ).element.title = 'The column that names each row, e.g. Quarter';
-  addNumber(ui, x, A.x.every, 'every', ['axes', 'x', 'every'], { min: 1, max: 100, step: 1, hardMax: 1_000_000, integer: true, hint: 'Label every N-th row (rows whose number is a multiple of N)' });
-  addNumber(ui, x, A.x.size, 'size', ['axes', 'x', 'size'], { min: 6, max: 120, step: 1, hardMax: 200, hint: 'px at 1080p; 24 is the projection minimum' });
-  addPlain(ui, x, A.x.colour, 'colour', ['axes', 'x', 'colour']);
-  addNumber(ui, x, A.x.angle, 'angle', ['axes', 'x', 'angle'], { min: -90, max: 90, step: 15, hint: 'Turn the labels (degrees) so long or many labels fit' });
-  addNumber(ui, x, A.x.gap, 'gap', ['axes', 'x', 'gap'], { min: 0, max: 100, step: 1, hardMax: 200, hint: 'px below the baseline' });
-  addPlain(ui, x, A.x.title, 'title', ['axes', 'x', 'title']).element.title = 'Axis title, centred below the labels (empty: none)';
-
-  // ---- value axis ----
-  const y = ui.folder(f, 'Value axis', 'Axes/y', A.y.enabled);
-  if (!linear) note(y, 'Axes need the linear arrangement (Layout).');
-  else if (!valued) note(y, 'Map height (or y) in Channels to get a value axis.');
-  addPlain(ui, y, A.y.enabled, 'on', ['axes', 'y', 'enabled']).element.title = 'Ticks in the units of the mapped column, beside the marks';
-  addPlain(ui, y, A.y.line, 'axis line', ['axes', 'y', 'line']);
-  addNumber(ui, y, A.y.ticks, 'ticks', ['axes', 'y', 'ticks'], { min: 2, max: 20, step: 1, integer: true, hint: 'About how many round values to mark' });
-  addPlain(ui, y, A.y.grid, 'gridlines', ['axes', 'y', 'grid']).element.title = 'A line across the marks at each tick';
-  addNumber(ui, y, A.y.gridOpacity, 'grid opacity', ['axes', 'y', 'gridOpacity'], { min: 0, max: 1, step: 0.05 });
-  addChoice(ui, y, A.y.side, 'side', ['axes', 'y', 'side'], AXIS_SIDES);
-  addNumber(ui, y, A.y.size, 'size', ['axes', 'y', 'size'], { min: 6, max: 120, step: 1, hardMax: 200, hint: 'px at 1080p; 24 is the projection minimum' });
-  addPlain(ui, y, A.y.colour, 'colour', ['axes', 'y', 'colour']);
-  addNumber(ui, y, A.y.decimals, 'decimals', ['axes', 'y', 'decimals'], { min: -1, max: 6, step: 1, hardMax: 10, integer: true, hint: '-1 picks from the tick step' });
-  addPlain(ui, y, A.y.suffix, 'suffix', ['axes', 'y', 'suffix']).element.title = 'Text after each tick value, e.g. %';
-  addPlain(ui, y, A.y.title, 'title', ['axes', 'y', 'title']).element.title = 'Axis title, beside the tick labels (empty: none)';
 }
 
 /**

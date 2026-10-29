@@ -11,9 +11,12 @@ import { columnText, emptyPlacement, MAX_LABELS, placeLabel, type DateLabels, ty
  * as children of the layer's mesh so the transform applies.
  *
  * Mark extents are the CPU twin of the instancer's vertex shader: the arranged point (via
- * placeLabel, itself the twin of `arrange()`), plus the y / z channel offsets, and a height of
+ * placeLabel, itself the twin of `arrange()`), plus the x / y / z channel offsets, and a height of
  * the height channel (or size[1]) times the size channel. Bars and boxes grow from that point;
  * other primitives are centred on it. With heightAxis 'z' the height runs along z.
+ *
+ * With the x channel mapped (a scatter plot), the x axis is a value axis too: ticks in the x
+ * column's units along the line, instead of a label per row ('xv:<tick text>' keys).
  */
 
 export type Vec3 = [number, number, number];
@@ -50,7 +53,7 @@ export interface AxesLayout {
   texts: AxisText[];
 }
 
-type ScaledChannel = 'y' | 'z' | 'height' | 'size';
+type ScaledChannel = 'x' | 'y' | 'z' | 'height' | 'size';
 
 export interface AxesInput {
   layer: InstancerLayer;
@@ -76,6 +79,8 @@ const TICK_LENGTH = 8;
 const TICK_GAP = 6;
 /** px between the marks' outer edge and the value axis. */
 const AXIS_PAD = 12;
+/** Ticks a scatter plot's x value axis aims for. */
+const X_TICKS = 8;
 /** Rough width of a character as a share of the font size (for placing titles past labels). */
 const CHAR_W = 0.55;
 
@@ -160,12 +165,13 @@ export function layoutAxes(input: AxesInput): AxesLayout {
     const t = data.t[row]!;
     if (!(t > MISSING_TEST)) return null;
     placeLabel(placeAt, t - tStart, data.yearIndex?.[row] ?? 0, data.dayOfYear?.[row] ?? 0, placement);
+    const xOff = channelValue('x', row);
     const yOff = channelValue('y', row);
     const zOff = channelValue('z', row);
     const height = channelValue('height', row);
     const mult = channelValue('size', row);
-    if ([yOff, zOff, height, mult].some((v) => v !== null && Number.isNaN(v))) return null;
-    const x = placement.x;
+    if ([xOff, yOff, zOff, height, mult].some((v) => v !== null && Number.isNaN(v))) return null;
+    const x = placement.x + (xOff ?? 0);
     const y = placement.y + (yOff ?? 0);
     const z = placement.z + (zOff ?? 0);
     const h = (height ?? layer.size[1]) * (mult ?? 1);
@@ -247,6 +253,13 @@ export function layoutAxes(input: AxesInput): AxesLayout {
   const half = Math.abs(layer.size[0]) / 2 + 4;
   const start = along(tMin);
   const end = along(tMax);
+  // A mapped x widens the marks' extent by the x mapping's px span.
+  const xDomain = ch.x.column !== null ? domains.x : undefined;
+  const xEnds = xDomain ? [mapValue(xDomain[0], ch.x, xDomain), mapValue(xDomain[1], ch.x, xDomain)] : null;
+  if (xEnds) {
+    start[0] += Math.min(xEnds[0]!, xEnds[1]!);
+    end[0] += Math.max(xEnds[0]!, xEnds[1]!);
+  }
   const lineStart: Vec3 = [start[0] - ux * half, start[1] - uy * half, start[2]];
   const lineEnd: Vec3 = [end[0] + ux * half, end[1] + uy * half, end[2]];
   const line = (a: Vec3, b: Vec3, opacity = 1): void => {
@@ -254,7 +267,26 @@ export function layoutAxes(input: AxesInput): AxesLayout {
   };
 
   // ---- category axis -------------------------------------------------------------------------
-  if (A.x.enabled) {
+  if (A.x.enabled && xDomain) {
+    // Value axis along x (scatter): ticks in the x column's units, below the line.
+    const X = A.x;
+    if (X.line) line(lineStart, lineEnd);
+    const ticks = axisTicks(xDomain, ch.x.scale, X_TICKS);
+    const decimals = tickDecimals(ticks);
+    const base = along(tMin);
+    const angle = (X.angle * Math.PI) / 180;
+    const anchorX: AxisText['anchorX'] = X.angle === 0 ? 'center' : X.angle > 0 ? 'right' : 'left';
+    for (const v of ticks) {
+      const px = base[0] + mapValue(v, ch.x, xDomain);
+      line([px, base[1], base[2]], [px, base[1] - TICK_LENGTH, base[2]]);
+      const text = v.toFixed(decimals);
+      out.texts.push({ key: `xv:${text}`, text, x: px, y: base[1] - TICK_LENGTH - X.gap, z: base[2], rotation: angle, anchorX, anchorY: X.angle === 0 ? 'top' : 'middle', size: X.size, colour: X.colour });
+    }
+    if (X.title !== '') {
+      const d = TICK_LENGTH + X.gap + X.size * 1.8;
+      out.texts.push({ key: 'xt', text: X.title, x: (lineStart[0] + lineEnd[0]) / 2, y: base[1] - d, z: base[2], rotation: 0, anchorX: 'center', anchorY: 'top', size: X.size, colour: X.colour });
+    }
+  } else if (A.x.enabled) {
     const X = A.x;
     if (X.line) line(lineStart, lineEnd);
     const col = X.column === null ? undefined : table.columns.find((c) => c.name === X.column);

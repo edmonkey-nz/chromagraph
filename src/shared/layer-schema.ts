@@ -1,3 +1,4 @@
+import { schemeTableau10 } from 'd3-scale-chromatic';
 import { z } from 'zod';
 
 /**
@@ -86,13 +87,14 @@ export type ColourMapping = z.infer<typeof ColourMappingSchema>;
 
 /**
  * Numeric channels and the unit of their `range`:
- *   y, z      px offset added to the arranged position
+ *   x, y, z   px offset added to the arranged position (x with a zero step gives a scatter
+ *             plot: schema v18)
  *   height    px; replaces size[1] (bars grow from their base)
  *   size      multiplier on the whole primitive
  *   rotation  degrees about z
  *   opacity   0..1, multiplied with the layer opacity
  */
-export const NUMERIC_CHANNELS = ['y', 'z', 'height', 'size', 'rotation', 'opacity'] as const;
+export const NUMERIC_CHANNELS = ['x', 'y', 'z', 'height', 'size', 'rotation', 'opacity'] as const;
 export type NumericChannel = (typeof NUMERIC_CHANNELS)[number];
 
 /** The frame centre in output px: the default pivot for rotating and scaling a layer. */
@@ -222,12 +224,30 @@ export function defaultLayerTimeline(): LayerTimeline {
   return { own: false, duration: 600, loop: true, playback: 'forward' };
 }
 
+/**
+ * One row filter condition: keep the rows whose `column` (a category or text column) holds one
+ * of `values`, compared exactly as written in the file. A layer's `filter` list is ANDed (every
+ * condition must hold); an empty list keeps every row. Missing values never match, and a
+ * condition with no values keeps no rows. Filtering runs before everything else in the layer
+ * (row range, aggregation, mapping), so row fractions and indices count the kept rows.
+ */
+export const RowFilterSchema = z.object({
+  column: z.string().min(1),
+  values: z.array(z.string()),
+});
+export type RowFilter = z.infer<typeof RowFilterSchema>;
+
+/** Most conditions a layer's filter can hold. */
+export const MAX_FILTERS = 8;
+
 /** Fields every layer type has. */
 export const LayerBaseSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   enabled: z.boolean(),
   datasetId: z.string().nullable(),
+  /** Keep only the dataset rows that match (see RowFilterSchema). Schema v17. */
+  filter: z.array(RowFilterSchema).max(MAX_FILTERS),
   opacity: z.number().min(0).max(1),
   blend: z.enum(BLEND_MODES),
   transform: TransformSchema,
@@ -429,6 +449,7 @@ export const InstancerLayerSchema = LayerBaseSchema.extend({
   axes: InstancerAxesSchema,
 
   channels: z.object({
+    x: MappingSchema,
     y: MappingSchema,
     z: MappingSchema,
     height: MappingSchema,
@@ -447,6 +468,43 @@ export type InstancerLayer = z.infer<typeof InstancerLayerSchema>;
  */
 export const AGGREGATES = ['mean', 'sum', 'min', 'max', 'last'] as const;
 export const LINE_BUCKETS = ['none', 'week', 'month', 'year', 'rows'] as const;
+/** 'band' (aggregated lines): the area between each bucket's lowest and highest value. */
+export const LINE_FILLS = ['none', 'below', 'band'] as const;
+
+/** Most lines a split line layer draws (values past it are left out and reported). */
+export const MAX_SPLIT = 24;
+
+/** Default series colours, in value order (Tableau 10, as category colour mappings use). */
+export const SERIES_COLOURS: readonly string[] = schemeTableau10;
+
+/**
+ * Split (schema v18): one line per value of a category or text column, in first-seen order.
+ * Every line uses the layer's settings with its own colour (`colours[value]`, else
+ * SERIES_COLOURS by position); all share one time origin and the value domains of the whole
+ * (filtered) dataset, so they line up and compare. Rows, aggregation and the cloner count
+ * each line's own rows. `labels` names each line at its last visible point.
+ */
+export const LineSplitSchema = z.object({
+  column: z.string().nullable(),
+  colours: z.record(z.string(), hexColour),
+  labels: z.object({
+    enabled: z.boolean(),
+    size: z.number().min(6).max(200),
+    gap: z.number().min(-200).max(200),
+    font: z.enum(FONTS),
+    uppercase: z.boolean(),
+  }),
+});
+export type LineSplit = z.infer<typeof LineSplitSchema>;
+
+export function defaultLineSplit(): LineSplit {
+  return { column: null, colours: {}, labels: { enabled: true, size: 28, gap: 12, font: 'terminal', uppercase: false } };
+}
+
+/** Colour of the series at `index` with value `value`. */
+export function seriesColour(split: Pick<LineSplit, 'colours'>, value: string, index: number): string {
+  return split.colours[value] ?? SERIES_COLOURS[index % SERIES_COLOURS.length]!;
+}
 
 export const LineLayerSchema = LayerBaseSchema.extend({
   type: z.literal('line'),
@@ -483,7 +541,8 @@ export const LineLayerSchema = LayerBaseSchema.extend({
    * behind them (Joy Division style ridgelines).
    */
   fill: z.object({
-    mode: z.enum(['none', 'below']),
+    /** 'band' needs aggregation: from each bucket's min to its max (the fill colour). */
+    mode: z.enum(LINE_FILLS),
     colour: hexColour,
     opacity: z.number().min(0).max(1),
   }),
@@ -500,6 +559,14 @@ export const LineLayerSchema = LayerBaseSchema.extend({
     rows: z.number().int().min(1),
     fn: z.enum(AGGREGATES),
   }),
+  split: LineSplitSchema,
+  /**
+   * Chart furniture (schema v20), the instancer's settings: value labels at the points, an x
+   * axis along the line (labels per point: per bucket when aggregated, from `x.column`, else
+   * the time column's date, else the row number) and a y axis in the y column's units.
+   * Laid out by data/line-axes.ts.
+   */
+  axes: InstancerAxesSchema,
 });
 export type LineLayer = z.infer<typeof LineLayerSchema>;
 
@@ -764,7 +831,63 @@ export const QrLayerSchema = LayerBaseSchema.extend({
 });
 export type QrLayer = z.infer<typeof QrLayerSchema>;
 
-export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector', 'qr'] as const;
+/** Most bins a density map has along either side. */
+export const MAX_DENSITY_BINS = 1024;
+
+/**
+ * Density map (schema v18): every row counted into a grid of bins by its x and y values (a 2D
+ * histogram), smoothed, and coloured by count, so tens of thousands of overlapping points read as
+ * a field rather than a blob. Rows with a missing x or y, or outside the domains, are not counted.
+ *   xColumn, yColumn  number or time columns (time counts in days from the column's first value)
+ *   xDomain, yDomain  the value range across the map; null: the column's range
+ *   origin, size      bottom-left corner and size of the map in px
+ *   bins              bins across and down (at most MAX_DENSITY_BINS)
+ *   radius            gaussian smoothing, in bins (0: raw counts)
+ *   scale, domain     count -> colour (domain null: 0 to the most crowded bin of every row, so
+ *                     colours stay put while a data playhead sweeps)
+ *   threshold         0..1 of the colour scale: bins below it are transparent
+ * `rows` limits the counted rows, so a data playhead builds the field up.
+ *
+ * Dots mode (schema v19): every bin with a count above the threshold is a soft round dot in 3D,
+ * coloured by its count and `dotSize` px across at the top of the scale (smaller below it).
+ *   zColumn, zDomain  with a z column the bins are 3D (`binsZ` deep) and each dot sits at its
+ *                     bin's depth, from origin.z to origin.z + depth; without one, a dot rises
+ *                     by its count (0 to depth), so crowded areas stand up as a hill
+ *   jitter            0..1: each dot moves by a fixed pseudo-random share of its bin (so the
+ *                     grid doesn't show as a lattice); dots never leave their own bin
+ */
+export const DENSITY_MODES = ['flat', 'dots'] as const;
+/** Most bins a 3D density map counts (bins across × down × deep). */
+export const MAX_DENSITY_CELLS = 2_000_000;
+
+export const DensityLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('density'),
+  xColumn: z.string().nullable(),
+  yColumn: z.string().nullable(),
+  xDomain: vec2.nullable(),
+  yDomain: vec2.nullable(),
+  rows: vec2,
+  origin: vec3,
+  size: vec2,
+  bins: z.tuple([z.number().int().min(4).max(MAX_DENSITY_BINS), z.number().int().min(4).max(MAX_DENSITY_BINS)]),
+  radius: z.number().min(0).max(20),
+  scale: z.enum(SCALE_TYPES),
+  domain: vec2.nullable(),
+  ramp: z.enum(COLOUR_RAMPS),
+  reverse: z.boolean(),
+  steps: z.number().int().min(2).max(64),
+  threshold: z.number().min(0).max(1),
+  mode: z.enum(DENSITY_MODES),
+  zColumn: z.string().nullable(),
+  zDomain: vec2.nullable(),
+  binsZ: z.number().int().min(2).max(256),
+  depth: z.number().min(0).max(4000),
+  dotSize: z.number().min(0.5).max(200),
+  jitter: z.number().min(0).max(1),
+});
+export type DensityLayer = z.infer<typeof DensityLayerSchema>;
+
+export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector', 'qr', 'density'] as const;
 export type LayerType = (typeof LAYER_TYPES)[number];
 
 /** Union of all layer types. */
@@ -778,6 +901,7 @@ export const LayerSchema = z.discriminatedUnion('type', [
   SurfaceLayerSchema,
   ReflectorLayerSchema,
   QrLayerSchema,
+  DensityLayerSchema,
 ]);
 export type LayerConfig = z.infer<typeof LayerSchema>;
 
@@ -791,6 +915,7 @@ export function unmapped(range: [number, number]): Mapping {
 
 export function defaultChannels(): InstancerLayer['channels'] {
   return {
+    x: unmapped([0, 1600]),
     y: unmapped([0, 300]),
     z: unmapped([0, 300]),
     height: unmapped([2, 300]),
@@ -809,6 +934,7 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
     name,
     enabled: true,
     datasetId,
+    filter: [],
     primitive: 'bar',
     xMode: 'index',
     timeColumn: null,
@@ -840,7 +966,7 @@ export function blankInstancerLayer(id: string, name: string, datasetId: string 
 }
 
 function base(id: string, name: string, datasetId: string | null): LayerBase {
-  return { id, name, enabled: true, datasetId, opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects(), timeline: defaultLayerTimeline(), screenFixed: false };
+  return { id, name, enabled: true, datasetId, filter: [], opacity: 1, blend: 'normal', transform: identityTransform(), effects: defaultLayerEffects(), timeline: defaultLayerTimeline(), screenFixed: false };
 }
 
 export function blankLineLayer(id: string, name: string, datasetId: string | null): LineLayer {
@@ -863,7 +989,37 @@ export function blankLineLayer(id: string, name: string, datasetId: string | nul
     cloner: identityCloner(),
     fill: { mode: 'none', colour: '#000000', opacity: 1 },
     aggregate: { by: 'none', rows: 30, fn: 'mean' },
+    split: defaultLineSplit(),
+    axes: defaultAxes(),
   };
+}
+
+export function blankDensityLayer(id: string, name: string, datasetId: string | null): DensityLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'density',
+    xColumn: null,
+    yColumn: null,
+    xDomain: null,
+    yDomain: null,
+    rows: [0, 1],
+    origin: [120, 120, 0],
+    size: [1680, 840],
+    bins: [320, 160],
+    radius: 1.5,
+    scale: 'sqrt',
+    domain: null,
+    ramp: 'magma',
+    reverse: false,
+    steps: 5,
+    threshold: 0.02,
+    ...defaultDensityDots(),
+  };
+}
+
+/** The dots-mode fields of a new (or migrated) density map: flat until switched. */
+export function defaultDensityDots(): Pick<DensityLayer, 'mode' | 'zColumn' | 'zDomain' | 'binsZ' | 'depth' | 'dotSize' | 'jitter'> {
+  return { mode: 'flat', zColumn: null, zDomain: null, binsZ: 48, depth: 600, dotSize: 10, jitter: 0.8 };
 }
 
 export function blankHeatmapLayer(id: string, name: string, datasetId: string | null): HeatmapLayer {

@@ -1,6 +1,6 @@
 import { scaleLinear } from 'd3-scale';
-import { categoryColumns, firstVaryingNumber, fitLayer, FRAME_W, MARGIN, timeColumns, type DatasetSummary } from './layer-defaults.ts';
-import type { InstancerLayer } from './layer-schema.ts';
+import { categoryColumns, firstVaryingNumber, fitLayer, fitLineLayer, FRAME_W, MARGIN, timeColumns, type DatasetSummary } from './layer-defaults.ts';
+import type { InstancerLayer, LineLayer } from './layer-schema.ts';
 
 /**
  * The "Bar chart" preset for an instancer: a plain, honest bar chart of a small dataset with
@@ -91,4 +91,22 @@ export function barChartPreset(layer: InstancerLayer, summary: DatasetSummary, t
     y: { ...out.axes.y, enabled: true, line: true, grid: true, side: 'left', ticks: BAR_TICKS },
   };
   return out;
+}
+
+/**
+ * The "Line chart" preset for a line layer: aggregated (by month with a time column, else every
+ * 30 rows, unless it already aggregates), the x axis naming each point and a value axis with
+ * gridlines on, fitted with room for both (fitLineLayer's chart frame). The y domain stays auto,
+ * so it follows the combined values. Colour, effects and transform are left alone.
+ */
+export function lineChartPreset(layer: LineLayer, summary: DatasetSummary): LineLayer {
+  const out = structuredClone(layer);
+  if (out.aggregate.by === 'none') out.aggregate = { ...out.aggregate, by: out.timeColumn ? 'month' : 'rows', rows: 30, fn: 'mean' };
+  out.y = { ...out.y, domain: null };
+  out.axes = {
+    ...out.axes,
+    x: { ...out.axes.x, enabled: true, line: true, angle: 0 },
+    y: { ...out.axes.y, enabled: true, line: true, grid: true, side: 'left', ticks: 5 },
+  };
+  return fitLineLayer(out, summary);
 }

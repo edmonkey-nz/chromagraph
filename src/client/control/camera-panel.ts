@@ -39,7 +39,19 @@ const ISOMETRIC_VIEW: [keyof Camera, unknown][] = [
   ['yaw', 45],
   ['pitch', 35.26],
 ];
-const FIELDS = ['fov', 'yaw', 'pitch', 'distance'] as const;
+const FIELDS = ['fov', 'yaw', 'pitch'] as const;
+/** The distance slider is logarithmic over this range (multiples of the frame-filling distance). */
+const DISTANCE_MIN = 0.1;
+const DISTANCE_MAX = 100;
+
+/** Distance from the log slider's position (log10 of the distance), to 4 significant figures. */
+function distanceOf(log: number): number {
+  return Number((10 ** log).toPrecision(4));
+}
+
+function formatDistance(d: number): string {
+  return d < 10 ? d.toFixed(2) : d < 100 ? d.toFixed(1) : d.toFixed(0);
+}
 
 /** "0:23 / 1:00"; tenths of a second for a loop under a minute ("3.2 / 16.0 s"). */
 function formatLoop(sec: number, loopSec: number): string {
@@ -49,6 +61,8 @@ function formatLoop(sec: number, loopSec: number): string {
 
 export class CameraPanel {
   private cam = { mode: '2d' as Camera['mode'], projection: 'perspective' as Camera['projection'], fov: 45, yaw: 0, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 } };
+  /** The distance slider's model: log10 of camera.distance. */
+  private distanceLog = { distance: 0 };
   private quietDepth = 0;
   private dragging = false;
   private seen: Camera | null = null;
@@ -98,12 +112,35 @@ export class CameraPanel {
       fov: { min: 5, max: 120, step: 1 },
       yaw: { min: -180, max: 180, step: 0.5 },
       pitch: { min: -89, max: 89, step: 0.5 },
-      distance: { min: 0.2, max: 5, step: 0.01 },
     };
     for (const f of FIELDS) {
       const api = root.addBinding(cam, f, ranges[f]).on('change', (ev) => set(f, ev.value));
       this.labelled.push({ api, label: f, ids: [`camera.${f}`] });
     }
+    // Logarithmic: the slider moves log10(distance), so each decade (0.1-1, 1-10, 10-100) gets a
+    // third of its travel. The box shows the distance itself.
+    const distance = root
+      .addBinding(this.distanceLog, 'distance', {
+        min: Math.log10(DISTANCE_MIN),
+        max: Math.log10(DISTANCE_MAX),
+        step: 0.001,
+        format: (v: number) => formatDistance(distanceOf(v)),
+      })
+      .on('change', (ev) => set('distance', distanceOf(ev.value)));
+    distance.element.title = `Multiple of the distance at which the z = 0 plane fills the frame (${DISTANCE_MIN} to ${DISTANCE_MAX}, logarithmic)`;
+    // A typed value is a distance: turn it into the slider's log position before Tweakpane reads
+    // it (this capture listener runs before the input's own change listener).
+    distance.element.addEventListener(
+      'change',
+      (ev) => {
+        const input = ev.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        const typed = Number(input.value.trim());
+        if (Number.isFinite(typed) && typed > 0) input.value = String(Math.log10(typed));
+      },
+      true,
+    );
+    this.labelled.push({ api: distance, label: 'distance', ids: ['camera.distance'] });
     const target = root.addBinding(cam, 'target').on('change', (ev) => set('target', [ev.value.x, ev.value.y, ev.value.z]));
     this.labelled.push({ api: target, label: 'target', ids: [0, 1, 2].map((i) => `camera.target.${i}`) });
 
@@ -324,6 +361,7 @@ export class CameraPanel {
       if (this.dragging || (a instanceof HTMLInputElement && this.root.element.contains(a))) return;
     }
     Object.assign(this.cam, { mode: c.mode, projection: c.projection, fov: c.fov, yaw: c.yaw, pitch: c.pitch, distance: c.distance });
+    this.distanceLog.distance = Math.log10(c.distance);
     this.cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
     Object.assign(this.dof, c.dof);
     this.quietDepth++;

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defaultAxes, hexColour, identityCloner, identityTransform, LayerSchema, PLAYBACKS, vec3 } from './layer-schema.ts';
+import { defaultAxes, defaultChannels, defaultDensityDots, defaultLineSplit, hexColour, identityCloner, identityTransform, LayerSchema, PLAYBACKS, vec3 } from './layer-schema.ts';
 import { ClockSchema, ParameterSchema, TransportSchema, WALL_CLOCK, type Clock, type Transport } from './modulators.ts';
 import type { OutputProfile } from './output-profile.ts';
 
@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 16;
+export const CURRENT_VERSION = 20;
 
 
 export const DatasetSchema = z.object({
@@ -224,6 +224,39 @@ export const migrations: Record<number, Migration> = {
         : layers;
     const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
     return { ...doc, layers: withSpan(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withSpan(sc.layers) })) };
+  },
+  // v17: every layer gets a row filter (empty: every row, as before).
+  16: (doc) => {
+    const withFilter = (layers: unknown): unknown =>
+      Array.isArray(layers) ? layers.map((l: Doc) => (l && typeof l === 'object' && l.filter === undefined ? { ...l, filter: [] } : l)) : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withFilter(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withFilter(sc.layers) })) };
+  },
+  // v18: line layers get `split` (off: one line, as before); instancers get an x channel (unmapped).
+  17: (doc) => {
+    const upgrade = (l: Doc): Doc => {
+      if (l?.type === 'line' && l.split === undefined) return { ...l, split: defaultLineSplit() };
+      const channels = l?.channels as Doc | undefined;
+      if (l?.type === 'instancer' && channels && channels.x === undefined) return { ...l, channels: { ...channels, x: defaultChannels().x } };
+      return l;
+    };
+    const withSplit = (layers: unknown): unknown => (Array.isArray(layers) ? layers.map(upgrade) : layers);
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withSplit(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withSplit(sc.layers) })) };
+  },
+  // v19: density maps get dots mode (off: flat, as before).
+  18: (doc) => {
+    const withDots = (layers: unknown): unknown =>
+      Array.isArray(layers) ? layers.map((l: Doc) => (l?.type === 'density' && l.mode === undefined ? { ...l, ...defaultDensityDots() } : l)) : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withDots(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withDots(sc.layers) })) };
+  },
+  // v20: line layers get axes (all off).
+  19: (doc) => {
+    const withAxes = (layers: unknown): unknown =>
+      Array.isArray(layers) ? layers.map((l: Doc) => (l?.type === 'line' && l.axes === undefined ? { ...l, axes: defaultAxes() } : l)) : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withAxes(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withAxes(sc.layers) })) };
   },
   // v2: orbit camera replaces position/target; layers became typed (v1 never had any).
   1: (doc) => {

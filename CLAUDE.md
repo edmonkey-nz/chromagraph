@@ -326,6 +326,21 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   `preview`, renders at half resolution, and never reports status or logs, nor writes
   the output's state cache.
 
+**Row filters** (`layer.filter`, schema v17; `data/row-filter.ts`, pure and tested).
+- A list of `{column, values}` conditions on a category or text column: keep rows whose value
+  is one of `values` (exact text; missing never matches). Conditions are ANDed. Empty list: every row.
+- Filtering runs first, so the row range, aggregation, data playhead, cloner and Fit count the
+  kept rows. Kept rows are copied in file order; min/max/null counts and time cadences are worked
+  out again, calendar fields sliced, and category dictionaries kept whole (stable codes and colours).
+- Output: `LayerManager.filtered` builds the view inside the host fence (cached per dataset
+  version and filter, shared by layers), and the filter key is part of the layer key. A missing
+  column, a number column or a filter that keeps nothing fails the layer with the reason.
+- Control: `DatasetsPanel.summary(id, filter)` gives the kept rows' summary (cached, stable
+  identity), so Fit and budgets see them. The "Filter" folder (`addFilterFolder` in
+  `layers-panel.ts`, third in data layers' cards) offers `SummaryColumn.values`: category
+  dictionaries and text columns with at most `FILTER_VALUES` distinct values. Switching
+  dataset clears the filter.
+
 **Text as written.** Number columns record the decimals the file writes
 (`NumberColumn.decimals`, set in `data/infer.ts`). Text templates and labels show numbers
 with that many decimals, so "12.30" stays "12.30". Dates pad the day ("02 Jan 1879"), so
@@ -351,6 +366,56 @@ small-multiples layers) has a font choice. 'terminal' is VT323, a fixed-width 19
 face (OFL, bundled in `client/output/fonts/`, precached for offline boots); it is the
 default. 'sans' is troika's Roboto, fetched online. Text layers also accept a font URL.
 Each has an uppercase switch. `client/output/fonts.ts` resolves both.
+
+**Line split and band** (schema v18).
+- `layer.split` (lines): one line per value of a category or text column. `data/line-split.ts`
+  (pure, tested) cuts the table into one row-filtered view per value and aligns them: the whole
+  table's min/max on every number and time column (shared time origin and auto domains) and the
+  finest cadence step. Series `index` is the value's place in the full dictionary, so default
+  colours (`seriesColour`, Tableau 10) match the control's list whatever is filtered out. At most
+  `MAX_SPLIT` (24) values, else the layer fails with the reason.
+- `layers/split-line.ts` builds every series' `LineData` first, unions the auto domains, then
+  makes one `createLineFromData` instance per series, with per-series scratch configs written in
+  place each apply. Labels are troika Texts at `lastVisiblePoint` (allocation-free CPU twin).
+- `fill.mode: 'band'` (aggregated lines with y mapped, `wantsBand`): buckets also keep their
+  min and max y (`LineData.band`), uploaded as a third texture; the fill pieces span them, and
+  the y auto domain covers the band. Split lines draw their band in the series colour.
+
+**Line axes** (`layer.axes` on lines, schema v20; the instancer's `InstancerAxesSchema`).
+- `data/line-axes.ts` (pure, tested) lays out value labels, an x axis and a y axis from the line's
+  own placement (`linePositions`), so labels sit on the drawn points. Aggregated points are named
+  by their period ("Mar 1990", "1990") or rows ("1–30"), using `LineData.bucketStarts`. Split lines
+  share one set of axes, with value labels per series (`v:<series>:<row>` keys). x labels thin
+  themselves (multiples of `every`) until they don't overlap.
+- Drawing is `AxesView` (`layers/axes-view.ts`), shared with the instancer: one quad mesh plus a
+  BatchedText with one Text per key. `layers/line-axes-view.ts` keeps a numeric key so a modulated
+  line lays its axes out again only when they change; `setRowsSpan` feeds span 'full'.
+- The "Axes & values" folder is `control/axes-folder.ts` for both types. With an axis on,
+  `fitLineLayer` uses the chart frame (`CHART_LEFT`, `CHART_BASE`, `CHART_HEIGHT`); the "Line chart"
+  preset (`lineChartPreset`, also the Add layer "line chart (aggregated)" entry) aggregates and
+  turns both axes on.
+
+**Instancer x channel** (schema v18). `channels.x` is a px offset like y and z (texture 2, w).
+With a zero step it gives scatter plots. `instance-axes.ts` adds the offset to mark extents, and
+a mapped x turns the x axis into a value axis (`xv:<tick>` keys). Labels still ignore offsets.
+
+**Density map** (`density`, schema v18; `layers/density.ts`, pure counting in `data/density-data.ts`).
+- Rows are counted on the CPU into `bins` by x and y (number or time columns, time in days from
+  the column min), smoothed by a separable gaussian (`radius` in bins), uploaded as one R32F
+  texture and drawn as one quad; the fragment shader interpolates bin centres, applies the scale
+  and ramp, and fades out below `threshold`.
+- Bins, smoothing or domains re-count every row (the auto colour domain is 0..peak of all rows,
+  so colours hold during a data playhead) and the visible rows; a new row range re-counts only
+  the visible rows. Buffers are reused. Measured 2.7 ms per re-count at 100k rows, 320 × 160
+  bins, smoothing 1.5 (a test prints it). If that is too slow: count only new rows for a
+  build-up, or move counting to the GPU.
+- Dots mode (`mode: 'dots'`, schema v19): every bin with a count is an instanced camera-facing
+  soft dot holding (i, j, k, count); the vertex shader places, sizes and hides it, so position,
+  size, depth, dot size, scatter, scale and threshold are uniforms and only a re-count refills
+  the buffer (at most 500k dots). With `zColumn` the bins are 3D (`binsZ` deep; index
+  (k·binsY + j)·binsX + i, and the smoothing gets a depth pass); without, dots rise by count.
+  `jitter` moves each dot by a fixed hash of its bin, never outside it, so the grid doesn't show
+  as a lattice. 3D bins are capped at `MAX_DENSITY_CELLS` (2M).
 
 **Line aggregation.** `layer.aggregate` (line layers, v10) turns rows into one point per
 week, month, year (calendar fields in the dataset timezone) or N rows, combined by mean,

@@ -1,16 +1,19 @@
 import type { Object3D } from 'three';
+import { densityStructureKey } from '../../data/density-data.ts';
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
 import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
 import { multiplesStructureKey } from '../../data/multiples-data.ts';
 import { qrText } from '../../data/qr-data.ts';
+import { applyRowFilter, filterKey } from '../../data/row-filter.ts';
 import { surfaceStructureKey } from '../../data/surface-data.ts';
 import type { LayerConfig, LayerType } from '../../shared/layer-schema.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
 import { rowsSpan } from '../../shared/reveal.ts';
 import type { TemplateCredits } from '../../shared/text-template.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
+import { createDensity } from './layers/density.ts';
 import { createHeatmap } from './layers/heatmap.ts';
 import { createHierarchy } from './layers/hierarchy.ts';
 import { createInstancer, instancerCalendarReady } from './layers/instancer.ts';
@@ -19,6 +22,7 @@ import { createLine } from './layers/line.ts';
 import { createMultiples } from './layers/multiples.ts';
 import { createQr } from './layers/qr.ts';
 import { createReflector } from './layers/reflector.ts';
+import { createSplitLine } from './layers/split-line.ts';
 import { createSurface } from './layers/surface.ts';
 import { createTextLayer } from './layers/text.ts';
 import { applyLayerTransform } from './layers/transform.ts';
@@ -77,7 +81,13 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
   line: {
     structureKey: (layer) => lineStructureKey(layer),
     needsData: true,
-    create: (layer, data, mode) => createLine(layer, required(data), mode),
+    create: (layer, data, mode) => (layer.split.column ? createSplitLine(layer, required(data), mode) : createLine(layer, required(data), mode)),
+  },
+  density: {
+    // Rows, bins, smoothing and domains re-count in place (see density.ts), never a rebuild.
+    structureKey: (layer) => densityStructureKey(layer),
+    needsData: true,
+    create: (layer, data, mode) => createDensity(layer, required(data), mode),
   },
   heatmap: {
     structureKey: (layer, timeZone) => heatmapStructureKey(layer, timeZone),
@@ -166,6 +176,8 @@ export class LayerManager {
   /** The row span last given to each layer (see ApplicableLayer.setRowsSpan). */
   private spans = new Map<string, [number, number]>();
   private enabled = new Map<string, boolean>();
+  /** Filtered views of datasets, by dataset id and filter, shared by layers with the same filter. */
+  private views = new Map<string, { source: LoadedDataset; view: LoadedDataset }>();
   /** Layers kept visible while a morph fades them, whatever their `enabled` says. */
   private forcedVisible = new Set<string>();
   private _cameraMode: CameraMode = '2d';
@@ -186,12 +198,14 @@ export class LayerManager {
     const timeZones = timeZonesOf(doc);
     const datasetById = new Map(doc.project.datasets.map((d) => [d.id, d]));
     const seen = new Set<string>();
+    const viewsUsed = new Set<string>();
 
     doc.project.layers.forEach((layer, index) => {
       const kind = kindOf(layer);
       if (!kind) return;
       seen.add(layer.id);
       const data = layer.datasetId ? this.datasets.get(layer.datasetId) : null;
+      if (data && layer.filter.length > 0) viewsUsed.add(viewKey(layer));
       const credits = (layer.datasetId && datasetById.get(layer.datasetId)) || null;
       const key = this.keyOf(layer, timeZones, credits);
       if (key === null) {
@@ -204,7 +218,8 @@ export class LayerManager {
         this.displayed.set(layer.id, layer);
         this.credits.set(layer.id, credits);
         this.spans.delete(layer.id);
-        this.host.set(layer.id, () => kind.create(layer, data, modeFor(layer, cameraMode), credits));
+        // Filtering runs inside the host's fence: a filter that cannot run fails the layer.
+        this.host.set(layer.id, () => kind.create(layer, this.filtered(layer, data), modeFor(layer, cameraMode), credits));
       } else if (layer !== this.applied.get(layer.id) || cameraChanged) {
         this.applied.set(layer.id, layer);
         this.displayed.set(layer.id, layer);
@@ -230,6 +245,18 @@ export class LayerManager {
     });
 
     for (const id of [...this.keys.keys()]) if (!seen.has(id)) this.drop(id);
+    for (const key of [...this.views.keys()]) if (!viewsUsed.has(key)) this.views.delete(key);
+  }
+
+  /** The rows of `data` that `layer`'s filter keeps (`data` itself without a filter). Throws when it cannot run. */
+  private filtered(layer: LayerConfig, data: LoadedDataset | null): LoadedDataset | null {
+    if (!data || layer.filter.length === 0) return data;
+    const key = viewKey(layer);
+    const hit = this.views.get(key);
+    if (hit && hit.source === data) return hit.view;
+    const view = applyRowFilter(data, layer.filter);
+    this.views.set(key, { source: data, view });
+    return view;
   }
 
   /**
@@ -303,7 +330,7 @@ export class LayerManager {
     const data = layer.datasetId ? this.datasets.get(layer.datasetId) : null;
     if (!data && kind.needsData) return null;
     const timeZone = (layer.datasetId && timeZones.get(layer.datasetId)) || 'UTC';
-    return `${layer.type}|${kind.structureKey(layer, timeZone, data, credits)}|${data?.version ?? '-'}`;
+    return `${layer.type}|${kind.structureKey(layer, timeZone, data, credits)}|${data?.version ?? '-'}|${filterKey(layer.filter)}`;
   }
 
   /** Push modulated (effective) values for one layer; called every frame by the modulation engine. */
@@ -348,6 +375,10 @@ export class LayerManager {
     this.spans.delete(id);
     this.host.remove(id);
   }
+}
+
+function viewKey(layer: LayerConfig): string {
+  return `${layer.datasetId}|${filterKey(layer.filter)}`;
 }
 
 function timeZonesOf(doc: SyncDoc): Map<string, string> {

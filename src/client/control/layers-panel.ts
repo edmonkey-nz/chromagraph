@@ -1,7 +1,8 @@
 import { Pane, type FolderApi } from 'tweakpane';
+import { lineChartPreset } from '../../shared/chart-presets.ts';
 import { defaultLayerOfType, fitAnyLayer, type DatasetSummary } from '../../shared/layer-defaults.ts';
 import { datasetSwitchChanges, diffChanges, instanceCount, LAYER_TYPE_TITLES, type LayerChange } from '../../shared/layer-helpers.ts';
-import { LAYER_TYPES, LayerSchema, type LayerConfig, type LayerType } from '../../shared/layer-schema.ts';
+import { LAYER_TYPES, LayerSchema, MAX_FILTERS, type LayerConfig, type LayerType, type RowFilter } from '../../shared/layer-schema.ts';
 import { randomiseLayer, seededRng, type RandomScope } from '../../shared/layer-random.ts';
 import { layerParamCopyOps, layerParamRemovalOps } from '../../shared/modulation-helpers.ts';
 import { wallMs } from '../../shared/modulators.ts';
@@ -9,6 +10,7 @@ import { layerParamPrefix } from '../../shared/parameters.ts';
 import { applyOps, type Path, type PatchOp } from '../../shared/patch.ts';
 import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
 import { ChoiceMenu, type Choice } from './choice-menu.ts';
+import { buildDensity } from './density-folders.ts';
 import { buildHeatmap } from './heatmap-folders.ts';
 import { buildHierarchy } from './hierarchy-folders.ts';
 import { buildInstancer } from './instancer-folders.ts';
@@ -48,8 +50,11 @@ export interface LayersPanelDeps {
   sendPatch(ops: PatchOp[]): void;
   /** The current synced document, read at send time so layer indices are never stale. */
   getDoc(): SyncDoc | null;
-  /** Parsed column summary of a dataset, or null while it is still loading. */
-  summary(datasetId: string): DatasetSummary | null;
+  /**
+   * Parsed column summary of a dataset, or null while it is still loading. With a row filter,
+   * the summary of the rows it keeps (null when none). Stable per dataset and filter.
+   */
+  summary(datasetId: string, filter?: readonly RowFilter[]): DatasetSummary | null;
   showError(message: string): void;
   /** The user selected a layer in the panel. */
   select(layerId: string): void;
@@ -70,13 +75,14 @@ const TYPE_DESCRIPTIONS: Record<LayerType, string> = {
   surface: 'A 3D terrain whose height and colour come from the values.',
   reflector: 'A mirror floor or wall that reflects the other layers; needs no data.',
   qr: "A scannable code for a link, such as the dataset's source; needs no data.",
+  density: 'Every row counted into a smoothed grid by two columns, so huge scatters read as a field.',
 };
 
 const ADD_CHOICES: readonly Choice<AddChoice>[] = LAYER_TYPES.flatMap((t): Choice<AddChoice>[] => {
   const choice = { value: t, label: LAYER_TYPE_TITLES[t], description: TYPE_DESCRIPTIONS[t] };
   // A line layer preset after the plain line: monthly means (or means of 30 rows without a
   // time column), which reads as a line chart rather than a spike per row.
-  return t !== 'line' ? [choice] : [choice, { value: LINE_CHART, label: 'line chart (aggregated)', description: 'A line of monthly means (or of every 30 rows), smoother than one point per row.' }];
+  return t !== 'line' ? [choice] : [choice, { value: LINE_CHART, label: 'line chart (aggregated)', description: 'Monthly means (or every 30 rows) with an x axis, a value axis and gridlines.' }];
 });
 
 /** Appended to the label of a field whose parameter has a modulator. */
@@ -121,6 +127,12 @@ function shapeKey(layer: LayerConfig): string {
     case 'qr':
       // The text box or the dataset's link.
       return `qr:${layer.content}`;
+    case 'density':
+      // Dots mode shows its own fields; a z column shows bins deep.
+      return `density:${layer.mode}:${layer.zColumn !== null}`;
+    case 'line':
+      // A split lists a colour per value; a band shows its own fill fields.
+      return `line:${layer.split.column}:${layer.fill.mode}:${layer.aggregate.by}:${layer.y.column !== null}`;
     default:
       return layer.type;
   }
@@ -410,7 +422,11 @@ export class LayersPanel {
     const prev = entry.layer;
     if (!built && (layer !== prev || summary !== entry.summary)) {
       const rebuild =
-        entry.forceRebuild || summary !== entry.summary || layer.datasetId !== prev.datasetId || shapeKey(layer) !== shapeKey(prev);
+        entry.forceRebuild ||
+        summary !== entry.summary ||
+        layer.datasetId !== prev.datasetId ||
+        layer.filter !== prev.filter ||
+        shapeKey(layer) !== shapeKey(prev);
       if (rebuild || (external && !onlyTransformChanged(prev, layer))) {
         this.rebuildOne(doc, layer);
         this.parameters = doc.project.parameters;
@@ -474,7 +490,10 @@ export class LayersPanel {
   }
 
   private summaryFor(layer: LayerConfig): DatasetSummary | null {
-    return layer.datasetId === null ? null : this.deps.summary(layer.datasetId);
+    if (layer.datasetId === null) return null;
+    // A filter that keeps no rows falls back to the whole dataset, so the card keeps its column
+    // choices while the output flags the layer.
+    return this.deps.summary(layer.datasetId, layer.filter) ?? this.deps.summary(layer.datasetId);
   }
 
   private saveExpanded(entry: Entry): void {
@@ -595,9 +614,7 @@ export class LayersPanel {
     let n = layers.length + 1;
     while (names.has(`Layer ${n}`)) n++;
     let layer = defaultLayerOfType(type, id, `Layer ${n}`, dataset, summary);
-    if (chosen === LINE_CHART && layer.type === 'line') {
-      layer = { ...layer, aggregate: { by: layer.timeColumn ? 'month' : 'rows', rows: 30, fn: 'mean' } };
-    }
+    if (chosen === LINE_CHART && layer.type === 'line' && summary) layer = lineChartPreset(layer, summary);
     this.pendingSelect = id;
     this.deps.sendPatch([{ op: 'set', path: ['project', 'layers', layers.length], value: layer }]);
   }
@@ -656,7 +673,7 @@ export class LayersPanel {
   private fit(id: string): void {
     const cur = this.currentIndex(id);
     if (!cur) return;
-    const summary = cur.layer.datasetId === null ? null : this.deps.summary(cur.layer.datasetId);
+    const summary = this.summaryFor(cur.layer);
     const dataset = cur.doc.project.datasets.find((d) => d.id === cur.layer.datasetId);
     if (cur.layer.type !== 'text' && cur.layer.type !== 'reflector' && cur.layer.type !== 'qr' && (!summary || !dataset)) return;
     const fitted = fitAnyLayer(cur.layer, summary, dataset?.timeZone ?? 'UTC');
@@ -717,7 +734,7 @@ export class LayersPanel {
     let total = 0;
     for (const l of doc.project.layers) {
       if (!l.enabled || l.datasetId === null) continue;
-      total += instanceCount(l, this.deps.summary(l.datasetId)?.rowCount ?? 0);
+      total += instanceCount(l, this.deps.summary(l.datasetId, l.filter)?.rowCount ?? 0);
     }
     return total;
   }
@@ -741,6 +758,64 @@ export class LayersPanel {
     const back = general.addButton({ title: depth > 0 ? `Back (${depth})` : 'Back', label: '', disabled: depth === 0 });
     back.on('click', () => this.randomBack(id));
     back.element.title = 'The look before the last randomise (up to 10 back; forgotten when this window reloads)';
+  }
+
+  /**
+   * Third in a data layer's card, after Animate: which rows of the dataset the layer keeps
+   * (column is one of the ticked values; every condition must hold). Each edit sends the whole
+   * filter list; the echo changes the layer's summary, which rebuilds the card.
+   */
+  private addFilterFolder(entry: Entry, layer: LayerConfig): void {
+    const id = layer.id;
+    const full = layer.datasetId === null ? null : this.deps.summary(layer.datasetId);
+    const kept = layer.filter.length > 0 && layer.datasetId !== null ? this.deps.summary(layer.datasetId, layer.filter) : null;
+    const title =
+      layer.filter.length === 0 || !full ? 'Filter' : `Filter (${kept ? kept.rowCount : 0} of ${full.rowCount} rows)`;
+    const folder = this.folderIn(entry, entry.folder, title, `${id}/filter`, layer.filter.length > 0, 2);
+    if (!full) {
+      folder.addButton({ title: 'Waiting for data', label: 'filter', disabled: true });
+      return;
+    }
+    const choices = full.columns.filter((c) => c.values !== undefined && c.values.length > 0);
+    const sendFilter = (filter: RowFilter[]) => void this.send(id, [{ path: ['filter'], value: filter }]);
+    const filter = layer.filter;
+
+    filter.forEach((f, i) => {
+      const column = choices.find((c) => c.name === f.column);
+      const pick = { column: f.column };
+      const options = choices.map((c) => ({ text: c.name, value: c.name }));
+      if (!column) options.unshift({ text: `${f.column} (not in dataset)`, value: f.column });
+      folder
+        .addBinding(pick, 'column', { label: i === 0 ? 'keep rows where' : 'and where', options })
+        .on('change', (ev) => {
+          const values = choices.find((c) => c.name === ev.value)?.values ?? [];
+          sendFilter(filter.map((g, k) => (k === i ? { column: ev.value, values: values.slice(0, 1) } : g)));
+        });
+      const ticked = new Set(f.values);
+      for (const value of column?.values ?? []) {
+        const box = { on: ticked.has(value) };
+        folder.addBinding(box, 'on', { label: value === '' ? '(blank)' : value }).on('change', (ev) => {
+          const next = column!.values!.filter((v) => (v === value ? ev.value : ticked.has(v)));
+          sendFilter(filter.map((g, k) => (k === i ? { ...g, values: next } : g)));
+        });
+      }
+      const all = folder.addButton({ title: 'Tick all', label: '', disabled: !column });
+      all.on('click', () => sendFilter(filter.map((g, k) => (k === i ? { ...g, values: [...(column?.values ?? [])] } : g))));
+      const remove = folder.addButton({ title: 'Remove this filter', label: '' });
+      remove.on('click', () => sendFilter(filter.filter((_, k) => k !== i)));
+      folder.addBlade({ view: 'separator' });
+    });
+
+    const unused = choices.find((c) => !filter.some((f) => f.column === c.name)) ?? choices[0];
+    const add = folder.addButton({
+      title: choices.length === 0 ? 'Add filter (no category columns)' : 'Add filter',
+      label: filter.length === 0 ? 'filter' : '',
+      disabled: !unused || filter.length >= MAX_FILTERS,
+    });
+    add.element.title = 'Keep only the rows whose column holds the ticked values. Row ranges, aggregation and Fit then count the kept rows.';
+    add.on('click', () => {
+      if (unused) sendFilter([...filter, { column: unused.name, values: (unused.values ?? []).slice(0, 1) }]);
+    });
   }
 
   private folderIn(entry: Entry, parent: FolderApi, title: string, key: string, def: boolean, index?: number): FolderApi {
@@ -827,6 +902,9 @@ export class LayersPanel {
         case 'qr':
           buildQr(ui, layer, titleOf);
           break;
+        case 'density':
+          buildDensity(ui, layer, titleOf);
+          break;
       }
     });
     this.addRandomButtons(entry, ui);
@@ -836,6 +914,7 @@ export class LayersPanel {
     const animated = Object.keys(doc.project.parameters).some((p) => p.startsWith(layerParamPrefix(id)));
     const animateFolder = this.folderIn(entry, pane, 'Animate', `${id}/animate`, animated, 1);
     entry.animate = new AnimatePanel(animateFolder, id, { sendPatch: this.deps.sendPatch, getDoc: this.deps.getDoc, showError: this.deps.showError }, doc);
+    if (layer.datasetId !== null && layer.type !== 'qr' && layer.type !== 'reflector') this.addFilterFolder(entry, layer);
     if (animateFolder.children.length > 0) animateFolder.addBlade({ view: 'separator' });
     const timelineFolder = this.folderIn(entry, animateFolder, 'Timeline', `${id}/timeline`, false);
     const own = { value: layer.timeline.own };

@@ -191,7 +191,7 @@ export function buildInstanceData(
   }
 
   const channels: Partial<Record<ChannelName, ChannelData>> = {};
-  for (const name of ['y', 'z', 'height', 'size', 'rotation', 'opacity', 'colour'] as const) {
+  for (const name of ['x', 'y', 'z', 'height', 'size', 'rotation', 'opacity', 'colour'] as const) {
     const m = layer.channels[name];
     if (!m.column) continue;
     const c = column(table, m.column, `${name} channel`);

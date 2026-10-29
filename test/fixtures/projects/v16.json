@@ -1,0 +1,205 @@
+{
+  "version": 16,
+  "name": "su",
+  "datasets": [
+    {
+      "id": "ds-m3l9dg",
+      "file": "Over_time_sex (1) (2).csv",
+      "label": "Over_time_sex (1) (2)",
+      "timeZone": "Pacific/Auckland",
+      "source": "",
+      "url": "",
+      "attribution": ""
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-qmheq0gw",
+      "name": "Layer 1",
+      "enabled": true,
+      "datasetId": "ds-m3l9dg",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "line",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "origin": [
+        60,
+        540,
+        0
+      ],
+      "step": [
+        26.865671641791046,
+        0,
+        0
+      ],
+      "y": {
+        "column": "year",
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          -300,
+          300
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "z": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          0,
+          300
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "width": 2,
+      "colour": "#e8e8e8",
+      "colourMap": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "ramp": "viridis",
+        "reverse": false,
+        "steps": 5
+      },
+      "breakOnGaps": true,
+      "gapFactor": 1.5,
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "fill": {
+        "mode": "none",
+        "colour": "#000000",
+        "opacity": 1
+      },
+      "aggregate": {
+        "by": "none",
+        "rows": 30,
+        "fn": "mean"
+      }
+    }
+  ],
+  "parameters": {},
+  "timeline": {
+    "duration": 600,
+    "loop": true,
+    "playback": "forward",
+    "fadeIn": false,
+    "fadeOut": false,
+    "fadeLength": 1,
+    "gap": 0
+  },
+  "camera": {
+    "mode": "2d",
+    "fov": 45,
+    "yaw": 0,
+    "pitch": 0,
+    "distance": 1,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "projection": "perspective",
+    "dof": {
+      "enabled": false,
+      "focus": 0,
+      "depth": 200,
+      "amount": 12
+    }
+  },
+  "output": {
+    "background": "#000000"
+  },
+  "scenes": [],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}

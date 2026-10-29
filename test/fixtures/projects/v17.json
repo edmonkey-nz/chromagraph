@@ -1,0 +1,646 @@
+{
+  "version": 17,
+  "name": "su",
+  "datasets": [
+    {
+      "id": "ds-m3l9dg",
+      "file": "Over_time_sex (1) (2).csv",
+      "label": "Over_time_sex (1) (2)",
+      "timeZone": "Pacific/Auckland",
+      "source": "",
+      "url": "",
+      "attribution": ""
+    },
+    {
+      "id": "ds-vph9tb",
+      "file": "Over_time_sex (dashes blank).csv",
+      "label": "Over_time_sex (dashes blank)",
+      "timeZone": "Pacific/Auckland",
+      "source": "",
+      "url": "",
+      "attribution": ""
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-qmheq0gw",
+      "name": "Male",
+      "enabled": true,
+      "datasetId": "ds-vph9tb",
+      "filter": [
+        {
+          "column": "Sex",
+          "values": [
+            "Male"
+          ]
+        },
+        {
+          "column": "Data status",
+          "values": [
+            "Confirmed"
+          ]
+        }
+      ],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "line",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "origin": [
+        200,
+        200,
+        0
+      ],
+      "step": [
+        102.5,
+        0,
+        0
+      ],
+      "y": {
+        "column": "number",
+        "scale": "linear",
+        "domain": [
+          0,
+          500
+        ],
+        "range": [
+          0,
+          680
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "z": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          0,
+          300
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "width": 5,
+      "colour": "#7fd4ff",
+      "colourMap": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "ramp": "viridis",
+        "reverse": false,
+        "steps": 5
+      },
+      "breakOnGaps": true,
+      "gapFactor": 1.5,
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "fill": {
+        "mode": "none",
+        "colour": "#000000",
+        "opacity": 1
+      },
+      "aggregate": {
+        "by": "none",
+        "rows": 30,
+        "fn": "mean"
+      }
+    },
+    {
+      "id": "ly-axess8h6q",
+      "type": "instancer",
+      "name": "Axes and points",
+      "enabled": true,
+      "datasetId": "ds-vph9tb",
+      "filter": [
+        {
+          "column": "Sex",
+          "values": [
+            "Male"
+          ]
+        },
+        {
+          "column": "Data status",
+          "values": [
+            "Confirmed"
+          ]
+        }
+      ],
+      "primitive": "point",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "arrangement": "linear",
+      "origin": [
+        200,
+        200,
+        0
+      ],
+      "step": [
+        102.5,
+        0,
+        0
+      ],
+      "gridColumns": 100,
+      "cell": [
+        6,
+        6
+      ],
+      "radius": 100,
+      "angleStep": 1,
+      "radiusStep": 0.01,
+      "size": [
+        14,
+        14,
+        14
+      ],
+      "heightAxis": "y",
+      "colour": "#0a95db",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "labels": {
+        "enabled": false,
+        "every": "year",
+        "rows": 365,
+        "text": "date",
+        "column": null,
+        "size": 24,
+        "offset": 16,
+        "orientation": "along",
+        "colour": "#e8e8e8",
+        "hidePoints": false,
+        "font": "terminal",
+        "uppercase": false
+      },
+      "edges": {
+        "enabled": false,
+        "colour": "#ff3030",
+        "width": 2,
+        "faceOpacity": 1,
+        "glow": 0
+      },
+      "axes": {
+        "colour": "#15416c",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": true,
+        "span": "full",
+        "values": {
+          "enabled": true,
+          "column": null,
+          "place": "above",
+          "size": 26,
+          "colour": "#172eb5",
+          "gap": 14,
+          "decimals": -1,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": true,
+          "line": true,
+          "column": "year",
+          "every": 1,
+          "size": 26,
+          "colour": "#0c203d",
+          "angle": 0,
+          "gap": 14,
+          "title": "Year"
+        },
+        "y": {
+          "enabled": true,
+          "line": true,
+          "ticks": 5,
+          "grid": true,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 26,
+          "colour": "#144fa8",
+          "decimals": -1,
+          "suffix": "",
+          "title": "Number (male)"
+        }
+      },
+      "channels": {
+        "y": {
+          "column": "number",
+          "scale": "linear",
+          "domain": [
+            0,
+            500
+          ],
+          "range": [
+            0,
+            680
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "z": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "height": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            2,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "size": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.5,
+            2
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "rotation": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            360
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "opacity": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.1,
+            1
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "colour": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "ramp": "viridis",
+          "reverse": false,
+          "steps": 5
+        }
+      }
+    },
+    {
+      "id": "ly-rlqho67x",
+      "name": "Layer 3",
+      "enabled": true,
+      "datasetId": "ds-m3l9dg",
+      "filter": [
+        {
+          "column": "Sex",
+          "values": [
+            "Male"
+          ]
+        },
+        {
+          "column": "Data status",
+          "values": [
+            "Confirmed"
+          ]
+        }
+      ],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          330
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2,
+          2,
+          2
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": true,
+          "strength": 1,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "text",
+      "text": "{number}",
+      "row": 0,
+      "position": [
+        960,
+        540,
+        0
+      ],
+      "fontSize": 300,
+      "colour": "#f2f2f2",
+      "align": "center",
+      "anchorX": "center",
+      "anchorY": "middle",
+      "maxWidth": 1800,
+      "lineHeight": 1.25,
+      "letterSpacing": 0.05,
+      "outlineWidth": 0,
+      "outlineColour": "#000000",
+      "font": "terminal",
+      "uppercase": false
+    }
+  ],
+  "parameters": {
+    "layer.ly-qmheq0gw.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    },
+    "layer.ly-axess8h6q.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    },
+    "camera.yaw": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "saw",
+        "period": 240.00000000000006,
+        "phase": 0.5,
+        "amount": -180
+      }
+    },
+    "layer.ly-rlqho67x.row": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    }
+  },
+  "timeline": {
+    "duration": 60,
+    "loop": true,
+    "playback": "forward",
+    "fadeIn": false,
+    "fadeOut": false,
+    "fadeLength": 1,
+    "gap": 0
+  },
+  "camera": {
+    "mode": "3d",
+    "fov": 45,
+    "yaw": 0,
+    "pitch": 0,
+    "distance": 1,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "projection": "perspective",
+    "dof": {
+      "enabled": false,
+      "focus": 0,
+      "depth": 200,
+      "amount": 12
+    }
+  },
+  "output": {
+    "background": "#000000"
+  },
+  "scenes": [],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}
