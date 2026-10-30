@@ -77,6 +77,11 @@ export interface ParseIssue {
   /** 0-based data row (excluding header) when the issue is row-specific. */
   row?: number;
   column?: string;
+  /**
+   * A mostly-numeric column read as text: the texts that kept it from being numbers (a few,
+   * distinct), which the control window offers as "treat as missing" markers.
+   */
+  markers?: string[];
 }
 
 export interface ParseReport {

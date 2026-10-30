@@ -35,6 +35,7 @@ export const LAYER_TYPE_TITLES: Record<LayerType, string> = {
   reflector: 'reflection plane',
   qr: 'QR code',
   density: 'density map',
+  horizon: 'horizon chart',
 };
 
 /** Instances the output can draw at 60 fps across all layers on the target laptop. */
@@ -250,6 +251,13 @@ export function datasetSwitchChanges(layer: LayerConfig, datasetId: string | nul
       if (layer.xColumn !== null && !usable.has(layer.xColumn)) changes.push({ path: ['xColumn'], value: null }, { path: ['xDomain'], value: null });
       if (layer.yColumn !== null && !usable.has(layer.yColumn)) changes.push({ path: ['yColumn'], value: null }, { path: ['yDomain'], value: null });
       if (layer.zColumn !== null && !usable.has(layer.zColumn)) changes.push({ path: ['zColumn'], value: null }, { path: ['zDomain'], value: null });
+      return changes;
+    }
+    case 'horizon': {
+      if (layer.valueColumn !== null && !names.has(layer.valueColumn)) changes.push({ path: ['valueColumn'], value: null }, { path: ['domain'], value: null });
+      if (layer.seriesColumn !== null && !names.has(layer.seriesColumn)) changes.push({ path: ['seriesColumn'], value: null });
+      if (layer.timeColumn !== null && !timeNames.includes(layer.timeColumn)) changes.push({ path: ['timeColumn'], value: timeNames[0] ?? null });
+      if (layer.xMode === 'time' && timeNames.length === 0) changes.push({ path: ['xMode'], value: 'index' });
       return changes;
     }
     case 'instancer':

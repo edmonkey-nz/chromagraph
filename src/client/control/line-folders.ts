@@ -120,7 +120,12 @@ function buildLineAxes(ui: LayerUi, parent: FolderApi, layer: LineLayer): void {
     valuesHint: aggregated ? 'Each point’s combined value as text at it' : 'Each point’s value as text at it',
     valuesColumnHint: aggregated ? 'Aggregated lines always show the combined value' : 'What the labels say: the y value, or any other column',
     xNote: null,
-    yNote: layer.y.column === null ? 'Map y in Mapping to get a value axis.' : null,
+    yNote:
+      layer.y.column === null
+        ? 'Map y in Mapping to get a value axis.'
+        : layer.split.column !== null && layer.split.stack === 'stream'
+          ? 'A streamgraph has no value axis: only the thickness of each slice means anything.'
+          : null,
     valuesNote: layer.y.column === null ? 'Map y in Mapping first.' : null,
   });
 }
@@ -216,6 +221,18 @@ function buildSplit(ui: LayerUi, parent: FolderApi, layer: LineLayer): void {
   }).element.title = `Draw one line for each value of a category column, on shared axes (at most ${MAX_SPLIT}). Filter first to leave some out.`;
   const column = choices.find((c) => c.name === split.column);
   if (!column) return;
+  const st = { stack: split.stack };
+  f.addBinding(st, 'stack', {
+    label: 'stack',
+    options: [
+      { text: 'no (lines on shared axes)', value: 'none' },
+      { text: 'stacked area', value: 'stack' },
+      { text: 'streamgraph (centred)', value: 'stream' },
+    ],
+  }).on('change', (ev) => {
+    ui.entry.forceRebuild = ui.send([{ path: ['split', 'stack'], value: ev.value }]);
+  }).element.title =
+    'Stacked area: each series filled from the one below to its own top, in order. Streamgraph: the same pile centred on the baseline. Points stack only where every series has a value at the same time; elsewhere the pile breaks. Value labels show the top of each slice.';
 
   const values = column.values!;
   if (values.length > MAX_SPLIT) {

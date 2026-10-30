@@ -10,6 +10,8 @@ import { TableViewer } from './table-viewer.ts';
 
 interface Report {
   file: string;
+  /** The "treat as missing" markers it was parsed with, joined (a change parses again). */
+  missing: string;
   status: 'loading' | 'ok' | 'error';
   loaded?: LoadedFile;
   /** Built once when the parse finishes; its identity changes only when the file is reloaded. */
@@ -45,9 +47,16 @@ interface Card {
   head: HTMLElement;
   body: HTMLElement;
   credits: Record<CreditField, HTMLInputElement>;
+  /** The "treat as missing" markers, comma-separated. */
+  missing: HTMLInputElement;
   /** The row viewer, made the first time it is opened, and whether it is shown. */
   viewer: TableViewer | null;
   viewing: boolean;
+}
+
+/** Markers from a comma-separated box: trimmed, no blanks or repeats. */
+function markersOf(text: string): string[] {
+  return [...new Set(text.split(',').map((m) => m.trim()).filter((m) => m.length > 0))];
 }
 
 function timeZones(): string[] {
@@ -191,17 +200,17 @@ export class DatasetsPanel {
     for (const id of [...this.reports.keys()]) if (!ids.has(id)) this.reports.delete(id);
     for (const d of datasets) {
       const r = this.reports.get(d.id);
-      if (!r || r.file !== d.file) this.parse(d);
+      if (!r || r.file !== d.file || r.missing !== d.missing.join('\u0000')) this.parse(d);
     }
     this.render();
   }
 
   private parse(d: Dataset): void {
-    const report: Report = { file: d.file, status: 'loading' };
+    const report: Report = { file: d.file, missing: d.missing.join('\u0000'), status: 'loading' };
     this.reports.set(d.id, report);
     const project = this.projectName;
     this.loader
-      .load(dataUrl(project, d.file), d.file)
+      .load(dataUrl(project, d.file), d.file, undefined, d.missing)
       .then((loaded) => {
         if (this.reports.get(d.id) !== report) return;
         report.status = 'ok';
@@ -266,7 +275,9 @@ export class DatasetsPanel {
       credits[field] = this.creditInput(d.id, field, placeholder, hint);
       grid.append(h('label', { textContent: label, title: hint, htmlFor: credits[field].id }), credits[field]);
     }
-    const card: Card = { el: h('div', { className: 'dataset' }, head, grid, body), head, body, credits, viewer: null, viewing: false };
+    const missing = this.missingInput(d.id);
+    grid.append(h('label', { textContent: 'treat as missing', title: missing.title, htmlFor: missing.id }), missing);
+    const card: Card = { el: h('div', { className: 'dataset' }, head, grid, body), head, body, credits, missing, viewer: null, viewing: false };
     this.cards.set(d.id, card);
     return card;
   }
@@ -298,6 +309,50 @@ export class DatasetsPanel {
     return input;
   }
 
+  /**
+   * The "treat as missing" box: markers separated by commas ("NA, -, .."). Sends on change, like
+   * the credit boxes; the windows then parse the file again with them.
+   */
+  private missingInput(id: string): HTMLInputElement {
+    const input = h('input', {
+      type: 'text',
+      placeholder: 'NA, -, ..',
+      title:
+        'Cell texts that mean "no value" in this file, separated by commas, e.g. NA, -, .. Those cells are read as missing (gaps), so one "NA" no longer turns a number column into text. Empty cells are always missing; the file is not changed, and the report below counts what each one blanked.',
+      spellcheck: false,
+      id: `ds-missing-${id}`,
+    });
+    let sent = false;
+    const current = () => (this.datasets.find((d) => d.id === id)?.missing ?? []).join(', ');
+    input.addEventListener('focus', () => (sent = false));
+    input.addEventListener('change', () => {
+      sent = true;
+      this.sendMissing(id, markersOf(input.value));
+    });
+    input.addEventListener('blur', () => {
+      input.value = sent ? markersOf(input.value).join(', ') : current();
+    });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape') return;
+      input.value = current();
+      input.blur();
+    });
+    return input;
+  }
+
+  private sendMissing(id: string, markers: string[]): void {
+    const index = this.datasets.findIndex((d) => d.id === id);
+    const dataset = this.datasets[index];
+    if (!dataset) return;
+    if (markers.join('\u0000') === dataset.missing.join('\u0000')) return;
+    const check = DatasetSchema.shape.missing.safeParse(markers);
+    if (!check.success) {
+      this.showError(`"Treat as missing" for "${dataset.label}" was not saved: ${check.error.issues[0]?.message ?? 'invalid'} (at most 20 markers of up to 40 characters).`);
+      return;
+    }
+    this.sendPatch([{ op: 'set', path: ['project', 'datasets', index, 'missing'], value: markers }]);
+  }
+
   /** Validate and send one credit field; the dataset's index is looked up now, by id. */
   private sendCredit(id: string, field: CreditField, raw: string): void {
     const index = this.datasets.findIndex((d) => d.id === id);
@@ -320,6 +375,8 @@ export class DatasetsPanel {
       // Never overwrite the box being typed in; it sends its own value when left.
       if (document.activeElement !== input && input.value !== d[field]) input.value = d[field];
     }
+    const markers = d.missing.join(', ');
+    if (document.activeElement !== card.missing && card.missing.value !== markers) card.missing.value = markers;
     const report = this.reports.get(d.id);
     const path = (key: string) => ['project', 'datasets', index, key];
 
@@ -381,6 +438,14 @@ export class DatasetsPanel {
             { className: 'issues' },
             ...rep.issues.map((iss) => {
               const li = h('li', { className: iss.severity === 'error' ? 'error' : 'warn' }, iss.message);
+              // A mostly-numeric column read as text: offer its odd texts as missing markers.
+              const offer = (iss.markers ?? []).filter((m) => !d.missing.includes(m));
+              if (offer.length > 0) {
+                const label = offer.map((m) => `"${m}"`).join(', ');
+                const fix = h('button', { className: 'btn small', textContent: `Treat ${label} as missing`, title: 'Add to this dataset\u2019s "treat as missing" list, so the column reads as numbers with gaps there' });
+                fix.addEventListener('click', () => this.sendMissing(d.id, [...d.missing, ...offer]));
+                li.append(' ', fix);
+              }
               const row = iss.row;
               if (row !== undefined) {
                 const show = h('button', { className: 'link-btn', textContent: `show row ${row + 1}`, title: 'Open the rows and go to this one' });

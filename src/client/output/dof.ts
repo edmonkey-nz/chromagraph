@@ -17,7 +17,7 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { DOF_MIN_RAMP, focusDistance } from '../../shared/dof.ts';
-import type { Camera } from '../../shared/project-schema.ts';
+import type { OrbitCamera } from '../../shared/project-schema.ts';
 
 /*
  * Camera depth of field (DofSchema; maths and its tested twin in shared/dof.ts). It runs on
@@ -194,7 +194,7 @@ export class DepthOfField {
    * Blur `target` (its resolved colour and depth texture) in place for `cfg`'s depth of field
    * as seen by `camera` (the 3D camera the scene was drawn with). False when unavailable.
    */
-  apply(target: WebGLRenderTarget, camera: ThreeCamera, cfg: Camera, nowMs: number): boolean {
+  apply(target: WebGLRenderTarget, camera: ThreeCamera, cfg: OrbitCamera, nowMs: number): boolean {
     if (!target.depthTexture) return false;
     const res = this.ensure(nowMs);
     if (!res) return false;
@@ -223,7 +223,7 @@ export class DepthOfField {
   }
 
   /** The blur-radius uniforms of a prepare or composite pass; `amount` in that pass's pixels. */
-  private setCoc(m: ShaderMaterial, target: WebGLRenderTarget, camera: ThreeCamera, cfg: Camera, amount: number): void {
+  private setCoc(m: ShaderMaterial, target: WebGLRenderTarget, camera: ThreeCamera, cfg: OrbitCamera, amount: number): void {
     const lens = camera as PerspectiveCamera | ThreeOrthographicCamera;
     const u = m.uniforms;
     u.uDepth!.value = target.depthTexture;

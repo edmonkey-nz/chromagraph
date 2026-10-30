@@ -85,6 +85,7 @@ export function lineStructureKey(layer: LineLayer): string {
     layer.aggregate.by === 'none' ? null : [layer.aggregate.fn, layer.aggregate.by === 'rows' ? layer.aggregate.rows : null, layer.timeColumn],
     wantsBand(layer),
     layer.split.column,
+    layer.split.column === null ? 'none' : layer.split.stack,
   ]);
 }
 

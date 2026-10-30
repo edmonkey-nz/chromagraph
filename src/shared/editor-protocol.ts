@@ -1,5 +1,5 @@
 import type { LayerTransform } from './layer-schema.ts';
-import type { Camera } from './project-schema.ts';
+import type { OrbitCamera } from './project-schema.ts';
 
 /**
  * Messages between the control window and its embedded preview (`/output/?preview`) for
@@ -34,7 +34,7 @@ export type ControlToPreview = {
 export type PreviewToControl =
   | { t: 'ready' }
   | { t: 'transform'; layerId: string; transform: LayerTransform; final: boolean }
-  | { t: 'camera'; camera: Camera; final: boolean }
+  | { t: 'camera'; camera: OrbitCamera; final: boolean }
   | { t: 'select'; layerId: string | null };
 
 const TAG = 'chromagraph-editor';

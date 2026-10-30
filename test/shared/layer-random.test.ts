@@ -16,7 +16,7 @@ for (const c of parsed.table.columns) {
   if (c.type === 'time' && !c.empty) cadences[c.name] = detectCadence((c as TimeColumn).values);
 }
 const rain = summarise(parsed.table, cadences);
-const dataset: Dataset = { id: 'ds', label: 'rain', file: 'rain.csv', timeZone: 'Pacific/Auckland', source: '', url: '', attribution: '' };
+const dataset: Dataset = { id: 'ds', label: 'rain', file: 'rain.csv', timeZone: 'Pacific/Auckland', source: '', url: '', attribution: '', missing: [] };
 const TZ = 'Pacific/Auckland';
 
 /** Every column a layer refers to, by field path. */

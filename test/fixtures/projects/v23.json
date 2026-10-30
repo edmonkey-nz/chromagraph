@@ -1,0 +1,339 @@
+{
+  "version": 23,
+  "name": "ozone",
+  "datasets": [
+    {
+      "id": "ds-cd53w4",
+      "file": "atmospheric-ozone-state-1979-2022 (2).csv",
+      "label": "atmospheric-ozone-state-1979-2022 (2)",
+      "timeZone": "Pacific/Auckland",
+      "source": "This indicator measures the thickness of total column ozone in Dobson Units (DU) observed above Lauder, Otago, by day of year from 1979 to 2022.",
+      "url": "https://data.mfe.govt.nz/table/115311-atmospheric-ozone-state-1979-2022/",
+      "attribution": "MfE CC-BY4.0"
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-j77xp8eh",
+      "type": "instancer",
+      "name": "Layer 1",
+      "enabled": true,
+      "datasetId": "ds-cd53w4",
+      "filter": [],
+      "primitive": "box",
+      "xMode": "time",
+      "timeColumn": "date",
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "arrangement": "grid",
+      "origin": [
+        60,
+        140,
+        0
+      ],
+      "step": [
+        0.11106312087369655,
+        0,
+        0
+      ],
+      "gridColumns": 100,
+      "cell": [
+        6,
+        6
+      ],
+      "radius": 100,
+      "angleStep": 1,
+      "radiusStep": 0.01,
+      "size": [
+        2,
+        100,
+        2
+      ],
+      "heightAxis": "y",
+      "colour": "#e8e8e8",
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "labels": {
+        "enabled": false,
+        "every": "year",
+        "rows": 365,
+        "text": "date",
+        "column": null,
+        "size": 24,
+        "offset": 16,
+        "orientation": "along",
+        "colour": "#e8e8e8",
+        "hidePoints": false,
+        "font": "terminal",
+        "uppercase": false
+      },
+      "edges": {
+        "enabled": false,
+        "colour": "#ff3030",
+        "width": 2,
+        "faceOpacity": 1,
+        "glow": 0
+      },
+      "axes": {
+        "colour": "#9aa0a6",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": false,
+        "span": "full",
+        "values": {
+          "enabled": false,
+          "column": null,
+          "place": "above",
+          "size": 28,
+          "colour": "#e8e8e8",
+          "gap": 8,
+          "decimals": -1,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": false,
+          "line": true,
+          "column": null,
+          "every": 1,
+          "size": 24,
+          "colour": "#c8ccd2",
+          "angle": 0,
+          "gap": 10,
+          "title": ""
+        },
+        "y": {
+          "enabled": false,
+          "line": true,
+          "ticks": 5,
+          "grid": false,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 24,
+          "colour": "#c8ccd2",
+          "decimals": -1,
+          "suffix": "",
+          "title": ""
+        }
+      },
+      "channels": {
+        "x": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            1600
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "y": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "z": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "height": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            2,
+            800
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "size": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.5,
+            2
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "rotation": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            360
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "opacity": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.1,
+            1
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "colour": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "ramp": "viridis",
+          "reverse": false,
+          "steps": 5
+        }
+      }
+    }
+  ],
+  "parameters": {},
+  "timeline": {
+    "duration": 600,
+    "loop": true,
+    "playback": "forward",
+    "fadeIn": false,
+    "fadeOut": false,
+    "fadeLength": 1,
+    "gap": 0
+  },
+  "camera": {
+    "mode": "2d",
+    "fov": 45,
+    "yaw": 0,
+    "pitch": 0,
+    "distance": 1,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "projection": "perspective",
+    "dof": {
+      "enabled": false,
+      "focus": 0,
+      "depth": 200,
+      "amount": 12
+    },
+    "follow": {
+      "enabled": false,
+      "layerId": null,
+      "smoothing": 0.6,
+      "height": 0.5,
+      "lead": 0,
+      "loop": true,
+      "loopSeconds": 6,
+      "loopTurns": 1
+    }
+  },
+  "output": {
+    "background": "#000000"
+  },
+  "scenes": [],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}

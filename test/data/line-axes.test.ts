@@ -102,6 +102,14 @@ describe('line axes', () => {
     expect(out.segments.length).toBe(1);
   });
 
+  it('a streamgraph draws no value axis', () => {
+    const l = line({ split: { ...blankLineLayer('x', 'x', null).split, column: 's', stack: 'stream' } });
+    l.axes.y = { ...l.axes.y, enabled: true };
+    const series = splitSeries({ table, cadences, calendars }, 's').map((s) => ({ data: buildLineData(l, s.data.table, s.data.cadences, s.data.calendars), table: s.data.table }));
+    const out = layoutLineAxes({ layer: l, series, dates, timeZone: 'UTC' });
+    expect(out.texts.some((t) => t.key.startsWith('y:'))).toBe(false);
+  });
+
   it('the line chart preset aggregates, turns both axes on and fits with room for them', () => {
     const summary = summarise(table, cadences);
     const l = lineChartPreset({ ...line(), xMode: 'time', timeColumn: 'when', y: { ...line().y, domain: [0, 30] } }, summary);

@@ -9,6 +9,8 @@ export interface WorkerRequest {
   fileName: string;
   /** When set, calendar fields are derived for every time column in this zone. */
   timeZone?: string;
+  /** "Treat as missing" markers (DatasetSchema.missing). */
+  missing?: string[];
 }
 
 export type WorkerResponse =
@@ -55,7 +57,7 @@ export class DatasetLoader {
   private nextId = 1;
   private pending = new Map<number, Pending>();
 
-  load(url: string, fileName: string, timeZone?: string): Promise<LoadedFile> {
+  load(url: string, fileName: string, timeZone?: string, missing: readonly string[] = []): Promise<LoadedFile> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       const timer = window.setTimeout(() => {
@@ -70,6 +72,7 @@ export class DatasetLoader {
             url: new URL(url, location.href).href,
             fileName,
             ...(timeZone ? { timeZone } : {}),
+            ...(missing.length > 0 ? { missing: [...missing] } : {}),
           } satisfies WorkerRequest),
         )
         .catch((err: unknown) => this.settle(id, null, err instanceof Error ? err : new Error(String(err))));

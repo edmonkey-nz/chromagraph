@@ -23,6 +23,7 @@ import type { Cadence } from '../../../data/gaps.ts';
 import { resolveDomain, type ChannelData } from '../../../data/instance-data.ts';
 import {
   buildLineData,
+  lastVisiblePoint,
   lineCloneCount,
   lineTStart,
   POINT_STRIDE,
@@ -86,6 +87,8 @@ export interface LineInstance extends LayerInstance {
   apply(layer: LineLayer, cameraMode: '2d' | '3d'): void;
   /** Rows fractions the layer's animation reaches (axes span 'full'). */
   setRowsSpan?(lo: number, hi: number): void;
+  /** The newest visible point in the layer's own px space, into `out`; false with none (follow camera). */
+  followPoint?(out: number[]): boolean;
 }
 
 const TEX_WIDTH = 4096;
@@ -571,7 +574,9 @@ export function createLineFromData(layer: LineLayer, data: LineData, cameraMode:
   }
 
   const axes = axesFrom ? createLineAxes(root, [{ data, table: axesFrom.table }], axesFrom.timeZone) : null;
+  let shown = layer;
   const applyAll = (next: LineLayer, mode: '2d' | '3d'): void => {
+    shown = next;
     apply(next, mode);
     axes?.apply(next);
   };
@@ -581,6 +586,7 @@ export function createLineFromData(layer: LineLayer, data: LineData, cameraMode:
     object: root,
     apply: applyAll,
     setRowsSpan: (lo, hi) => axes?.setRowsSpan(lo, hi),
+    followPoint: (out) => lastVisiblePoint(data, shown, out),
     update(_ctx: FrameContext) {},
     dispose() {
       axes?.dispose();

@@ -54,7 +54,7 @@ for (const c of parsed.table.columns) {
 }
 const rain = summarise(parsed.table, cadences);
 const TZ = 'Pacific/Auckland';
-const dataset: Dataset = { id: 'ds-rain', file: '3384__Rain__daily.csv', label: 'Rainfall', timeZone: TZ, source: '', url: '', attribution: '' };
+const dataset: Dataset = { id: 'ds-rain', file: '3384__Rain__daily.csv', label: 'Rainfall', timeZone: TZ, source: '', url: '', attribution: '', missing: [] };
 
 const DAY = 86_400_000;
 

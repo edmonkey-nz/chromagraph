@@ -1,5 +1,5 @@
 import { FRAME_CENTRE, type LayerTransform } from './layer-schema.ts';
-import { defaultDof, type Camera } from './project-schema.ts';
+import { defaultDof, type OrbitCamera } from './project-schema.ts';
 
 /**
  * Pure maths for the preview's direct-manipulation editor (gizmo and orbit camera). Plain
@@ -42,7 +42,7 @@ export const ISOMETRIC_DEPTH = 40_000;
  * World-space eye and look-at point of a 3D camera config. Mirrors `Stage.setCamera`
  * exactly (a test checks the two agree).
  */
-export function orbitFromCamera(cfg: Camera): { position: V3; target: V3 } {
+export function orbitFromCamera(cfg: OrbitCamera): { position: V3; target: V3 } {
   const r = fitDistance(cfg.fov) * cfg.distance;
   const yaw = cfg.yaw * DEG;
   const pitch = cfg.pitch * DEG;
@@ -71,9 +71,9 @@ export function cameraFromOrbit(
   target: readonly number[],
   fov: number,
   refYaw = 0,
-  projection: Camera['projection'] = 'perspective',
-  dof: Camera['dof'] = defaultDof(),
-): Camera | null {
+  projection: OrbitCamera['projection'] = 'perspective',
+  dof: OrbitCamera['dof'] = defaultDof(),
+): OrbitCamera | null {
   const dx = (position[0] ?? 0) - (target[0] ?? 0);
   const dy = (position[1] ?? 0) - (target[1] ?? 0);
   const dz = (position[2] ?? 0) - (target[2] ?? 0);

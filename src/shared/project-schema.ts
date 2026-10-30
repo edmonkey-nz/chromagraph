@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 20;
+export const CURRENT_VERSION = 24;
 
 
 export const DatasetSchema = z.object({
@@ -29,6 +29,13 @@ export const DatasetSchema = z.object({
   source: z.string().max(500),
   url: z.string().max(2000),
   attribution: z.string().max(500),
+  /**
+   * Treat as missing (schema v24): cell texts that mean "no value" in this file, such as "NA",
+   * "-" or "..", matched exactly after trimming. Such cells parse as missing (NaN / null), so one
+   * "NA" no longer turns a number column into text. Empty cells are always missing. The parse
+   * report counts what each marker blanked; the file itself is never changed.
+   */
+  missing: z.array(z.string().min(1).max(40)).max(20),
 });
 
 /**
@@ -53,6 +60,35 @@ export function defaultDof(): Dof {
   return { enabled: false, focus: 0, depth: 200, amount: 12 };
 }
 
+/**
+ * Follow camera (schema v22): the 3D camera's look-at point rides on the newest visible point of
+ * a line layer (its last visible point, after the layer transform), so the line runs ahead of the
+ * camera as it plots, like a road. Yaw, pitch and distance still set where the eye sits relative
+ * to that point (Road view: behind it, low and close).
+ *   smoothing  seconds to catch up about two thirds of the way (0: locked on)
+ *   height     0..1: how much the look-at point rises and falls with the line (0: stays at the
+ *              camera target's height, a flat road; 1: follows every bump)
+ *   lead       px ahead of the point along x, so the newest point sits a little behind centre
+ *   loop       (schema v23) when the line starts again (its newest point jumps back, as a looping
+ *              reveal restarts), fly back over `loopSeconds` instead of snapping: the eye circles
+ *              the point `loopTurns` times, rising and pulling out midway, and lands on the line
+ */
+export const CameraFollowSchema = z.object({
+  enabled: z.boolean(),
+  layerId: z.string().nullable(),
+  smoothing: z.number().min(0).max(10),
+  height: z.number().min(0).max(1),
+  lead: z.number().min(-4000).max(4000),
+  loop: z.boolean(),
+  loopSeconds: z.number().min(1).max(60),
+  loopTurns: z.number().int().min(0).max(4),
+});
+export type CameraFollow = z.infer<typeof CameraFollowSchema>;
+
+export function defaultCameraFollow(): CameraFollow {
+  return { enabled: false, layerId: null, smoothing: 0.6, height: 0.5, lead: 0, loop: true, loopSeconds: 6, loopTurns: 1 };
+}
+
 export const CameraSchema = z.object({
   mode: z.enum(['2d', '3d']),
   /** Vertical field of view, degrees (3D). */
@@ -71,8 +107,11 @@ export const CameraSchema = z.object({
    */
   projection: z.enum(['perspective', 'isometric']),
   dof: DofSchema,
+  follow: CameraFollowSchema,
 });
 export type Camera = z.infer<typeof CameraSchema>;
+/** The camera as the stage, orbit editing and morphs see it: everything but follow (applied on top). */
+export type OrbitCamera = Omit<Camera, 'follow'>;
 
 
 export const EASINGS_MORPH = ['linear', 'smooth', 'ease-in', 'ease-out'] as const;
@@ -155,7 +194,7 @@ export function defaultProject(name: string): Project {
 }
 
 export function defaultCamera(): Camera {
-  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective', dof: defaultDof() };
+  return { mode: '2d', fov: 45, yaw: 0, pitch: 0, distance: 1, target: [0, 0, 0], projection: 'perspective', dof: defaultDof(), follow: defaultCameraFollow() };
 }
 
 type Migration = (input: Record<string, unknown>) => Record<string, unknown>;
@@ -257,6 +296,40 @@ export const migrations: Record<number, Migration> = {
       Array.isArray(layers) ? layers.map((l: Doc) => (l?.type === 'line' && l.axes === undefined ? { ...l, axes: defaultAxes() } : l)) : layers;
     const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
     return { ...doc, layers: withAxes(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withAxes(sc.layers) })) };
+  },
+  // v21: the horizon chart layer type; line splits get `stack` (off).
+  20: (doc) => {
+    const withStack = (layers: unknown): unknown =>
+      Array.isArray(layers)
+        ? layers.map((l: Doc) => {
+            const split = l?.split as Doc | undefined;
+            return l?.type === 'line' && split && split.stack === undefined ? { ...l, split: { ...split, stack: 'none' } } : l;
+          })
+        : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withStack(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withStack(sc.layers) })) };
+  },
+  // v22: the camera (and every scene's) gets a follow setting (off).
+  21: (doc) => {
+    const withFollow = (camera: unknown): unknown =>
+      camera && typeof camera === 'object' && (camera as Doc).follow === undefined ? { ...(camera as Doc), follow: defaultCameraFollow() } : camera;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, camera: withFollow(doc.camera), scenes: scenes.map((sc) => ({ ...sc, camera: withFollow(sc.camera) })) };
+  },
+  // v23: the follow camera gets its loop flight (on, 6 s, one turn, as new cameras).
+  22: (doc) => {
+    const withLoop = (camera: unknown): unknown => {
+      const c = camera as Doc | undefined;
+      const f = c?.follow as Doc | undefined;
+      return c && f && f.loop === undefined ? { ...c, follow: { ...f, loop: true, loopSeconds: 6, loopTurns: 1 } } : camera;
+    };
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, camera: withLoop(doc.camera), scenes: scenes.map((sc) => ({ ...sc, camera: withLoop(sc.camera) })) };
+  },
+  // v24: datasets get a "treat as missing" list (empty: only empty cells are missing, as before).
+  23: (doc) => {
+    const datasets = Array.isArray(doc.datasets) ? (doc.datasets as Doc[]) : doc.datasets;
+    return { ...doc, datasets: Array.isArray(datasets) ? datasets.map((d) => (d && d.missing === undefined ? { ...d, missing: [] } : d)) : datasets };
   },
   // v2: orbit camera replaces position/target; layers became typed (v1 never had any).
   1: (doc) => {

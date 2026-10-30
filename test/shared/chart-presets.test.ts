@@ -9,7 +9,7 @@ import type { Dataset } from '../../src/shared/project-schema.ts';
 const rows = Array.from({ length: 28 }, (_, i) => `"Jun-${String((98 + i) % 100).padStart(2, '0')}",${(16.2 - i * 0.3).toFixed(1)}`);
 const table = parseCsv(`"Quarter","Gender pay gap"\n${rows.join('\n')}\n`).table;
 const summary = summarise(table, {});
-const dataset: Dataset = { id: 'ds', label: 'pay gap', file: 'gap.csv', timeZone: 'Pacific/Auckland', source: '', url: '', attribution: '' };
+const dataset: Dataset = { id: 'ds', label: 'pay gap', file: 'gap.csv', timeZone: 'Pacific/Auckland', source: '', url: '', attribution: '', missing: [] };
 
 describe('bar chart preset', () => {
   it('labels the bars with the quarter column (text: a value per row)', () => {

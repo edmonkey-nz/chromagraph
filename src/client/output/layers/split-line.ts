@@ -2,7 +2,7 @@ import { DoubleSide, Group, MeshBasicMaterial } from 'three';
 import { Text } from 'troika-three-text';
 import type { ChannelData } from '../../../data/instance-data.ts';
 import { buildLineData, lastVisiblePoint, type LineData } from '../../../data/line-data.ts';
-import { splitSeries } from '../../../data/line-split.ts';
+import { splitSeries, stackSeries } from '../../../data/line-split.ts';
 import { seriesColour, type LineLayer } from '../../../shared/layer-schema.ts';
 import { displayText, fontUrl } from '../fonts.ts';
 import type { FrameContext } from './layer.ts';
@@ -15,6 +15,9 @@ import { createLineFromData, type LineInstance, type LineSource } from './line.t
  * layer's settings and its own colour. Every series' points are built first so they can share
  * one auto domain per channel; with the shared time origin and step from splitSeries, the
  * lines sit on one set of axes. A band takes its series' colour.
+ *
+ * Stacked ('stack' / 'stream', stackSeries): each series' points are the top of its slice and
+ * its band the slice, filled in the series colour (at 0.85 opacity unless a fill is set).
  *
  * Labels name each line at its last visible point (troika Text, laid out again only when the
  * text, font or size changes; moved every apply, without allocating, so they follow a
@@ -42,7 +45,10 @@ function shareDomain(lines: LineData[], channel: 'y' | 'z' | 'colour'): void {
 
 export function createSplitLine(layer: LineLayer, source: LineSource, cameraMode: '2d' | '3d'): LineInstance {
   const series = splitSeries({ table: source.table, cadences: source.cadences, calendars: source.calendars ?? {} }, layer.split.column!);
-  const data = series.map((s) => buildLineData(layer, s.data.table, s.data.cadences, s.data.calendars));
+  const built = series.map((s) => buildLineData(layer, s.data.table, s.data.cadences, s.data.calendars));
+  // Stacked: each series becomes its slice of the pile (points at its top, band from the one below).
+  const stacking = layer.split.stack !== 'none' && layer.y.column !== null;
+  const data = stacking ? stackSeries(built, layer.split.stack as 'stack' | 'stream') : built;
   shareDomain(data, 'y');
   shareDomain(data, 'z');
   shareDomain(data, 'colour');
@@ -72,7 +78,12 @@ export function createSplitLine(layer: LineLayer, source: LineSource, cameraMode
     // Never write into `next.fill` (the caller's config): each series has its own.
     c.fill = Object.assign(fills[i]!, next.fill);
     c.colour = colour;
-    if (next.fill.mode === 'band') c.fill.colour = colour;
+    if (stacking) {
+      // The slice is the fill: always on, in the series colour (fill opacity still applies).
+      c.fill.mode = 'band';
+      c.fill.colour = colour;
+      if (next.fill.mode === 'none') c.fill.opacity = 0.85;
+    } else if (next.fill.mode === 'band') c.fill.colour = colour;
     return c as LineLayer;
   };
 
@@ -140,6 +151,20 @@ export function createSplitLine(layer: LineLayer, source: LineSource, cameraMode
     object: root,
     apply,
     setRowsSpan: (lo, hi) => axes.setRowsSpan(lo, hi),
+    // The series furthest along (largest x) leads.
+    followPoint(out) {
+      let found = false;
+      for (let i = 0; i < data.length; i++) {
+        if (!lastVisiblePoint(data[i]!, configs[i]!, at)) continue;
+        if (!found || at[0]! > out[0]!) {
+          out[0] = at[0]!;
+          out[1] = at[1]!;
+          out[2] = at[2]!;
+        }
+        found = true;
+      }
+      return found;
+    },
     update(ctx: FrameContext) {
       for (const l of lines) l.update(ctx);
     },

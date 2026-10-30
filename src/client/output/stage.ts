@@ -29,7 +29,7 @@ import { invert, isConvexQuad, squareToQuad, type Quad } from '../../shared/homo
 import type { LayerEffects } from '../../shared/layer-schema.ts';
 import { isometricHalfSize, ISOMETRIC_DEPTH } from '../../shared/editor-maths.ts';
 import { dofShows } from '../../shared/dof.ts';
-import { defaultCamera, type Camera } from '../../shared/project-schema.ts';
+import { defaultCamera, type Camera, type OrbitCamera } from '../../shared/project-schema.ts';
 import { DepthOfField } from './dof.ts';
 import { PostEffects } from './effects.ts';
 import { LayerImages } from './layer-image.ts';
@@ -128,7 +128,11 @@ export class Stage {
    * What is on screen now (after modulation and morphs), kept so a scene morph can start
    * from it. Updated in place by setCamera; never replaced.
    */
-  readonly displayedCamera: Camera = defaultCamera();
+  readonly displayedCamera: OrbitCamera = defaultCamera();
+  /** World-space look-at point from the follow camera (replaces the camera's target), or null. */
+  private followAt: [number, number, number] | null = null;
+  /** Follow camera loop flight: degrees added to yaw and pitch, and a distance multiplier. */
+  private followView = { yaw: 0, pitch: 0, distanceScale: 1 };
 
   private target: WebGLRenderTarget;
   private warpScene = new Scene();
@@ -273,7 +277,29 @@ export class Stage {
     this.background.getRGB(out as Color, SRGBColorSpace);
   }
 
-  setCamera(cfg: Camera): void {
+  /**
+   * Follow camera: look at this world-space point instead of the camera's target (yaw, pitch and
+   * distance still place the eye), or null to stop. Re-poses the camera at once.
+   */
+  setFollow(at: readonly [number, number, number] | null, view?: { yaw: number; pitch: number; distanceScale: number }): void {
+    const v = this.followView;
+    v.yaw = view?.yaw ?? 0;
+    v.pitch = view?.pitch ?? 0;
+    v.distanceScale = view?.distanceScale ?? 1;
+    if (at === null) {
+      if (this.followAt === null) return;
+      this.followAt = null;
+    } else if (this.followAt) {
+      this.followAt[0] = at[0];
+      this.followAt[1] = at[1];
+      this.followAt[2] = at[2];
+    } else {
+      this.followAt = [at[0], at[1], at[2]];
+    }
+    this.setCamera(this.displayedCamera);
+  }
+
+  setCamera(cfg: OrbitCamera): void {
     // (Guarded: test/shared/editor-maths.test.ts calls this on a bare stand-in object.)
     const d = this.displayedCamera as Camera | undefined;
     if (d) {
@@ -300,12 +326,15 @@ export class Stage {
     // The eye orbits the target in both projections (the orthographic one at the distance the
     // perspective eye would be, so orbiting, picking and the gizmo behave alike).
     const fit = OUTPUT_HEIGHT / 2 / Math.tan((cfg.fov * Math.PI) / 360);
-    const r = fit * cfg.distance;
-    const yaw = (cfg.yaw * Math.PI) / 180;
-    const pitch = (cfg.pitch * Math.PI) / 180;
-    const tx = OUTPUT_WIDTH / 2 + cfg.target[0];
-    const ty = OUTPUT_HEIGHT / 2 + cfg.target[1];
-    const tz = cfg.target[2];
+    // A follow camera's loop flight turns, lifts and pulls the view out on top of the camera's own.
+    const fv = this.followAt ? this.followView : null;
+    const r = fit * cfg.distance * (fv ? fv.distanceScale : 1);
+    const yaw = ((cfg.yaw + (fv ? fv.yaw : 0)) * Math.PI) / 180;
+    const pitch = (Math.max(-89, Math.min(89, cfg.pitch + (fv ? fv.pitch : 0))) * Math.PI) / 180;
+    const f = this.followAt;
+    const tx = f ? f[0] : OUTPUT_WIDTH / 2 + cfg.target[0];
+    const ty = f ? f[1] : OUTPUT_HEIGHT / 2 + cfg.target[1];
+    const tz = f ? f[2] : cfg.target[2];
     cam.position.set(
       tx + r * Math.sin(yaw) * Math.cos(pitch),
       ty + r * Math.sin(pitch),

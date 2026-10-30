@@ -149,6 +149,17 @@ const DENSITY_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   jitter: { label: 'scatter', min: 0, max: 1, hardMin: 0, hardMax: 1 },
 };
 
+const HORIZON_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
+  rows: ROWS,
+  origin: ORIGIN,
+  size: [
+    { label: 'width', min: 10, max: 3840, hardMin: 1 },
+    { label: 'strip height', min: 4, max: 1080, hardMin: 1 },
+  ],
+  gap: { label: 'gap', min: 0, max: 200, hardMin: 0, hardMax: 500 },
+  baseline: { label: 'baseline', min: -1000, max: 1000 },
+};
+
 const MULTIPLES_FIELDS: Record<string, FieldSpec | FieldSpec[]> = {
   rows: ROWS,
   origin: ORIGIN,
@@ -326,6 +337,9 @@ function layerDefs(layer: LayerConfig): ParamDef[] {
       break;
     case 'qr':
       addFields(out, prefix, group, QR_FIELDS);
+      break;
+    case 'horizon':
+      addFields(out, prefix, group, HORIZON_FIELDS);
       break;
     case 'density':
       addFields(out, prefix, group, DENSITY_FIELDS);

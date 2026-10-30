@@ -12,7 +12,7 @@ import {
   type SnapLevel,
 } from '../../shared/editor-helpers.ts';
 import { unwrap, wrap, type ControlToPreview, type GizmoMode } from '../../shared/editor-protocol.ts';
-import type { Camera } from '../../shared/project-schema.ts';
+import type { OrbitCamera } from '../../shared/project-schema.ts';
 import type { LayerTransform } from '../../shared/layer-schema.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
@@ -53,7 +53,7 @@ export class EditMode {
   private modeButtons = new Map<GizmoMode, HTMLButtonElement>();
   private pendingLayer: string | null = null;
   private transforms = new LatestThrottle<{ layerId: string; transform: LayerTransform }>(SEND_INTERVAL_MS, (v) => this.sendTransform(v));
-  private cameras = new LatestThrottle<Camera>(SEND_INTERVAL_MS, (c) => this.sendCamera(c));
+  private cameras = new LatestThrottle<OrbitCamera>(SEND_INTERVAL_MS, (c) => this.sendCamera(c));
 
   constructor(
     private el: EditModeElements,
@@ -189,7 +189,7 @@ export class EditMode {
     if (ops) this.deps.sendPatch(ops);
   }
 
-  private sendCamera(camera: Camera): void {
+  private sendCamera(camera: OrbitCamera): void {
     const doc = this.deps.getDoc();
     const ops = doc ? cameraPatch(doc.project, camera) : null;
     if (ops) this.deps.sendPatch(ops);

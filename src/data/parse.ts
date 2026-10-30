@@ -64,7 +64,47 @@ function resolveNames(raw: string[], issues: ParseIssue[], blankReason: (i: numb
   return out;
 }
 
-function buildResult(names: string[], raws: (string | undefined)[][], rowCount: number, issues: ParseIssue[], raggedRows: number): ParseResult {
+/** Options for parsing a file (DatasetSchema): see `missing`. */
+export interface ParseOptions {
+  /**
+   * Cell texts that mean "no value" (matched exactly after trimming), read as missing before the
+   * column type is decided. Empty cells are always missing.
+   */
+  missing?: readonly string[];
+}
+
+/** Most rows listed in a "read as missing" note. */
+const MISSING_ROWS_LISTED = 5;
+
+/**
+ * Blank the cells of one column that hold a "treat as missing" marker, and note per marker how
+ * many there were (and the first rows), so the report shows exactly what was read as missing.
+ */
+function blankMarkers(name: string, raw: (string | undefined)[], markers: ReadonlySet<string>, issues: ParseIssue[]): void {
+  const found = new Map<string, number[]>();
+  for (let i = 0; i < raw.length; i++) {
+    const v = raw[i];
+    if (v === undefined || v.length === 0) continue;
+    const t = v.trim();
+    if (!markers.has(t)) continue;
+    raw[i] = '';
+    let rows = found.get(t);
+    if (!rows) found.set(t, (rows = []));
+    rows.push(i);
+  }
+  for (const [marker, rows] of found) {
+    issues.push({
+      severity: 'warning',
+      column: name,
+      row: rows[0],
+      message: `Column "${name}": ${rows.length} cell${rows.length === 1 ? '' : 's'} "${marker}" read as missing (row${rows.length === 1 ? '' : 's'} ${listRows(rows.slice(0, MISSING_ROWS_LISTED), rows.length)}).`,
+    });
+  }
+}
+
+function buildResult(names: string[], raws: (string | undefined)[][], rowCount: number, issues: ParseIssue[], raggedRows: number, options: ParseOptions = {}): ParseResult {
+  const markers = new Set((options.missing ?? []).map((m) => m.trim()).filter((m) => m.length > 0));
+  if (markers.size > 0) for (let j = 0; j < names.length; j++) blankMarkers(names[j]!, raws[j]!, markers, issues);
   const columns: Column[] = [];
   for (let j = 0; j < names.length; j++) {
     const { column, issues: colIssues } = inferColumn(names[j]!, j, raws[j]!);
@@ -80,15 +120,15 @@ function buildResult(names: string[], raws: (string | undefined)[][], rowCount: 
 // ---------------------------------------------------------------------------------------
 // CSV
 
-export function parseCsv(text: string): ParseResult {
+export function parseCsv(text: string, options: ParseOptions = {}): ParseResult {
   try {
-    return parseCsvInner(text);
+    return parseCsvInner(text, options);
   } catch (err) {
     return failure(`CSV could not be parsed: ${errorMessage(err)}`);
   }
 }
 
-function parseCsvInner(input: string): ParseResult {
+function parseCsvInner(input: string, options: ParseOptions): ParseResult {
   const text = stripBom(typeof input === 'string' ? input : '');
   if (text.trim().length === 0) return failure('The file is empty.');
 
@@ -197,7 +237,7 @@ function parseCsvInner(input: string): ParseResult {
     });
   }
 
-  return buildResult(names, raws, rowCount, issues, ragged);
+  return buildResult(names, raws, rowCount, issues, ragged, options);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -247,15 +287,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-export function parseJson(text: string): ParseResult {
+export function parseJson(text: string, options: ParseOptions = {}): ParseResult {
   try {
-    return parseJsonInner(text);
+    return parseJsonInner(text, options);
   } catch (err) {
     return failure(`JSON could not be parsed: ${errorMessage(err)}`);
   }
 }
 
-function parseJsonInner(input: string): ParseResult {
+function parseJsonInner(input: string, options: ParseOptions): ParseResult {
   const text = stripBom(typeof input === 'string' ? input : '');
   if (text.trim().length === 0) return failure('The file is empty.');
   let data: unknown;
@@ -264,12 +304,12 @@ function parseJsonInner(input: string): ParseResult {
   } catch (err) {
     return failure(`Invalid JSON: ${errorMessage(err)}`);
   }
-  if (Array.isArray(data)) return fromRecords(data);
-  if (isRecord(data)) return fromColumns(data);
+  if (Array.isArray(data)) return fromRecords(data, options);
+  if (isRecord(data)) return fromColumns(data, options);
   return failure('JSON must be an array of records or an object of column arrays.');
 }
 
-function fromRecords(data: unknown[]): ParseResult {
+function fromRecords(data: unknown[], options: ParseOptions): ParseResult {
   const issues: ParseIssue[] = [];
   const rowCount = data.length;
 
@@ -317,10 +357,10 @@ function fromRecords(data: unknown[]): ParseResult {
 
   const names = resolveNames(keys, issues, (i) => `Field ${i + 1} has an empty key`);
   reportNested(names, nestedCounts, issues);
-  return buildResult(names, raws, rowCount, issues, 0);
+  return buildResult(names, raws, rowCount, issues, 0, options);
 }
 
-function fromColumns(data: Record<string, unknown>): ParseResult {
+function fromColumns(data: Record<string, unknown>, options: ParseOptions): ParseResult {
   const issues: ParseIssue[] = [];
   const keys: string[] = [];
   const arrays: unknown[][] = [];
@@ -368,15 +408,15 @@ function fromColumns(data: Record<string, unknown>): ParseResult {
     raws.push(out);
   }
   reportNested(names, nestedCounts, issues);
-  return buildResult(names, raws, rowCount, issues, 0);
+  return buildResult(names, raws, rowCount, issues, 0, options);
 }
 
 // ---------------------------------------------------------------------------------------
 
 /** Parse by file extension: `.json` as JSON, anything else as CSV. */
-export function parseText(text: string, fileName: string): ParseResult {
+export function parseText(text: string, fileName: string, options: ParseOptions = {}): ParseResult {
   try {
-    return /\.json$/i.test(String(fileName)) ? parseJson(text) : parseCsv(text);
+    return /\.json$/i.test(String(fileName)) ? parseJson(text, options) : parseCsv(text, options);
   } catch (err) {
     return failure(`File could not be parsed: ${errorMessage(err)}`);
   }

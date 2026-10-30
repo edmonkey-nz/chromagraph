@@ -12,6 +12,7 @@ import type { Dataset, SyncDoc } from '../../shared/project-schema.ts';
 import { ChoiceMenu, type Choice } from './choice-menu.ts';
 import { buildDensity } from './density-folders.ts';
 import { buildHeatmap } from './heatmap-folders.ts';
+import { buildHorizon } from './horizon-folders.ts';
 import { buildHierarchy } from './hierarchy-folders.ts';
 import { buildInstancer } from './instancer-folders.ts';
 import type { Entry, Labelled, LayerUi } from './layer-ui.ts';
@@ -76,6 +77,7 @@ const TYPE_DESCRIPTIONS: Record<LayerType, string> = {
   reflector: 'A mirror floor or wall that reflects the other layers; needs no data.',
   qr: "A scannable code for a link, such as the dataset's source; needs no data.",
   density: 'Every row counted into a smoothed grid by two columns, so huge scatters read as a field.',
+  horizon: 'A long series folded into colour bands, so decades fit a thin strip; one strip per series.',
 };
 
 const ADD_CHOICES: readonly Choice<AddChoice>[] = LAYER_TYPES.flatMap((t): Choice<AddChoice>[] => {
@@ -127,6 +129,9 @@ function shapeKey(layer: LayerConfig): string {
     case 'qr':
       // The text box or the dataset's link.
       return `qr:${layer.content}`;
+    case 'horizon':
+      // The range field shows only when it is set by hand; strips change the label list.
+      return `horizon:${layer.domain === null}:${layer.seriesColumn}`;
     case 'density':
       // Dots mode shows its own fields; a z column shows bins deep.
       return `density:${layer.mode}:${layer.zColumn !== null}`;
@@ -904,6 +909,9 @@ export class LayersPanel {
           break;
         case 'density':
           buildDensity(ui, layer, titleOf);
+          break;
+        case 'horizon':
+          buildHorizon(ui, layer, titleOf);
           break;
       }
     });

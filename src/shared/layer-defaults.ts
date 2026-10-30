@@ -13,6 +13,7 @@
 import type { ColumnType, Table } from '../data/columns.ts';
 import {
   blankDensityLayer,
+  blankHorizonLayer,
   blankHeatmapLayer,
   blankHierarchyLayer,
   blankInstancerLayer,
@@ -24,6 +25,7 @@ import {
   blankTextLayer,
   unmapped,
   type DensityLayer,
+  type HorizonLayer,
   type HeatmapLayer,
   type HierarchyLayer,
   type HierarchyLevel,
@@ -810,6 +812,7 @@ export function defaultLayerOfType(
     if (type === 'line') return blankLineLayer(id, name, datasetId);
     if (type === 'heatmap') return blankHeatmapLayer(id, name, datasetId);
     if (type === 'density') return blankDensityLayer(id, name, datasetId);
+    if (type === 'horizon') return blankHorizonLayer(id, name, datasetId);
     if (type === 'multiples') return blankMultiplesLayer(id, name, datasetId);
     if (type === 'hierarchy') return blankHierarchyLayer(id, name, datasetId);
     if (type === 'surface') return blankSurfaceLayer(id, name, datasetId);
@@ -821,6 +824,7 @@ export function defaultLayerOfType(
   if (type === 'line') return defaultLineLayerFor(id, name, dataset, summary);
   if (type === 'heatmap') return defaultHeatmapLayerFor(id, name, dataset, summary);
   if (type === 'density') return defaultDensityLayerFor(id, name, dataset, summary);
+  if (type === 'horizon') return defaultHorizonLayerFor(id, name, dataset, summary);
   return defaultLayerFor(id, name, dataset, summary);
 }
 
@@ -848,7 +852,41 @@ export function fitAnyLayer(layer: LayerConfig, summary: DatasetSummary | null, 
       return fitSurfaceLayer(layer, summary, timeZone);
     case 'density':
       return fitDensityLayer(layer, summary);
+    case 'horizon':
+      return fitHorizonLayer(layer, summary);
   }
+}
+
+/** px left of a horizon chart's strips (room for the series names) and the tallest strip. */
+const HORIZON_LEFT = 260;
+const HORIZON_MAX_STRIP = 160;
+
+/**
+ * Horizon chart fit: strips from the top margin down, as tall as fit the frame (at most
+ * HORIZON_MAX_STRIP px each), from HORIZON_LEFT to the right margin. Picks a value column when
+ * none is set, and the time mode when there is a time column.
+ */
+export function fitHorizonLayer(layer: HorizonLayer, summary: DatasetSummary): HorizonLayer {
+  const out = structuredClone(layer);
+  if (out.valueColumn === null || !summary.columns.some((c) => c.name === out.valueColumn && c.type === 'number')) {
+    out.valueColumn = firstVaryingNumber(summary)?.name ?? null;
+  }
+  const times = timeColumns(summary);
+  if (out.timeColumn === null || !times.some((c) => c.name === out.timeColumn)) out.timeColumn = times[0]?.name ?? null;
+  if (out.xMode === 'time' && out.timeColumn === null) out.xMode = 'index';
+  const strips = out.seriesColumn === null ? 1 : Math.max(1, summary.columns.find((c) => c.name === out.seriesColumn)?.values?.length ?? 1);
+  const usable = FRAME_H - 2 * MARGIN;
+  out.gap = strips > 1 ? Math.min(out.gap, 24) : out.gap;
+  const h = Math.max(8, Math.min(HORIZON_MAX_STRIP, (usable - (strips - 1) * out.gap) / strips));
+  out.origin = [HORIZON_LEFT, FRAME_H - MARGIN, 0];
+  out.size = [FRAME_W - HORIZON_LEFT - MARGIN, Math.round(h)];
+  return out;
+}
+
+export function defaultHorizonLayerFor(id: string, name: string, dataset: Dataset, summary: DatasetSummary): HorizonLayer {
+  const layer = blankHorizonLayer(id, name, dataset.id);
+  layer.xMode = timeColumns(summary).length > 0 ? 'time' : 'index';
+  return fitHorizonLayer(layer, summary);
 }
 
 /** px between a density map and the frame edge (room for axes or a title). */

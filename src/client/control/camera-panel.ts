@@ -10,10 +10,11 @@ import {
   SPEED_STEP,
   type CameraMotion,
 } from '../../shared/camera-motion.ts';
+import { followPathOps, ROAD_VIEW } from '../../shared/camera-follow.ts';
 import { formatClock } from '../../shared/modulation-helpers.ts';
 import { clockMs, seekClock, setClockPlaying, wallMs, type Clock } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
-import { defaultCamera, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
+import { defaultCamera, type Camera, type CameraFollow, type SyncDoc } from '../../shared/project-schema.ts';
 import { SCRUB_INTERVAL_MS } from './timeline-panel.ts';
 
 /**
@@ -73,6 +74,11 @@ export class CameraPanel {
   private speedApi: BladeApi;
   private doc: SyncDoc | null = null;
   private dof = { enabled: false, focus: 0, depth: 200, amount: 12 };
+  private follow = { enabled: false, layerId: '', smoothing: 0.6, height: 0.5, lead: 0, loop: true, loopSeconds: 6, loopTurns: 1 };
+  private followFolder: FolderApi;
+  /** The "line" list, rebuilt when the line layers (ids or names) change. */
+  private followLayerApi: BladeApi | null = null;
+  private followLayersKey = '';
   /** The camera clock: the synced one, or the one we just sent (until it echoes). */
   private clock: Clock | null = null;
   private seenClock: Clock | null = null;
@@ -218,9 +224,103 @@ export class CameraPanel {
     dofFolder.addButton({ title: 'Focus on target' }).on('click', () => setDof('focus', 0)).element.title =
       'Put the sharp plane through the camera target (the point it orbits)';
 
+    // ---- follow camera ----
+    this.followFolder = root.addFolder({ title: 'Follow', expanded: false });
+    const follow = this.follow;
+    const ff = this.followFolder;
+    ff.addBinding(follow, 'enabled', { label: 'on' }).on('change', (ev) => this.setFollow({ enabled: ev.value })).element.title =
+      '3D camera only. The camera looks at the newest visible point of a line and moves with it as the line plots, following its path. Yaw, pitch and distance set where the eye sits relative to it.';
+    ff.addBinding(follow, 'smoothing', { label: 'smoothing (s)', min: 0, max: 5, step: 0.05 }).on('change', (ev) => this.setFollow({ smoothing: ev.value })).element.title =
+      'Seconds to catch up about two thirds of the way; 0 locks on';
+    ff.addBinding(follow, 'height', { label: 'follow height', min: 0, max: 1, step: 0.01 }).on('change', (ev) => this.setFollow({ height: ev.value })).element.title =
+      '0: the camera stays level (a flat road, the line rises and falls in view). 1: it rides every bump';
+    ff.addBinding(follow, 'lead', { label: 'look ahead (px)', min: -1000, max: 1000, step: 1 }).on('change', (ev) => this.setFollow({ lead: ev.value })).element.title =
+      'Look this far ahead of the newest point along x, so it sits a little behind centre';
+    ff.addBinding(follow, 'loop', { label: 'loop flight' }).on('change', (ev) => this.setFollow({ loop: ev.value })).element.title =
+      'When the line starts again (a looping reveal restarts), fly back to the start instead of jumping: circling, rising and pulling out midway, then landing on the line';
+    ff.addBinding(follow, 'loopSeconds', { label: 'flight (s)', min: 1, max: 30, step: 0.5 }).on('change', (ev) => this.setFollow({ loopSeconds: ev.value })).element.title =
+      'How long the flight back to the start takes';
+    ff.addBinding(follow, 'loopTurns', { label: 'turns', min: 0, max: 4, step: 1 }).on('change', (ev) => this.setFollow({ loopTurns: Math.round(ev.value) })).element.title =
+      'Circles around the line during the flight (0: straight back, rising and pulling out)';
+    ff.addButton({ title: 'Road view' }).on('click', () => this.roadView()).element.title =
+      'Follow on, 3D perspective, eye behind the newest point and a little to the side (yaw −70°), above (pitch 14°) and close (distance 0.35). Give the line a reveal (Animate → build up) so it plots.';
+    ff.addButton({ title: 'Follow path' }).on('click', () => this.followPath()).element.title =
+      'Show the path ahead: the chosen line (or the first) becomes the whole path, dimmed; a copy on top builds up over the timeline; the camera follows the copy (in Road view if it was 2D).';
+
     root.element.addEventListener('pointerdown', () => (this.dragging = true));
     window.addEventListener('pointerup', () => (this.dragging = false));
     window.addEventListener('pointercancel', () => (this.dragging = false));
+  }
+
+  private setFollow(change: Partial<CameraFollow>): void {
+    if (this.quietDepth > 0) return;
+    const ops: PatchOp[] = Object.entries(change).map(([field, value]) => ({ op: 'set', path: ['project', 'camera', 'follow', field], value }));
+    // Moving a setting while off switches it on, as the other camera folders do.
+    if (change.enabled === undefined && !this.follow.enabled && this.follow.layerId !== '') {
+      ops.push({ op: 'set', path: ['project', 'camera', 'follow', 'enabled'], value: true });
+    }
+    this.sendPatch(ops);
+  }
+
+  /** Follow the chosen line (else the first line layer) from behind, low and close, in 3D. */
+  private roadView(): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const lines = doc.project.layers.filter((l) => l.type === 'line');
+    const layerId = (this.follow.layerId !== '' && lines.some((l) => l.id === this.follow.layerId) ? this.follow.layerId : lines[0]?.id) ?? null;
+    const set = (path: (string | number)[], value: unknown): PatchOp => ({ op: 'set', path: ['project', 'camera', ...path], value });
+    this.sendPatch([
+      set(['mode'], '3d'),
+      set(['projection'], 'perspective'),
+      set(['yaw'], ROAD_VIEW.yaw),
+      set(['pitch'], ROAD_VIEW.pitch),
+      set(['distance'], ROAD_VIEW.distance),
+      set(['follow', 'layerId'], layerId),
+      set(['follow', 'enabled'], layerId !== null),
+    ]);
+  }
+
+  /** Set the chosen line (else the first line layer) up as a follow path (see followPathOps). */
+  private followPath(): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const lines = doc.project.layers.filter((l) => l.type === 'line');
+    const chosen = lines.find((l) => l.id === this.follow.layerId) ?? lines[0];
+    if (!chosen) return;
+    // A copy of a copy: start from its original path if it was set up before.
+    const source = chosen.name.endsWith(' · follow path') ? (lines.find((l) => l.name === chosen.name.slice(0, -' · follow path'.length)) ?? chosen) : chosen;
+    // Already set up: just follow its copy.
+    const existing = lines.find((l) => l.name === `${source.name} · follow path`);
+    if (existing) {
+      this.sendPatch([
+        { op: 'set', path: ['project', 'camera', 'follow', 'layerId'], value: existing.id },
+        { op: 'set', path: ['project', 'camera', 'follow', 'enabled'], value: true },
+      ]);
+      return;
+    }
+    const ids = new Set(doc.project.layers.map((l) => l.id));
+    let id = '';
+    do id = `ly-${Math.random().toString(36).slice(2, 10)}`;
+    while (ids.has(id));
+    const ops = followPathOps(doc.project, source.id, id);
+    if (ops.length > 0) this.sendPatch(ops);
+  }
+
+  /** (Re)build the "line" list when the line layers change. */
+  private renderFollowLayers(doc: SyncDoc): void {
+    const lines = doc.project.layers.filter((l) => l.type === 'line');
+    const key = JSON.stringify(lines.map((l) => [l.id, l.name]));
+    if (key === this.followLayersKey && this.followLayerApi) return;
+    this.followLayersKey = key;
+    this.followLayerApi?.dispose();
+    const options = [{ text: lines.length ? '(choose a line)' : '(no line layers)', value: '' }, ...lines.map((l) => ({ text: l.name, value: l.id }))];
+    const current = doc.project.camera.follow.layerId;
+    if (current !== null && !lines.some((l) => l.id === current)) options.push({ text: '(deleted layer)', value: current });
+    this.quiet(() => {
+      this.followLayerApi = this.followFolder.addBinding(this.follow, 'layerId', { label: 'line', options, index: 1 });
+    });
+    (this.followLayerApi as BladeApi & { on(ev: 'change', fn: (e: { value: string }) => void): void }).on('change', (ev) => this.setFollow({ layerId: ev.value === '' ? null : ev.value }));
+    this.followLayerApi!.element.title = 'The line layer whose newest point the camera follows';
   }
 
   private sendMotion(preset: CameraMotion, speed: number): void {
@@ -333,6 +433,7 @@ export class CameraPanel {
       this.playButton.title = this.clock.playing ? 'Pause' : 'Play';
     }
     const c = doc.project.camera;
+    this.renderFollowLayers(doc);
     if (doc.project.parameters !== this.seenParams) {
       this.seenParams = doc.project.parameters;
       const p = doc.project.parameters;
@@ -364,6 +465,7 @@ export class CameraPanel {
     this.distanceLog.distance = Math.log10(c.distance);
     this.cam.target = { x: c.target[0], y: c.target[1], z: c.target[2] };
     Object.assign(this.dof, c.dof);
+    Object.assign(this.follow, { ...c.follow, layerId: c.follow.layerId ?? '' });
     this.quietDepth++;
     try {
       this.root.refresh();

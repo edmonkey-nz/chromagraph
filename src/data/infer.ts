@@ -172,13 +172,16 @@ function mostlyWarning(
   finalType: string,
 ): ParseIssue {
   const noun = kind === 'numeric' ? 'numbers' : 'ISO-8601 times';
-  return {
+  const issue: ParseIssue = {
     severity: 'warning',
     column: name,
     message:
       `Column "${name}" is mostly ${kind} but ${bad} of ${nonMissing} values are not ${noun} ` +
       `(e.g. ${describeExamples(examples)}), so it was read as ${finalType}. No values were converted.`,
   };
+  if (examples[0]) issue.row = examples[0].row;
+  if (kind === 'numeric') issue.markers = [...new Set(examples.map((e) => e.value.trim()))].filter((v) => v.length > 0 && v.length <= 40);
+  return issue;
 }
 
 /** Infer the type of one column from its raw string values. Never throws. */

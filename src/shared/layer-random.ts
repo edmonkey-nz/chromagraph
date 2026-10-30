@@ -15,6 +15,7 @@ import {
   identityCloner,
   type ColourRamp,
   type DensityLayer,
+  type HorizonLayer,
   type HeatmapLayer,
   type HierarchyLayer,
   type InstancerLayer,
@@ -389,6 +390,18 @@ function density(layer: DensityLayer, ctx: Ctx): DensityLayer {
   return out;
 }
 
+function horizon(layer: HorizonLayer, ctx: Ctx): HorizonLayer {
+  const { rng } = ctx;
+  const out = structuredClone(layer);
+  out.valueColumn = valueColumn(ctx, out.valueColumn);
+  out.bands = Math.round(between(rng, 2, 6));
+  out.colour = accent(ctx);
+  out.negativeColour = accent(ctx);
+  out.domain = null;
+  if (ctx.scope === 'all') out.fn = pick(rng, ['mean', 'max', 'sum'] as const);
+  return out;
+}
+
 function text(layer: TextLayer, ctx: Ctx): TextLayer {
   const { rng } = ctx;
   const out = structuredClone(layer);
@@ -572,6 +585,9 @@ export function randomiseLayer(
       break;
     case 'density':
       out = density(plain, ctx);
+      break;
+    case 'horizon':
+      out = horizon(plain, ctx);
       break;
   }
 

@@ -1,4 +1,5 @@
 import { Pane } from 'tweakpane';
+import { gpuInfo, type GpuKind } from '../../shared/gpu-name.ts';
 import { wallMs } from '../../shared/modulators.ts';
 import type { PatchOp } from '../../shared/patch.ts';
 import type { SyncDoc } from '../../shared/project-schema.ts';
@@ -54,6 +55,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const el = {
   conn: $('conn'),
   outPill: $('out-pill'),
+  gpuPill: $('gpu-pill'),
   banners: $('banners'),
   outputsBody: $('outputs-body'),
   problems: $('problems'),
@@ -432,6 +434,52 @@ function setPill(node: HTMLElement, cls: 'ok' | 'warn' | 'err' | '', text: strin
   node.textContent = text;
 }
 
+/** This window's own WebGL renderer (the preview's GPU), read once; '' when WebGL is unavailable. */
+let ownRenderer: string | null = null;
+function readOwnRenderer(): string {
+  if (ownRenderer !== null) return ownRenderer;
+  ownRenderer = '';
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (gl) {
+      const info = gl.getExtension('WEBGL_debug_renderer_info');
+      ownRenderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch {
+    // No WebGL here: the pill says so.
+  }
+  return ownRenderer;
+}
+
+const GPU_PILL: Record<GpuKind, 'ok' | 'warn' | 'err' | ''> = { nvidia: 'ok', other: 'warn', software: 'err', unknown: '' };
+const GPU_HINT: Record<GpuKind, string> = {
+  nvidia: 'the NVIDIA GPU',
+  other: 'not the NVIDIA GPU: use Output → On projector, which starts Chrome on it',
+  software: 'software rendering, no GPU: slow; use Output → On projector',
+  unknown: 'unknown',
+};
+
+/**
+ * The header's GPU pill: the GPU each output window renders on (the worst one if they differ),
+ * or, with no output open, this window's own (the preview's), marked "preview".
+ */
+function renderGpuPill(): void {
+  const rank: Record<GpuKind, number> = { software: 3, other: 2, unknown: 1, nvidia: 0 };
+  const list = [...outputs.values()].map((s) => ({ renderer: s.renderer, ...gpuInfo(s.renderer) }));
+  if (list.length === 0) {
+    const own = readOwnRenderer();
+    const g = gpuInfo(own);
+    setPill(el.gpuPill, GPU_PILL[g.kind], `GPU · preview · ${g.name}`);
+    el.gpuPill.title = `No output window open. This window (the preview) renders on: ${own || 'no WebGL'} (${GPU_HINT[g.kind]})`;
+    return;
+  }
+  const worst = list.reduce((a, b) => (rank[b.kind] > rank[a.kind] ? b : a));
+  const names = [...new Set(list.map((g) => g.name))];
+  setPill(el.gpuPill, GPU_PILL[worst.kind], `GPU · ${names.join(' / ')}`);
+  el.gpuPill.title = list.map((g, i) => `Output ${i + 1}: ${g.renderer} (${GPU_HINT[g.kind]})`).join('\n');
+}
+
 function renderConnection(s: ConnectionState): void {
   if (s === 'open') setPill(el.conn, 'ok', 'Server');
   else if (s === 'connecting') setPill(el.conn, 'warn', 'Server connecting…');
@@ -464,6 +512,7 @@ function renderOutputs(): void {
     el.outputsBody.className = '';
     el.outputsBody.replaceChildren(table);
   }
+  renderGpuPill();
   renderBanners();
 }
 

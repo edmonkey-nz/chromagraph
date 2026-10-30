@@ -220,8 +220,10 @@ export class Hub {
         if (msg.name === this.projectName) return;
         this.keepLastProject = null;
         await this.flushSave();
-        if (await this.tryOpen(msg.name)) this.broadcastFull();
-        else this.send(client, { t: 'error', message: `could not open "${msg.name}"` });
+        if (await this.tryOpen(msg.name)) {
+          this.restartPlayheads();
+          this.broadcastFull();
+        } else this.send(client, { t: 'error', message: `could not open "${msg.name}"` });
         await this.broadcastProjects();
         await this.broadcastSnapshots();
         return;
@@ -306,6 +308,7 @@ export class Hub {
           this.keepLastProject = null;
           await this.flushSave();
           this.setProject(msg.name, project);
+          this.restartPlayheads();
           await this.writeServerState();
           this.log.info(`created project "${msg.name}"`);
           this.broadcastFull();
@@ -373,6 +376,28 @@ export class Hub {
       this.problems.push({ project: name, message });
       return false;
     }
+  }
+
+  /**
+   * A project chosen from the list (or a new one) starts from the beginning: the project
+   * timeline at phase 0, every layer timeline and the camera clock at 0 (each keeps playing or
+   * paused as it was), and no scene morph. Save As and server restarts keep the playhead.
+   */
+  private restartPlayheads(): void {
+    if (!this.doc) return;
+    const now = Date.now();
+    const s = this.doc.session;
+    this.doc = {
+      ...this.doc,
+      session: {
+        ...s,
+        transport: { playing: s.transport.playing, anchorWallMs: now, anchorPhase: 0 },
+        layerTransports: {},
+        cameraClock: { playing: s.cameraClock.playing, anchorWallMs: now, anchorSeconds: 0 },
+        morph: null,
+      },
+    };
+    this.scheduleStateWrite();
   }
 
   private setProject(name: string, project: Project): void {

@@ -12,7 +12,7 @@ import {
   type MorphEasing,
   type RGB,
 } from '../../shared/morph-plan.ts';
-import { defaultCamera, type Camera, type Morph, type SyncDoc } from '../../shared/project-schema.ts';
+import { defaultCamera, type Camera, type Morph, type OrbitCamera, type SyncDoc } from '../../shared/project-schema.ts';
 import type { ApplicableLayer, CameraMode, LayerManager } from './layer-manager.ts';
 import type { FrameContext } from './layers/layer.ts';
 import { INSTANCER_LAYOUT_KEYS, type InstancerInstance } from './layers/instancer.ts';
@@ -472,7 +472,7 @@ export class MorphEngine {
 const TIMELINE_ONLY: ReadonlySet<string> = new Set(['timeline']);
 const INSTANCER_WITH_TIMELINE: ReadonlySet<string> = new Set([...INSTANCER_LAYOUT_KEYS, 'timeline']);
 
-function copyCamera(src: Camera, out: Camera): void {
+function copyCamera(src: OrbitCamera, out: OrbitCamera): void {
   out.mode = src.mode;
   out.fov = src.fov;
   out.yaw = src.yaw;

@@ -1,5 +1,5 @@
 import { fitDistance } from './editor-maths.ts';
-import type { Camera, Dof } from './project-schema.ts';
+import type { Dof, OrbitCamera } from './project-schema.ts';
 
 /*
  * Camera depth of field (DofSchema), the CPU twin of the shaders in client/output/dof.ts:
@@ -11,7 +11,7 @@ import type { Camera, Dof } from './project-schema.ts';
 export const DOF_MIN_RAMP = 50;
 
 /** True when depth of field changes the picture: a 3D camera, switched on, at least half an image pixel of blur. */
-export function dofShows(camera: Camera, scale: number): boolean {
+export function dofShows(camera: OrbitCamera, scale: number): boolean {
   return camera.mode === '3d' && camera.dof.enabled && camera.dof.amount * scale >= 0.5;
 }
 
@@ -19,7 +19,7 @@ export function dofShows(camera: Camera, scale: number): boolean {
  * Distance (px, along the view axis) from the eye to the focus plane: the camera's target,
  * moved by `focus`. Both projections orbit at the same eye distance (Stage.setCamera).
  */
-export function focusDistance(camera: Camera): number {
+export function focusDistance(camera: OrbitCamera): number {
   return Math.max(0, fitDistance(camera.fov) * camera.distance + camera.dof.focus);
 }
 

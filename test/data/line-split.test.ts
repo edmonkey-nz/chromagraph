@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { calendarFields } from '../../src/data/calendar.ts';
 import type { NumberColumn, TimeColumn } from '../../src/data/columns.ts';
 import { detectCadence } from '../../src/data/gaps.ts';
-import { buildLineData, lastVisiblePoint, linePositions, P_Y, POINT_STRIDE, wantsBand } from '../../src/data/line-data.ts';
-import { splitSeries } from '../../src/data/line-split.ts';
+import { buildLineData, lastVisiblePoint, linePositions, P_ROW, P_Y, POINT_STRIDE, wantsBand } from '../../src/data/line-data.ts';
+import { splitSeries, stackSeries } from '../../src/data/line-split.ts';
 import { parseCsv } from '../../src/data/parse.ts';
 import { RowFilterError } from '../../src/data/row-filter.ts';
 import { blankLineLayer, LayerSchema, MAX_SPLIT, seriesColour, SERIES_COLOURS, type LineLayer } from '../../src/shared/layer-schema.ts';
@@ -120,5 +120,41 @@ describe('line band', () => {
     // Without the band, the domain is the means'.
     const plain = buildLineData(band({ fill: { mode: 'none', colour: '#000000', opacity: 1 } }), t, {});
     expect(plain.y!.autoDomain).toEqual([3, 5]);
+  });
+});
+
+describe('stacked split lines', () => {
+  // Male has 2009–2012, Female 2010–2012 (2012 missing its number): see the CSV at the top.
+  const layer = line();
+  const series = splitSeries(data, 'Sex').map((s) => buildLineData(layer, s.data.table, s.data.cadences));
+  const ys = (d: ReturnType<typeof buildLineData>) => Array.from({ length: d.count }, (_, p) => d.points[p * POINT_STRIDE + P_Y]);
+
+  it('stack: the first series stays put; later ones sit on top of those below', () => {
+    const [male, female] = stackSeries(series, 'stack');
+    expect(ys(male!)).toEqual([396, 388, 401, 420]);
+    // Female 2010 and 2011 sit on Male's values for the same years; Female 2012 has no number.
+    expect(ys(female!)).toEqual([147 + 388, 150 + 401]);
+    const row = female!.points[P_ROW]!;
+    expect([female!.band!.lo[row], female!.band!.hi[row]]).toEqual([388, 535]);
+    expect(male!.band!.lo[male!.points[P_ROW]!]).toBe(0);
+  });
+
+  it('a point stacks only where every series below has a value at the same t', () => {
+    // Female at the bottom stands alone; Male on top needs Female's value, which 2009 and 2012 lack.
+    const [female, male] = stackSeries([series[1]!, series[0]!], 'stack');
+    expect(ys(female!)).toEqual([147, 150]);
+    expect(ys(male!)).toEqual([388 + 147, 401 + 150]);
+  });
+
+  it('stream: the pile is centred, and needs every series at that t', () => {
+    const [male, female] = stackSeries(series, 'stream');
+    expect(ys(male!)).toEqual([(388 - 147) / 2, (401 - 150) / 2]);
+    expect(ys(female!)).toEqual([(388 + 147) / 2, (401 + 150) / 2]);
+    // The y auto domain covers the whole pile.
+    expect(male!.y!.autoDomain).toEqual([-(401 + 150) / 2, (401 + 150) / 2]);
+  });
+
+  it('the inputs are untouched', () => {
+    expect(ys(series[0]!)).toEqual([396, 388, 401, 420]);
   });
 });

@@ -6,6 +6,8 @@ import { PARSE_WORKER_URL } from '../../data/dataset-loader.ts';
 import { HIERARCHY_WORKER_URL } from '../../data/hierarchy-client.ts';
 import { wallClock } from '../../shared/modulators.ts';
 import { outputFade } from '../../shared/modulation-helpers.ts';
+import { easeToward, flightPose, followGoal, RESTART_JUMP_PX, type FlightPose, type V3 } from '../../shared/camera-follow.ts';
+import { Vector3 } from 'three';
 import { DatasetStore } from './datasets.ts';
 import { TERMINAL_FONT_URL } from './fonts.ts';
 import { PreviewEditor } from './editor.ts';
@@ -223,6 +225,55 @@ let fpsWindowStart = startTime;
 let fps = 0;
 let frameMs = 0;
 
+// ---- follow camera (camera.follow): the look-at point rides on a line's newest point ----
+const followTip = new Vector3();
+const followGoalAt: V3 = [0, 0, 0];
+const followAt: V3 = [0, 0, 0];
+let following = false;
+/** The goal's x last frame, to spot the line starting again (its newest point jumping back). */
+let lastGoalX = NaN;
+/** The loop flight back to the start: seconds in (-1 when not flying) and where it began. */
+let flightTime = -1;
+const flightFrom: V3 = [0, 0, 0];
+const flight: FlightPose = { mix: 0, yaw: 0, pitch: 0, distanceScale: 1 };
+
+function updateFollow(doc: SyncDoc | null, dt: number): void {
+  if (!stage) return;
+  const cam = doc?.project.camera;
+  const f = cam?.follow;
+  const tip = f?.enabled && f.layerId && cam!.mode === '3d' && layerManager?.followPoint(f.layerId, followTip);
+  if (!tip || !f) {
+    // Off, 2D, no such line or nothing visible yet: back to the camera's own target.
+    if (following) stage.setFollow(null);
+    following = false;
+    flightTime = -1;
+    lastGoalX = NaN;
+    return;
+  }
+  followGoal([followTip.x, followTip.y, followTip.z], stage.displayedCamera, f, followGoalAt);
+  // The line started again (a looping reveal restarted): fly back around instead of snapping.
+  const restarted = following && lastGoalX - followGoalAt[0] > RESTART_JUMP_PX;
+  lastGoalX = followGoalAt[0];
+  if (restarted && f.loop && flightTime < 0) {
+    flightTime = 0;
+    flightFrom[0] = followAt[0];
+    flightFrom[1] = followAt[1];
+    flightFrom[2] = followAt[2];
+  }
+  if (flightTime >= 0) {
+    flightTime += dt;
+    flightPose(flightTime / f.loopSeconds, f.loopTurns, flight);
+    for (let i = 0; i < 3; i++) followAt[i] = flightFrom[i]! + (followGoalAt[i]! - flightFrom[i]!) * flight.mix;
+    if (flightTime >= f.loopSeconds) flightTime = -1; // landed on the line: plain following again
+    stage.setFollow(followAt, flight);
+    return;
+  }
+  if (following) easeToward(followAt, followGoalAt, dt, f.smoothing);
+  else followAt.splice(0, 3, ...followGoalAt); // the first frame starts on the point
+  following = true;
+  stage.setFollow(followAt);
+}
+
 function tick(now: number): void {
   requestAnimationFrame(tick); // schedule first: nothing below can stop the loop
   const t0 = performance.now();
@@ -239,6 +290,7 @@ function tick(now: number): void {
       const doc = state.doc;
       stage.setFade(doc ? outputFade(doc.project.timeline, doc.session.transport, wall) : 1);
       morph.frame(wall, ctx);
+      updateFollow(doc, ctx.dt);
       layers.update(ctx);
       editor?.frame();
       stage.render(ctx.dt);

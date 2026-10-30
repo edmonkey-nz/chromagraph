@@ -1,0 +1,1157 @@
+{
+  "version": 22,
+  "name": "river-water-2",
+  "datasets": [
+    {
+      "id": "ds-5pb9h4",
+      "file": "NRWQN_8Apr2026_WN1 - Sheet1.csv",
+      "label": "NRWQN_8Apr2026_WN1 - Sheet1",
+      "timeZone": "Pacific/Auckland",
+      "source": "National River Water Chemistry Data",
+      "url": "",
+      "attribution": ""
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-o1fv04ug",
+      "name": "Layer 1",
+      "enabled": true,
+      "datasetId": "ds-5pb9h4",
+      "filter": [
+        {
+          "column": "NIWA Site ID",
+          "values": [
+            "WN1"
+          ]
+        }
+      ],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "multiples",
+      "splitBy": "category",
+      "splitColumn": "NIWA Site ID",
+      "chunkRows": 365,
+      "valueColumn": "NO3+NO2 as N.NRWQN",
+      "rows": [
+        0,
+        1
+      ],
+      "chart": "bars",
+      "columns": 1,
+      "origin": [
+        60,
+        1020,
+        0
+      ],
+      "panelSize": [
+        1800,
+        960
+      ],
+      "gap": [
+        8,
+        8
+      ],
+      "domainMode": "shared",
+      "scale": "sqrt",
+      "domain": null,
+      "steps": 5,
+      "colour": "#e8e8e8",
+      "colourByValue": true,
+      "ramp": "viridis",
+      "reverse": false,
+      "markSize": 1,
+      "labelSize": 24,
+      "labelColour": "#9aa0a6",
+      "labelFont": "terminal",
+      "labelUppercase": false,
+      "labelPlacement": "outside",
+      "frame": false
+    },
+    {
+      "id": "ly-d9ygzvtq",
+      "name": "Layer 2",
+      "enabled": false,
+      "datasetId": "ds-5pb9h4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "instancer",
+      "primitive": "box",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "arrangement": "radial",
+      "origin": [
+        960,
+        540,
+        0
+      ],
+      "step": [
+        5.625,
+        0,
+        0
+      ],
+      "gridColumns": 100,
+      "cell": [
+        6,
+        6
+      ],
+      "radius": 400,
+      "angleStep": 1.125,
+      "radiusStep": 0.01,
+      "size": [
+        6.283185307179586,
+        6.283185307179586,
+        6.283185307179586
+      ],
+      "heightAxis": "y",
+      "colour": "#710d0d",
+      "cloner": {
+        "count": 24,
+        "position": [
+          0,
+          12,
+          93
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          -96
+        ],
+        "orbit": [
+          0,
+          0,
+          -1
+        ],
+        "fade": 0.98,
+        "dataStep": 8,
+        "colourByClone": false
+      },
+      "labels": {
+        "enabled": false,
+        "every": "year",
+        "rows": 365,
+        "text": "date",
+        "column": null,
+        "size": 24,
+        "offset": 16,
+        "orientation": "along",
+        "colour": "#e8e8e8",
+        "hidePoints": false,
+        "font": "terminal",
+        "uppercase": false
+      },
+      "edges": {
+        "enabled": true,
+        "colour": "#161f8e",
+        "width": 2,
+        "faceOpacity": 0.75,
+        "glow": 0
+      },
+      "axes": {
+        "colour": "#9aa0a6",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": false,
+        "span": "full",
+        "values": {
+          "enabled": false,
+          "column": null,
+          "place": "above",
+          "size": 28,
+          "colour": "#e8e8e8",
+          "gap": 8,
+          "decimals": -1,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": false,
+          "line": true,
+          "column": null,
+          "every": 1,
+          "size": 24,
+          "colour": "#c8ccd2",
+          "angle": 0,
+          "gap": 10,
+          "title": ""
+        },
+        "y": {
+          "enabled": false,
+          "line": true,
+          "ticks": 5,
+          "grid": false,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 24,
+          "colour": "#c8ccd2",
+          "decimals": -1,
+          "suffix": "",
+          "title": ""
+        }
+      },
+      "channels": {
+        "x": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            1600
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "y": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "z": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "height": {
+          "column": "Water Temp.NRWQN",
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            2,
+            800
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "size": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.5,
+            2
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "rotation": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            360
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "opacity": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.1,
+            1
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "colour": {
+          "column": "Water Temp.NRWQN",
+          "scale": "linear",
+          "domain": null,
+          "ramp": "purples",
+          "reverse": false,
+          "steps": 5
+        }
+      }
+    },
+    {
+      "id": "ly-8xcnmlz0",
+      "name": "Layer 2 copy",
+      "enabled": false,
+      "datasetId": "ds-5pb9h4",
+      "filter": [],
+      "opacity": 0.35,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "instancer",
+      "primitive": "box",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "arrangement": "radial",
+      "origin": [
+        960,
+        540,
+        0
+      ],
+      "step": [
+        5.625,
+        0,
+        0
+      ],
+      "gridColumns": 100,
+      "cell": [
+        6,
+        6
+      ],
+      "radius": 400,
+      "angleStep": 1.125,
+      "radiusStep": 0.01,
+      "size": [
+        6.283185307179586,
+        6.283185307179586,
+        6.283185307179586
+      ],
+      "heightAxis": "y",
+      "colour": "#0f107a",
+      "cloner": {
+        "count": 24,
+        "position": [
+          0,
+          12,
+          93
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          -96
+        ],
+        "orbit": [
+          0,
+          0,
+          -1
+        ],
+        "fade": 0.98,
+        "dataStep": 8,
+        "colourByClone": false
+      },
+      "labels": {
+        "enabled": false,
+        "every": "year",
+        "rows": 365,
+        "text": "date",
+        "column": null,
+        "size": 80,
+        "offset": 16,
+        "orientation": "upright",
+        "colour": "#e8e8e8",
+        "hidePoints": false,
+        "font": "terminal",
+        "uppercase": true
+      },
+      "edges": {
+        "enabled": true,
+        "colour": "#161f8e",
+        "width": 2,
+        "faceOpacity": 0.75,
+        "glow": 0.1
+      },
+      "axes": {
+        "colour": "#9aa0a6",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": false,
+        "span": "full",
+        "values": {
+          "enabled": false,
+          "column": "NO3+NO2 as N.NRWQN",
+          "place": "inside-top",
+          "size": 55,
+          "colour": "#e8e8e8",
+          "gap": -24,
+          "decimals": -1,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": false,
+          "line": true,
+          "column": "NO3+NO2 as N.NRWQN",
+          "every": 1,
+          "size": 49,
+          "colour": "#c8ccd2",
+          "angle": 0,
+          "gap": 10,
+          "title": ""
+        },
+        "y": {
+          "enabled": false,
+          "line": true,
+          "ticks": 5,
+          "grid": false,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 24,
+          "colour": "#c8ccd2",
+          "decimals": -1,
+          "suffix": "",
+          "title": ""
+        }
+      },
+      "channels": {
+        "x": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            1600
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "y": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "z": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "height": {
+          "column": "Water Temp.NRWQN",
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            2,
+            800
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "size": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.5,
+            2
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "rotation": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            360
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "opacity": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.1,
+            1
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "colour": {
+          "column": "NO3+NO2 as N.NRWQN",
+          "scale": "linear",
+          "domain": null,
+          "ramp": "magma",
+          "reverse": true,
+          "steps": 5
+        }
+      }
+    },
+    {
+      "id": "ly-qx0c7m06",
+      "name": "Layer 3",
+      "enabled": true,
+      "datasetId": "ds-5pb9h4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "additive",
+      "transform": {
+        "position": [
+          0,
+          0,
+          -120
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": true,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": true,
+          "amount": 0
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "density",
+      "xColumn": "Water Temp.NRWQN",
+      "yColumn": "NO3+NO2 as N.NRWQN",
+      "xDomain": null,
+      "yDomain": null,
+      "rows": [
+        0,
+        1
+      ],
+      "origin": [
+        120,
+        120,
+        -350
+      ],
+      "size": [
+        1680,
+        840
+      ],
+      "bins": [
+        64,
+        32
+      ],
+      "radius": 1.5,
+      "scale": "sqrt",
+      "domain": null,
+      "ramp": "blues",
+      "reverse": false,
+      "steps": 5,
+      "threshold": 0.08,
+      "mode": "dots",
+      "zColumn": "NO3+NO2 as N.NRWQN",
+      "zDomain": null,
+      "binsZ": 28,
+      "depth": 1717,
+      "dotSize": 2.5,
+      "jitter": 0.8200000000000001
+    },
+    {
+      "id": "ly-c5q16o5k",
+      "name": "Layer 5",
+      "enabled": true,
+      "datasetId": "ds-5pb9h4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          290
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": true,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "line",
+      "xMode": "index",
+      "timeColumn": null,
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "origin": [
+        60,
+        540,
+        0
+      ],
+      "step": [
+        5.625,
+        0,
+        0
+      ],
+      "y": {
+        "column": "Water Temp.NRWQN",
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          -300,
+          300
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "z": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "range": [
+          0,
+          300
+        ],
+        "steps": 5,
+        "clamp": true
+      },
+      "width": 2,
+      "colour": "#96bdee",
+      "colourMap": {
+        "column": null,
+        "scale": "linear",
+        "domain": null,
+        "ramp": "viridis",
+        "reverse": false,
+        "steps": 5
+      },
+      "breakOnGaps": true,
+      "gapFactor": 1.5,
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "fill": {
+        "mode": "none",
+        "colour": "#000000",
+        "opacity": 1
+      },
+      "aggregate": {
+        "by": "rows",
+        "rows": 1,
+        "fn": "mean"
+      },
+      "split": {
+        "column": null,
+        "stack": "none",
+        "colours": {},
+        "labels": {
+          "enabled": true,
+          "size": 28,
+          "gap": 12,
+          "font": "terminal",
+          "uppercase": false
+        }
+      },
+      "axes": {
+        "colour": "#9aa0a6",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": false,
+        "span": "full",
+        "values": {
+          "enabled": true,
+          "column": null,
+          "place": "above",
+          "size": 28,
+          "colour": "#e8e8e8",
+          "gap": 44,
+          "decimals": 3,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": true,
+          "line": true,
+          "column": "Sample date",
+          "every": 1,
+          "size": 22,
+          "colour": "#c8ccd2",
+          "angle": 60,
+          "gap": 25,
+          "title": ""
+        },
+        "y": {
+          "enabled": false,
+          "line": true,
+          "ticks": 5,
+          "grid": false,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 24,
+          "colour": "#c8ccd2",
+          "decimals": -1,
+          "suffix": "",
+          "title": ""
+        }
+      }
+    },
+    {
+      "id": "ly-wavjbexk",
+      "name": "Layer 6",
+      "enabled": true,
+      "datasetId": "ds-5pb9h4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": true,
+          "colour": "#000000",
+          "opacity": 0.35,
+          "spread": 20,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": true,
+      "type": "text",
+      "text": "National River Water Chemistry Data\nHUTT RIVER -41.19797418, 174.9221634\nNitrate + nitrite nitrogen  - mg/m3\nSOURCE: NIWA CC-BY4.0",
+      "row": 0,
+      "position": [
+        60,
+        1020,
+        0
+      ],
+      "fontSize": 26,
+      "colour": "#ffffff",
+      "align": "left",
+      "anchorX": "left",
+      "anchorY": "top",
+      "maxWidth": 0,
+      "lineHeight": 1.2,
+      "letterSpacing": 0,
+      "outlineWidth": 0,
+      "outlineColour": "#000000",
+      "font": "terminal",
+      "uppercase": true
+    }
+  ],
+  "parameters": {
+    "layer.ly-d9ygzvtq.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    },
+    "layer.ly-qx0c7m06.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    },
+    "layer.ly-8xcnmlz0.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    },
+    "layer.ly-c5q16o5k.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "smooth"
+      }
+    },
+    "layer.ly-o1fv04ug.rows.1": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 0,
+        "to": 1,
+        "easing": "linear"
+      }
+    }
+  },
+  "timeline": {
+    "duration": 60,
+    "loop": true,
+    "playback": "forward",
+    "fadeIn": false,
+    "fadeOut": false,
+    "fadeLength": 1,
+    "gap": 0
+  },
+  "camera": {
+    "mode": "3d",
+    "fov": 45,
+    "yaw": -70,
+    "pitch": 14,
+    "distance": 0.35,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "projection": "perspective",
+    "dof": {
+      "enabled": false,
+      "focus": 0,
+      "depth": 200,
+      "amount": 12
+    },
+    "follow": {
+      "enabled": true,
+      "layerId": "ly-c5q16o5k",
+      "smoothing": 1.7000000000000002,
+      "height": 0,
+      "lead": -11
+    }
+  },
+  "output": {
+    "background": "#000000"
+  },
+  "scenes": [],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}

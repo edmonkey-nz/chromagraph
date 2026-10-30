@@ -1,6 +1,7 @@
-import type { Object3D } from 'three';
+import type { Object3D, Vector3 } from 'three';
 import { densityStructureKey } from '../../data/density-data.ts';
 import { heatmapStructureKey } from '../../data/heatmap-data.ts';
+import { horizonStructureKey } from '../../data/horizon-data.ts';
 import { hierarchyStructureKey } from '../../data/hierarchy-data.ts';
 import { structureKey } from '../../data/instance-data.ts';
 import { lineStructureKey } from '../../data/line-data.ts';
@@ -15,6 +16,7 @@ import type { TemplateCredits } from '../../shared/text-template.ts';
 import type { DatasetStore, LoadedDataset } from './datasets.ts';
 import { createDensity } from './layers/density.ts';
 import { createHeatmap } from './layers/heatmap.ts';
+import { createHorizon } from './layers/horizon.ts';
 import { createHierarchy } from './layers/hierarchy.ts';
 import { createInstancer, instancerCalendarReady } from './layers/instancer.ts';
 import type { LayerHost, LayerInstance } from './layers/layer.ts';
@@ -44,6 +46,8 @@ export interface ApplicableLayer<L> extends LayerInstance {
    * with span 'full' are laid out over it. Pushed after build and whenever it changes.
    */
   setRowsSpan?(lo: number, hi: number): void;
+  /** The newest visible point in the layer's own px space (lines), for the follow camera. */
+  followPoint?(out: number[]): boolean;
 }
 
 /**
@@ -88,6 +92,12 @@ const KINDS: { [T in LayerType]: LayerKind<LayerOf<T>> } = {
     structureKey: (layer) => densityStructureKey(layer),
     needsData: true,
     create: (layer, data, mode) => createDensity(layer, required(data), mode),
+  },
+  horizon: {
+    // Rows and the combining re-fill the texture in place; everything else is a uniform.
+    structureKey: (layer) => horizonStructureKey(layer),
+    needsData: true,
+    create: (layer, data, mode) => createHorizon(layer, required(data), mode),
   },
   heatmap: {
     structureKey: (layer, timeZone) => heatmapStructureKey(layer, timeZone),
@@ -318,6 +328,25 @@ export class LayerManager {
     const order = this.orders.get(id);
     if (order !== undefined) this.host.place(id, order, (this.enabled.get(id) ?? false) || on);
   }
+
+  /**
+   * The newest visible point of a built layer that has one (lines), in world px, into `out`;
+   * false otherwise. For the follow camera; never throws.
+   */
+  followPoint(id: string, out: Vector3): boolean {
+    if (!this.keys.has(id) || this.host.failed(id)) return false;
+    const inst = this.host.get(id) as ApplicableLayer<LayerConfig> | null;
+    if (!inst?.followPoint) return false;
+    try {
+      if (!inst.followPoint(this.scratch)) return false;
+      inst.object.updateWorldMatrix(true, false);
+      out.set(this.scratch[0]!, this.scratch[1]!, this.scratch[2]!).applyMatrix4(inst.object.matrixWorld);
+      return Number.isFinite(out.x) && Number.isFinite(out.y) && Number.isFinite(out.z);
+    } catch {
+      return false;
+    }
+  }
+  private readonly scratch = [0, 0, 0];
 
   /** Run `fn` on a built layer's instance inside the host's fence. */
   call(id: string, fn: (instance: ApplicableLayer<LayerConfig>) => void): void {

@@ -16,7 +16,7 @@ import { cameraFromOrbit, gizmoSnap, orbitFromCamera, PITCH_LIMIT, proxyFromTran
 import { unwrap, wrap, type ControlToPreview, type GizmoMode, type PreviewToControl } from '../../shared/editor-protocol.ts';
 import type { LayerConfig } from '../../shared/layer-schema.ts';
 import type { LayerTransform } from '../../shared/layer-schema.ts';
-import { defaultDof, type Camera, type SyncDoc } from '../../shared/project-schema.ts';
+import { defaultDof, type OrbitCamera, type SyncDoc } from '../../shared/project-schema.ts';
 import { applyLayerTransform } from './layers/transform.ts';
 import { OUTPUT_HEIGHT, OUTPUT_WIDTH, type Stage } from './stage.ts';
 
@@ -84,9 +84,9 @@ export class PreviewEditor {
   private orbitMoved = false;
   private orbitRefYaw = 0;
   /** The projection of the camera being orbited (kept: zooming an isometric view scales it). */
-  private orbitProjection: Camera['projection'] = 'perspective';
-  private orbitDof: Camera['dof'] = defaultDof();
-  private cameraOverride: Camera | null = null;
+  private orbitProjection: OrbitCamera['projection'] = 'perspective';
+  private orbitDof: OrbitCamera['dof'] = defaultDof();
+  private cameraOverride: OrbitCamera | null = null;
   private cameraUntil = 0;
   private cameraFinalTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -98,7 +98,7 @@ export class PreviewEditor {
   private transformThrottle = new Throttle<{ layerId: string; transform: LayerTransform }>(SEND_INTERVAL_MS, (m) =>
     this.post({ t: 'transform', layerId: m.layerId, transform: m.transform, final: false }),
   );
-  private cameraThrottle = new Throttle<Camera>(SEND_INTERVAL_MS, (camera) => this.post({ t: 'camera', camera, final: false }));
+  private cameraThrottle = new Throttle<OrbitCamera>(SEND_INTERVAL_MS, (camera) => this.post({ t: 'camera', camera, final: false }));
   private lastWarning = '';
 
   constructor(private host: EditorHost) {

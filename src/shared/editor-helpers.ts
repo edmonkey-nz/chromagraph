@@ -92,7 +92,8 @@ export function transformPatch(project: Project, layerId: string, transform: unk
 
 /** Patch setting the camera. Null when the camera is invalid or nothing would change. */
 export function cameraPatch(project: Project, camera: unknown): PatchOp[] | null {
-  const parsed = CameraSchema.safeParse(camera);
+  // Orbit editing never changes the follow setting: keep the project's.
+  const parsed = CameraSchema.safeParse(camera && typeof camera === 'object' ? { ...camera, follow: project.camera.follow } : camera);
   if (!parsed.success || sameNumbers(project.camera, parsed.data)) return null;
   return [{ op: 'set', path: ['project', 'camera'], value: parsed.data }];
 }

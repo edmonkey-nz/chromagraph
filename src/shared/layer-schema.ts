@@ -483,9 +483,16 @@ export const SERIES_COLOURS: readonly string[] = schemeTableau10;
  * SERIES_COLOURS by position); all share one time origin and the value domains of the whole
  * (filtered) dataset, so they line up and compare. Rows, aggregation and the cloner count
  * each line's own rows. `labels` names each line at its last visible point.
+ *
+ * `stack` (schema v21): 'stack' piles the series up in order, each filled from the one below
+ * to its own top (a stacked area chart); 'stream' centres the pile on the baseline (a
+ * streamgraph). Points stack where every series below has a point at the same t; elsewhere the
+ * pile breaks rather than treating a missing value as zero.
  */
+export const SPLIT_STACKS = ['none', 'stack', 'stream'] as const;
 export const LineSplitSchema = z.object({
   column: z.string().nullable(),
+  stack: z.enum(SPLIT_STACKS),
   colours: z.record(z.string(), hexColour),
   labels: z.object({
     enabled: z.boolean(),
@@ -498,7 +505,7 @@ export const LineSplitSchema = z.object({
 export type LineSplit = z.infer<typeof LineSplitSchema>;
 
 export function defaultLineSplit(): LineSplit {
-  return { column: null, colours: {}, labels: { enabled: true, size: 28, gap: 12, font: 'terminal', uppercase: false } };
+  return { column: null, stack: 'none', colours: {}, labels: { enabled: true, size: 28, gap: 12, font: 'terminal', uppercase: false } };
 }
 
 /** Colour of the series at `index` with value `value`. */
@@ -887,7 +894,51 @@ export const DensityLayerSchema = LayerBaseSchema.extend({
 });
 export type DensityLayer = z.infer<typeof DensityLayerSchema>;
 
-export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector', 'qr', 'density'] as const;
+/** Columns a horizon chart averages its rows into (one per output px across a full-width strip). */
+export const HORIZON_COLUMNS = 1920;
+/** Most strips (series) a horizon chart draws. */
+export const MAX_HORIZON_SERIES = 48;
+
+/**
+ * Horizon chart (schema v21): a long series folded into colour bands, so decades of daily data
+ * fit a thin strip and several series stack up the screen.
+ *   The visible rows are combined (`fn`, missing values left out) into HORIZON_COLUMNS columns
+ *   across the strip by their t (row index, or time in time mode); a column with no value is a
+ *   gap (transparent), never filled in.
+ *   A value's distance from `baseline`, as a share of `domain` (null: the largest distance in
+ *   all rows), is split into `bands` equal bands drawn on top of each other in the strip, each a
+ *   deeper shade: above the baseline in `colour`, below it in `negativeColour` (mirrored up).
+ *   seriesColumn  a category or text column: one strip per value (first-seen order), stacked
+ *                 down from `origin` (the top-left corner) every size[1] + gap px; null: one
+ *   labels        each strip's name to its left
+ */
+export const HorizonLayerSchema = LayerBaseSchema.extend({
+  type: z.literal('horizon'),
+  xMode: z.enum(X_MODES),
+  timeColumn: z.string().nullable(),
+  valueColumn: z.string().nullable(),
+  seriesColumn: z.string().nullable(),
+  rows: vec2,
+  origin: vec3,
+  size: vec2,
+  gap: z.number().min(0).max(500),
+  bands: z.number().int().min(1).max(8),
+  baseline: z.number(),
+  domain: z.number().positive().nullable(),
+  fn: z.enum(AGGREGATES),
+  colour: hexColour,
+  negativeColour: hexColour,
+  labels: z.object({
+    enabled: z.boolean(),
+    size: z.number().min(6).max(200),
+    colour: hexColour,
+    font: z.enum(FONTS),
+    uppercase: z.boolean(),
+  }),
+});
+export type HorizonLayer = z.infer<typeof HorizonLayerSchema>;
+
+export const LAYER_TYPES = ['instancer', 'line', 'heatmap', 'text', 'multiples', 'hierarchy', 'surface', 'reflector', 'qr', 'density', 'horizon'] as const;
 export type LayerType = (typeof LAYER_TYPES)[number];
 
 /** Union of all layer types. */
@@ -902,6 +953,7 @@ export const LayerSchema = z.discriminatedUnion('type', [
   ReflectorLayerSchema,
   QrLayerSchema,
   DensityLayerSchema,
+  HorizonLayerSchema,
 ]);
 export type LayerConfig = z.infer<typeof LayerSchema>;
 
@@ -991,6 +1043,28 @@ export function blankLineLayer(id: string, name: string, datasetId: string | nul
     aggregate: { by: 'none', rows: 30, fn: 'mean' },
     split: defaultLineSplit(),
     axes: defaultAxes(),
+  };
+}
+
+export function blankHorizonLayer(id: string, name: string, datasetId: string | null): HorizonLayer {
+  return {
+    ...base(id, name, datasetId),
+    type: 'horizon',
+    xMode: 'index',
+    timeColumn: null,
+    valueColumn: null,
+    seriesColumn: null,
+    rows: [0, 1],
+    origin: [260, 960, 0],
+    size: [1600, 80],
+    gap: 12,
+    bands: 4,
+    baseline: 0,
+    domain: null,
+    fn: 'mean',
+    colour: '#4fa3ff',
+    negativeColour: '#ff5a4f',
+    labels: { enabled: true, size: 28, colour: '#c8ccd2', font: 'terminal', uppercase: false },
   };
 }
 

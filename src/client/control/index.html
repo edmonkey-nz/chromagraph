@@ -294,6 +294,22 @@
         font-size: 12px;
         white-space: nowrap;
       }
+      /* The GPU name never wraps (a long one would push the whole window down): cut with "…"; the tooltip has it all. */
+      #gpu-pill {
+        display: inline-block;
+        white-space: nowrap;
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-shrink: 1;
+        min-width: 0;
+      }
+      #gpu-pill::before {
+        display: inline-block;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+
       .pill::before {
         content: '';
         width: 7px;
@@ -2428,6 +2444,7 @@
       <span class="divider" aria-hidden="true"></span>
       <span id="conn" class="pill">server</span>
       <span id="out-pill" class="pill">output</span>
+      <span id="gpu-pill" class="pill" title="The GPU the output window renders on">GPU</span>
     </header>
     <div id="snapshots-pop" class="popover" popover></div>
     <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">

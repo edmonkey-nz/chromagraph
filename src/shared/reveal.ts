@@ -51,6 +51,7 @@ export function animateKind(layer: LayerConfig): 'rows' | 'row' | null {
     case 'hierarchy':
     case 'surface':
     case 'density':
+    case 'horizon':
       return 'rows';
     case 'reflector':
     case 'qr':

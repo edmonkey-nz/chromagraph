@@ -17,6 +17,8 @@ export interface LoadedDataset {
 interface Entry {
   file: string;
   timeZone: string;
+  /** "Treat as missing" markers the file was parsed with (joined, for comparison). */
+  missing: string[];
   loaded: LoadedDataset | null;
   error: string | null;
   /** Bumped per load request so a stale response can be ignored. */
@@ -63,19 +65,20 @@ export class DatasetStore {
     for (const id of [...this.entries.keys()]) if (!wanted.has(id)) this.entries.delete(id);
     for (const d of datasets) {
       const e = this.entries.get(d.id);
-      if (!e || e.file !== d.file || e.timeZone !== d.timeZone) this.load(d.id, d.file, d.timeZone);
+      if (!e || e.file !== d.file || e.timeZone !== d.timeZone || !sameList(e.missing, d.missing)) this.load(d.id, d.file, d.timeZone, d.missing);
     }
     this.refreshErrors();
   }
 
   /** Retry failed datasets (e.g. after the server comes back). */
   reloadFailed(): void {
-    for (const [id, e] of this.entries) if (e.error) this.load(id, e.file, e.timeZone);
+    for (const [id, e] of this.entries) if (e.error) this.load(id, e.file, e.timeZone, e.missing);
   }
 
-  private load(id: string, file: string, timeZone: string): void {
+  private load(id: string, file: string, timeZone: string, missing: readonly string[]): void {
     const prev = this.entries.get(id);
     const entry: Entry = {
+      missing: [...missing],
       file,
       timeZone,
       // Keep showing the previous copy of the same file while the new one loads.
@@ -88,7 +91,7 @@ export class DatasetStore {
     const project = this.projectName;
     const url = dataUrl(project, file);
     this.loader
-      .load(url, file, timeZone)
+      .load(url, file, timeZone, missing)
       .then((loaded) => {
         const current = this.entries.get(id);
         if (!current || current.token !== token || this.projectName !== project) return;
@@ -130,4 +133,8 @@ export class DatasetStore {
   private refreshErrors(): void {
     this._errors = [...this.entries].filter(([, e]) => e.error).map(([id, e]) => ({ id, message: e.error! }));
   }
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }

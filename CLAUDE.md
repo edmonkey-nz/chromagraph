@@ -233,7 +233,12 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
    the work to `parse.worker.ts`, which fetches the file, runs `parseText` and
    `detectCadence`, and transfers the typed-array buffers back.
 3. Results use the column contract in `data/columns.ts`. Inference rules are in
-   `data/infer.ts`: no coercion, and only empty or whitespace values count as missing.
+   `data/infer.ts`: no coercion, and only empty or whitespace values count as missing, plus the
+   dataset's own "treat as missing" markers (`Dataset.missing`, schema v24): cells equal to one
+   after trimming are blanked in `buildResult` (`data/parse.ts`) before the type is decided, and
+   the report notes how many each marker blanked, with rows. Both windows pass the markers to the
+   parse worker and parse again when they change. A mostly-numeric warning carries its odd texts
+   (`ParseIssue.markers`); the Datasets tab offers them as a one-click "Treat … as missing".
 4. The output keeps tables in `DatasetStore` (`client/output/datasets.ts`), which holds on
    to the last good table if a reload fails.
 5. Control shows the per-file report in `client/control/datasets-panel.ts`, and "View rows"
@@ -417,6 +422,24 @@ a mapped x turns the x axis into a value axis (`xv:<tick>` keys). Labels still i
   `jitter` moves each dot by a fixed hash of its bin, never outside it, so the grid doesn't show
   as a lattice. 3D bins are capped at `MAX_DENSITY_CELLS` (2M).
 
+**Horizon chart** (`horizon`, schema v21; `layers/horizon.ts`, pure data in `data/horizon-data.ts`).
+- Rows become t (index mode: each series counts its own rows; time mode: cadence steps), a value
+  and a series (`seriesColumn`, one strip each, at most `MAX_HORIZON_SERIES`). A row covers its
+  step [t, t + 1); the visible rows are combined by `fn` into `HORIZON_COLUMNS` (1920) columns per
+  series, so a few rows fill wide blocks, many share a column, and gaps in time stay empty.
+- One R32F texture (a row per series, MISSING for gaps) and one quad for all strips; the fragment
+  shader shades by `horizonLevel` (CPU twin): the distance from `baseline` as a share of the range,
+  cut into `bands` stacked in the strip, brighter per band, negatives in their own colour.
+- The auto range is the largest combined column over all rows (not the single largest row), so
+  the bands hold during a data playhead. Series names are troika Texts left of the strips.
+
+**Stacked split lines** (`split.stack`, v21): `stackSeries` in `data/line-split.ts` (pure, tested)
+turns each series into its slice: points at its top, `band` from the series below, so the line's
+band fill draws the area ('stream' centres the pile). A point stacks only where every series it
+needs has a point at the same t (within half a step); elsewhere the pile breaks. The split renderer
+forces the band fill in the series colour. Value labels show slice tops; a streamgraph has no
+value axis.
+
 **Line aggregation.** `layer.aggregate` (line layers, v10) turns rows into one point per
 week, month, year (calendar fields in the dataset timezone) or N rows, combined by mean,
 sum, min, max or last. Missing values are left out, and a bucket with none is missing.
@@ -468,7 +491,9 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   phase, never of summed frame times. That keeps them frame-rate independent, lets the
   output, the preview and the control window agree, and avoids drift over hours.
 - **Transport.** `session.transport` drives the timeline. The server persists it in
-  `server-state.json`, so a restart keeps the playhead where it was.
+  `server-state.json`, so a restart keeps the playhead where it was. Opening a project from the
+  list (or creating one) restarts the playheads (`Hub.restartPlayheads`): project timeline at
+  phase 0, layer timelines and the camera clock at 0, play/pause kept, no morph. Save As keeps them.
 - **Playback modes.** A timeline (project or layer) has `playback`: forward, reverse or
   pingpong (schema v10). The transport keeps progress u through one cycle; a ping-pong cycle
   is there and back, so it lasts twice the duration. `playhead()` in `shared/modulators.ts`
@@ -537,8 +562,12 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
 
 **Control window layout.**
 - `client/control/index.html` and `main.ts` lay the window out as a header (project
-  switcher, Save, Save As, Snapshots, the save indicator, the output buttons), the
-  workspace, and a drawer along the bottom.
+  switcher, Save, Save As, Snapshots, the save indicator, the output buttons, then the server,
+  output and GPU pills), the workspace, and a drawer along the bottom.
+- The GPU pill (`renderGpuPill` in `main.ts`, names from `shared/gpu-name.ts`, tested) shows the
+  GPU each output window reports (the worst if they differ): green NVIDIA, amber another GPU, red
+  software rendering. With no output open it shows this window's own (the preview's), marked
+  "preview". The tooltip has the full renderer strings.
 - **Workspace.** Two columns of cards, each card with its own Tweakpane pane themed through
   `--tp-*` CSS variables. Shared card helpers are in `ui.ts`.
   - Left: the live preview and Camera (with its own Modulation folder). In edit mode the
@@ -688,6 +717,27 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   switched off. A shader failure turns it off (reported once).
 - Preview orbits keep it (`cameraFromOrbit` takes `dof`). Control: the Camera card's
   "Depth of field" folder; moving a slider while it is off switches it on.
+
+**Follow camera** (`camera.follow`, schema v22; maths in `shared/camera-follow.ts`, tested).
+- Each frame, after modulation and morphs, `updateFollow` in `client/output/main.ts` asks
+  `LayerManager.followPoint` for the followed line's newest visible point (`followPoint` on line
+  and split-line instances: `lastVisiblePoint`, the series furthest along for a split, then the
+  layer's world matrix). `followGoal` adds `lead` along x and mixes the height by `height`;
+  `easeToward` closes ~63 % per `smoothing` seconds (frame-rate independent; the first frame snaps).
+- `Stage.setFollow(point | null)` replaces the camera target in `setCamera`; yaw, pitch and distance
+  still place the eye, so camera modulators keep working. `displayedCamera` keeps the real target.
+- Orbit editing, morphs and DOF use `OrbitCamera` (Camera without follow); `cameraPatch` keeps the
+  project's follow when the preview sends an orbit.
+- Road view (`ROAD_VIEW`, Camera → Follow) is yaw −70, pitch 14, distance 0.35: straight behind
+  (−90) sees the chart edge on.
+- Follow path (`followPathOps`, tested): the line becomes the whole path, dimmed towards the
+  background; a copy "<name> · follow path" builds up over it and is followed, so the path ahead
+  stays in view. Pressing it again follows the existing copy.
+- Loop flight (`follow.loop`, schema v23): when the goal jumps back more than `RESTART_JUMP_PX`
+  in a frame (a looping reveal restarting), `updateFollow` flies over `loopSeconds`: the look-at
+  point eases from where it was to the restarted tip while `flightPose` adds whole turns of yaw
+  and a mid-flight rise and pull-out, passed to `Stage.setFollow(point, view)`. It ends exactly on
+  the plain follow view. A project timeline gap gives it time while the line holds at the end.
 
 **Camera motion presets** (`shared/camera-motion.ts`, UI in `camera-panel.ts`).
 - Presets (orbit, swing, zoom, pan, tilt, drift, fly-around) are plain LFO and noise

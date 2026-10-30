@@ -18,7 +18,8 @@ import { linePositions, lineTStart, P_ROW, P_T, P_Y, POINT_STRIDE, rowRange, typ
  *           number. Aggregated, a bucket is named by its period ("Mar 1990", "1990") or by its
  *           middle row. Labels thin themselves (a multiple of `every`) until they don't overlap,
  *           judged from the longest label and the spacing of the points
- *   y axis  ticks in the y column's units beside the line, optional gridlines
+ *   y axis  ticks in the y column's units beside the line, optional gridlines; none for a
+ *           streamgraph (stack 'stream'), whose height above the centre has no meaning
  * `span` 'full' lays the baseline, ticks and gridlines over every row the layer's animation
  * reaches (rows fractions from setRowsSpan); labels always follow the visible points.
  */
@@ -235,7 +236,7 @@ export function layoutLineAxes(input: LineAxesInput): AxesLayout {
   }
 
   // ---- y axis --------------------------------------------------------------------------------
-  if (A.y.enabled) {
+  if (A.y.enabled && !(layer.split.column !== null && layer.split.stack === 'stream')) {
     const Y = A.y;
     const left = Y.side === 'left';
     const sgn = left ? -1 : 1;

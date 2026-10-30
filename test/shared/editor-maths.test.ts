@@ -13,7 +13,7 @@ import {
   unwrapDegrees,
 } from '../../src/shared/editor-maths.ts';
 import type { LayerTransform } from '../../src/shared/layer-schema.ts';
-import { defaultDof, type Camera } from '../../src/shared/project-schema.ts';
+import { defaultDof, type OrbitCamera as Camera } from '../../src/shared/project-schema.ts';
 import { Stage } from '../../src/client/output/stage.ts';
 
 const cams: Camera[] = [

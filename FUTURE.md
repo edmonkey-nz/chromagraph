@@ -87,12 +87,16 @@ future improvements.
      Electron, Tauri), with effort, signing costs and a suggested path. Nothing built.
 
 25) in the 'add instance' dropdown, under each option, add a simple 1 sentence max description in a slighty visual difference from the option name
+   - DONE: the Add layer menu shows a one-line description under each type.
 
 26) in the camera > motion pane, i need a timeline slider with current positon for the camera, so i can jog or reset its camera timeline
+   - DONE: Camera → Motion has Play/Pause, Reset and a position slider (the camera clock).
 
 27) add a basic CSV explorer/viewer in the 'dataset' pane
+   - DONE: Datasets → View rows: sortable columns, go to row, only visible rows drawn.
 
 28) add a 'random layer settings' button in the 'general' pane. make them sensible, and often will need to be 'fit to output' as a starting point. open to thoughts on this.
+   - DONE: General → Randomise look / Randomise all / Back (last 10), fitted to the output.
 29) chart modes for large datasets and long-format files (suggested 2026-10-29, best first):
    a) line layers: split by a category column, one line per value (e.g. Male / Female),
       coloured by category, instead of one layer per filter.
@@ -113,6 +117,9 @@ future improvements.
         3D cloud) or rising by count; dot size, depth and scatter.
    e) horizon chart: a long series folded into stacked colour bands, so decades of daily
       data fit a thin strip and several series stack up the screen.
+      - DONE (2026-10-30): Add layer → horizon chart. Value, baseline, bands, colours for above
+        and below; one strip per series with names; combines rows per pixel column.
    f) stacked area / streamgraph from a category split.
+      - DONE (2026-10-30): line card → Split → stack: stacked area or streamgraph.
    g) histogram, and box or violin plots per category.
    h) parallel coordinates: one faint polyline per row across several number columns.
