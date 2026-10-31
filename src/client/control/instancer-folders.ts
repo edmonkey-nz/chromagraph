@@ -198,7 +198,7 @@ const DATA_STEP_HINT =
  */
 function buildLabels(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void {
   const L = layer.labels;
-  const f = ui.folder(parent, 'Labels', 'Labels', L.enabled);
+  const f = ui.folder(parent, 'Labels', 'Labels', L.enabled || (layer.arrangement === 'calendar' && L.across.enabled));
   const m = { ...L, column: L.column ?? '' };
   const columns = ui.summary?.columns.filter((c) => !c.empty) ?? [];
   f.addBinding(m, 'enabled', { label: 'on' }).on('change', (ev) => ui.set(['labels', 'enabled'], ev.value));
@@ -253,13 +253,77 @@ function buildLabels(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): voi
   f.addBinding(m, 'orientation', {
     options: LABEL_ORIENTATIONS.map((o) => ({ text: o === 'along' ? 'along the layout' : o === 'outward' ? 'outward (rings, spirals)' : 'upright', value: o })),
   }).on('change', (ev) => ui.set(['labels', 'orientation'], ev.value));
+  const pin = { align: L.align };
+  const align = f.addBinding(pin, 'align', {
+    label: 'position',
+    options: [
+      { text: 'at its first point', value: 'point' },
+      { text: 'start of the row (left)', value: 'start' },
+      { text: 'end of the row (right)', value: 'end' },
+    ],
+  }).on('change', (ev) => ui.set(['labels', 'align'], ev.value));
+  align.element.title =
+    'Grid and calendar: pin each label to the start or end of its row, so years and decades line up whatever days the data has. Offset is then the gap from that edge.';
+  align.hidden = layer.arrangement !== 'grid' && layer.arrangement !== 'calendar';
   f.addBinding(m, 'colour').on('change', (ev) => ui.set(['labels', 'colour'], ev.value));
   addFontCase(ui, f, L.font, L.uppercase, ['labels', 'font'], ['labels', 'uppercase']);
   f.addBinding(m, 'hidePoints', { label: 'hide points' }).on('change', (ev) => ui.set(['labels', 'hidePoints'], ev.value)).element.title =
     'Draw only the labels (for a labels-only copy of a layer)';
+
+  // Divisions of the year across the calendar (data/calendar-across.ts).
+  if (layer.arrangement !== 'calendar') return;
+  const ac = { ...L.across };
+  const set = (key: keyof typeof ac, value: unknown) => ui.set(['labels', 'across', key as string], value);
+  f.addBinding(ac, 'enabled', { label: 'across' }).on('change', (ev) => set('enabled', ev.value)).element.title =
+    'Label the days axis: days, weeks, months, quarters or seasons, with the size, colour and font above. Shown even with "on" off.';
+  const acUnit = f.addBinding(ac, 'unit', {
+    label: 'across every',
+    options: [
+      { text: 'day', value: 'days' },
+      { text: 'week', value: 'weeks' },
+      { text: 'month', value: 'months' },
+      { text: 'quarter', value: 'quarters' },
+      { text: 'season (southern)', value: 'seasons' },
+    ],
+  });
+  const acEvery = f.addBinding(ac, 'every', { label: 'skip to every', min: 1, max: 60, step: 1 });
+  acEvery.element.title = 'Label every Nth one (e.g. every 3rd month, every 7th day)';
+  const dayText = f.addBinding(ac, 'dayText', {
+    label: 'day as',
+    options: [
+      { text: 'date (01 Feb)', value: 'date' },
+      { text: 'day number (32)', value: 'number' },
+    ],
+  });
+  const showAcross = () => {
+    dayText.hidden = ac.unit !== 'days';
+  };
+  acUnit.on('change', (ev) => {
+    showAcross();
+    // A day per label would crowd the row: start days at every 30th.
+    if (ev.value === 'days' && ac.every < 7) {
+      ac.every = 30;
+      ui.quiet(() => acEvery.refresh());
+      ui.send([
+        { path: ['labels', 'across', 'unit'], value: ev.value },
+        { path: ['labels', 'across', 'every'], value: 30 },
+      ]);
+    } else set('unit', ev.value);
+  });
+  acEvery.on('change', (ev) => set('every', Math.max(1, Math.round(ev.value))));
+  dayText.on('change', (ev) => set('dayText', ev.value));
+  showAcross();
+  f.addBinding(ac, 'side', {
+    label: 'across at',
+    options: [
+      { text: 'top (above the first year)', value: 'top' },
+      { text: 'bottom (below the last year)', value: 'bottom' },
+    ],
+  }).on('change', (ev) => set('side', ev.value)).element.title = 'Offset is the gap from the grid’s edge.';
+  f.addBinding(ac, 'lines', { label: 'division lines' }).on('change', (ev) => set('lines', ev.value)).element.title =
+    'A faint line down the whole calendar at the start of each labelled division';
 }
 
-/** A read-only note line in a folder. */
 /** "Axes & values" for an instancer (shared builder in axes-folder.ts), with the Bar chart preset. */
 function buildAxes(ui: LayerUi, parent: FolderApi, layer: InstancerLayer): void {
   const linear = layer.arrangement === 'linear';

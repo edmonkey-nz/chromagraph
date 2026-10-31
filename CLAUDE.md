@@ -157,24 +157,25 @@ mappable to MIDI/OSC.
   reflections and depth of field held 60 fps.
 - `README.md` has the start-up steps for the user; `FUTURE.md` is the user's wish list,
   with status notes.
-
-- The laptop likely has hybrid graphics. Chrome must run on the NVIDIA GPU, not the
-  integrated one. Check `chrome://gpu`. On Wayland the PRIME variables need
-  `--ozone-platform=x11`; see the README's GPU section. Log the renderer
-  string at start-up and warn in the control GUI if it is not NVIDIA.
+- The output logs its renderer string at start-up; the control window warns (banner) and shows
+  it in the header's GPU pill when it is not NVIDIA.
 - Installation mode: Chrome `--kiosk` on the projector display, screen blanking and
   notifications disabled, laptop on mains power.
 
 ## Build phases
 
 Status: phases 1–7 are done, plus the first round of FUTURE.md: save, Save As and
-snapshots; scenes with morphs; bloom and trails; and the redesigned control window. All seven layer types work: instancer, line, heat map, text,
-small multiples, hierarchy and 3D surface. Instancers and lines have cloners; lines have
+snapshots; scenes with morphs; bloom and trails; and the redesigned control window. Eleven
+layer types work: instancer, line, heat map, text, small multiples, hierarchy, 3D surface,
+reflection plane, QR code, density map and horizon chart. Instancers and lines have cloners; lines have
 area fill for ridgelines. Layers have transforms with gizmo editing; modulators and the
 timeline work; the keystone works. The second round of FUTURE.md added per-layer
 shadow, blur and fixed to screen, an isometric camera, box edges, reflection planes and
-camera depth of field.
-`FUTURE.md` lists what the user wants next.
+camera depth of field. The third (FUTURE.md item 29, schema v17–v24) added row filters, split,
+stacked and banded lines, line axes, the instancer x channel (scatter), density maps (flat and
+3D dots), horizon charts, the follow camera with its loop flight, and "treat as missing".
+`FUTURE.md` lists what the user wants next (29g histograms/box/violin and 29h parallel
+coordinates are still open).
 
 1. Server, project folders, two windows, state sync, reconnect behaviour.
 2. Data layer with tests against the rainfall fixture.
@@ -197,6 +198,18 @@ camera depth of field.
   single test.
 - `npm run typecheck` : TypeScript 7 (native `tsc`), strict, with `noUncheckedIndexedAccess`.
   Imports use explicit `.ts` extensions.
+- There is no linter configured.
+- The user keeps their own `npm run dev` on 8080 with real projects. For visual checks that patch
+  state, run a second server from a git worktree on a side port (`PORT=8097 npx tsx
+  src/server/index.ts`, its own `projects/` and `server-state.json`), and drive it with headless
+  Chromium; read-only screenshots of 8080 (`/output/?preview`, role `preview`) are fine. A
+  browser output can also be read with a ws client sending `{t:'hello', role:'preview'}`.
+  Headless Chromium defaults to SwiftShader: never quote its frame rates, and heavy projects
+  (200k boxes with effects) freeze it. Headless Chromium reaches the GTX 1650 with
+  `--use-angle=vulkan --enable-features=Vulkan --enable-gpu --ignore-gpu-blocklist` and the
+  env `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia` (`--use-angle=gl-egl` gives
+  the AMD iGPU). A ws control client must answer `{t:'ping'}` with `{t:'pong'}` or the server
+  drops it after about 15 s.
 
 ## Code map
 
@@ -221,10 +234,26 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
 `hello` first; the server ignores anything before it. Only control windows may patch.
 
 **Schema changes.** When `project.json` changes shape:
-1. Edit `ProjectSchema` and bump `CURRENT_VERSION`.
-2. Add a `migrations[n]` step.
-3. Save an example of the old version as `test/fixtures/projects/vN.json`. A test migrates
-   every fixture in that folder.
+1. Save an example of the current version first, as `test/fixtures/projects/vN.json` (copy a
+   real project saved at that version). A test migrates every fixture in that folder.
+2. Edit `ProjectSchema` and bump `CURRENT_VERSION`.
+3. Add a `migrations[n]` step (layers live in `layers` and in every scene's `layers`; the camera
+   in `camera` and every scene's `camera`).
+- A version not yet saved by any project (check `projects/*/project.json`) may still take more
+  fields in the same migration; once one is saved, bump again.
+- The user's `npm run dev` reloads on every save of server-imported code: write the schema and
+  its migration in one go, then check the server (see Commands).
+- `server/data-routes.ts` builds new dataset entries as a plain object that the compiler does
+  not check against `DatasetSchema`; add new dataset fields there too.
+
+**Adding a layer type.** `LAYER_TYPES` drives exhaustive `Record`s and switches, so
+`npm run typecheck` finds most places, but not all. The full list: schema, `LAYER_TYPES`, the
+`LayerSchema` union and a `blank…Layer` in `shared/layer-schema.ts`; the `KINDS` entry in
+`client/output/layer-manager.ts`; `LAYER_TYPE_TITLES` and `datasetSwitchChanges` in
+`shared/layer-helpers.ts`; `defaultLayerOfType` and `fitAnyLayer` in `shared/layer-defaults.ts`;
+a recipe in `shared/layer-random.ts`; `animateKind` in `shared/reveal.ts`; `layerDefs` in
+`shared/parameters.ts`; `TYPE_DESCRIPTIONS`, the build switch and `shapeKey` in
+`client/control/layers-panel.ts`; and `client/control/<type>-folders.ts`.
 
 **Data flow.**
 1. `POST /api/projects/:name/data` (`server/data-routes.ts`) writes the upload into `data/`
@@ -301,6 +330,17 @@ Message shapes and their runtime guards are in `shared/protocol.ts`. A client mu
   - The labels are a troika `BatchedText` child of the mesh, so the transform, effects and
     visible rows (data playhead) apply. Slot k shows candidate k·stride; at most 500.
   - `hidePoints` draws the labels alone.
+  - Year and decade labels go on each period's earliest row by t, not the first in file order
+    (newest-first files labelled each year at its last day). `labels.align` (schema v25, grid and
+    calendar only): 'point', or pinned to the row's 'start' / 'end' (past the last column: 366 days
+    or `gridColumns`), with `offset` then the gap from that edge. New layers pin to the start.
+  - `labels.across` (schema v27; `months` in v26, calendar only): the year's divisions along the
+    day axis, by `unit` (days as a date or day number, weeks W1..W53, months, quarters, southern
+    seasons with summer at both ends), every `every`-th, centred in its leap-year columns, `offset`
+    above the first year's row or below the last, optional faint lines at each labelled
+    division's start. Laid out by `data/calendar-across.ts` (pure, tested) over every dated row's
+    year index, and drawn by a second `AxesView` in the instancer, redrawn only when the labels
+    or a number in its key change. Shown whether or not the year labels are on.
 - **Axes and value labels** (`InstancerAxesSchema`, schema v15; the "Axes & values" folder).
   - `data/instance-axes.ts` (pure, tested) lays out line segments and texts in the layer's px
     space: value labels at each visible mark (above, inside at the top or middle, or at the
@@ -534,7 +574,10 @@ such as the hierarchy label cap or ungrouped rows, only reach the browser consol
   range ("rows from / to"), and "reveal": off, build up (a ramp on `rows.1` from "starts at" to
   "rows to") or window (also a ramp on `rows.0`, a width behind). There is no schema for it:
   `readReveal` reads the mode back from the modulators (anything else is "custom", left to
-  Motion effects), and `revealOps` writes the base range and the ramps together. Text layers
+  Motion effects), and `revealOps` writes the base range and the ramps together. "reverse"
+  (for files listed newest first) mirrors it, m(x) = start + end − x: build ramps `rows.0` down
+  from m(from) to "rows from" with no ramp on `rows.1`; window ramps both down. The direction is
+  read back from which end falls, so it has no schema field either. Text layers
   get "follow timeline" (a 0 -> 1 ramp on `row`). The layer's Timeline and Motion effects
   (its `ModulationPanel`) folders sit inside it.
 

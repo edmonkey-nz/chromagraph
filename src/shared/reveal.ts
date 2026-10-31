@@ -14,6 +14,11 @@ import type { Project } from './project-schema.ts';
  *           already show when the timeline starts)
  *   window  rows end ramps from -> end and rows start ramps (from - w) -> (end - w), so a
  *           window of width w slides through (the output clamps a start below 0)
+ * Reversed, rows arrive from the end back towards the start (for files that list the newest
+ * rows first). It is the mirror m(x) = start + end - x of the forward animation:
+ *   build   rows start ramps m(from) -> start (no ramp on rows end)
+ *   window  rows start ramps m(from) -> start and rows end m(from) + w -> start + w
+ * so the direction is read back from which end ramps, and which way.
  * Text layers, which show one row, can follow the timeline: `row` ramps 0 -> 1.
  * Anything else on those parameters (an LFO, keyframes, a switched-off ramp) reads as
  * 'custom' and is left alone; it is edited under Motion effects.
@@ -33,6 +38,8 @@ export interface Reveal {
   /** Window width, 0..1 of the rows (window mode). */
   width: number;
   easing: Easing;
+  /** Rows arrive from the end back towards the start (build and window). */
+  reverse: boolean;
 }
 
 export const MIN_ROWS_GAP = 0.001;
@@ -70,17 +77,32 @@ export function readReveal(project: Project, layer: LayerConfig): Reveal | null 
   const [base0, base1] = layer.rows;
   const p0 = project.parameters[`${layerParamPrefix(layer.id)}rows.0`];
   const p1 = project.parameters[`${layerParamPrefix(layer.id)}rows.1`];
-  const off: Reveal = { mode: 'off', start: base0, end: base1, from: base0, width: DEFAULT_WINDOW, easing: 'linear' };
+  const off: Reveal = { mode: 'off', start: base0, end: base1, from: base0, width: DEFAULT_WINDOW, easing: 'linear', reverse: false };
   if (!p0 && !p1) return off;
-  const r1 = rampOf(p1);
-  if (!r1 || r1.to < r1.from) return { ...off, mode: 'custom' };
-  if (!p0) return { mode: 'build', start: Math.min(base0, r1.from), end: r1.to, from: r1.from, width: DEFAULT_WINDOW, easing: r1.easing };
+  const custom: Reveal = { ...off, mode: 'custom' };
   const r0 = rampOf(p0);
+  const r1 = rampOf(p1);
+  // Reversed: rows start ramps down to the start.
+  if (r0 && r0.to < r0.from) {
+    const start = r0.to;
+    const end = Math.max(base1, r0.from);
+    // Mirrored back; snapped to the ends so float rounding doesn't show in the slider.
+    const m = start + end - r0.from;
+    const from = near(m, start) ? start : near(m, end) ? end : m;
+    if (!p1) return { mode: 'build', start, end, from, width: DEFAULT_WINDOW, easing: r0.easing, reverse: true };
+    const width = r1 ? r1.from - r0.from : 0;
+    if (r1 && r1.to < r1.from && r1.easing === r0.easing && width > 0 && near(r1.to - r0.to, width)) {
+      return { mode: 'window', start, end, from, width, easing: r0.easing, reverse: true };
+    }
+    return custom;
+  }
+  if (!r1 || r1.to < r1.from) return custom;
+  if (!p0) return { mode: 'build', start: Math.min(base0, r1.from), end: r1.to, from: r1.from, width: DEFAULT_WINDOW, easing: r1.easing, reverse: false };
   const width = r1.from - (r0?.from ?? 0);
   if (r0 && r0.easing === r1.easing && width > 0 && near(r1.to - r0.to, width)) {
-    return { mode: 'window', start: Math.min(base0, r1.from), end: r1.to, from: r1.from, width, easing: r1.easing };
+    return { mode: 'window', start: Math.min(base0, r1.from), end: r1.to, from: r1.from, width, easing: r1.easing, reverse: false };
   }
-  return { ...off, mode: 'custom' };
+  return custom;
 }
 
 /**
@@ -101,19 +123,31 @@ export function revealOps(project: Project, layerId: string, next: Reveal): Patc
   const ramp = (from: number, to: number): Parameter => ({ modulator: { kind: 'ramp', enabled: true, from, to, easing: next.easing } });
   const has0 = project.parameters[id0] !== undefined;
   const has1 = project.parameters[id1] !== undefined;
+  // The mirror of `from` for a reversed animation: where rows start when the timeline starts.
+  const mirror = start + end - from;
   switch (next.mode) {
     case 'off':
       if (has0) ops.push({ op: 'remove', path: paramPath(id0) });
       if (has1) ops.push({ op: 'remove', path: paramPath(id1) });
       break;
     case 'build':
-      if (has0) ops.push({ op: 'remove', path: paramPath(id0) });
-      ops.push({ op: 'set', path: paramPath(id1), value: ramp(from, end) });
+      if (next.reverse) {
+        if (has1) ops.push({ op: 'remove', path: paramPath(id1) });
+        ops.push({ op: 'set', path: paramPath(id0), value: ramp(mirror, start) });
+      } else {
+        if (has0) ops.push({ op: 'remove', path: paramPath(id0) });
+        ops.push({ op: 'set', path: paramPath(id1), value: ramp(from, end) });
+      }
       break;
     case 'window': {
       const w = Math.min(Math.max(Number.isFinite(next.width) ? next.width : DEFAULT_WINDOW, MIN_WINDOW), 1);
-      ops.push({ op: 'set', path: paramPath(id1), value: ramp(from, end) });
-      ops.push({ op: 'set', path: paramPath(id0), value: ramp(from - w, end - w) });
+      if (next.reverse) {
+        ops.push({ op: 'set', path: paramPath(id0), value: ramp(mirror, start) });
+        ops.push({ op: 'set', path: paramPath(id1), value: ramp(mirror + w, start + w) });
+      } else {
+        ops.push({ op: 'set', path: paramPath(id1), value: ramp(from, end) });
+        ops.push({ op: 'set', path: paramPath(id0), value: ramp(from - w, end - w) });
+      }
       break;
     }
     case 'custom':

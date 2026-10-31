@@ -13,8 +13,9 @@ import { MISSING_TEST } from './instance-data.ts';
 export const MAX_LABELS = 500;
 
 /**
- * Rows that get a label, in row order: the first row of each calendar year or decade (rows
- * with a missing time are skipped), or every `rows`-th row with a defined t.
+ * Rows that get a label, in row order: the earliest row (by t) of each calendar year or decade,
+ * whatever order the file lists them in (rows with a missing time are skipped), or every
+ * `rows`-th row with a defined t.
  */
 export function labelRows(labels: Pick<InstancerLabels, 'every' | 'rows'>, t: Float32Array, calendar: CalendarFields | null): Int32Array {
   const out: number[] = [];
@@ -24,15 +25,18 @@ export function labelRows(labels: Pick<InstancerLabels, 'every' | 'rows'>, t: Fl
     return Int32Array.from(out);
   }
   if (!calendar) return new Int32Array(0);
-  let previous = NaN;
+  // Earliest row per year (or decade): a newest-first file would otherwise label each period at
+  // its last day.
+  const earliest = new Map<number, number>();
   for (let i = 0; i < t.length; i++) {
     const y = calendar.year[i]!;
     if (Number.isNaN(y) || !(t[i]! > MISSING_TEST)) continue;
     const key = labels.every === 'decade' ? Math.floor(y / 10) : y;
-    if (key !== previous) out.push(i);
-    previous = key;
+    const at = earliest.get(key);
+    if (at === undefined || t[i]! < t[at]!) earliest.set(key, i);
   }
-  return Int32Array.from(out);
+  for (const row of earliest.values()) out.push(row);
+  return Int32Array.from(out.sort((a, b) => a - b));
 }
 
 /** Compact number text: whole numbers for big values, a few decimals for small ones. */
@@ -111,7 +115,10 @@ export function emptyPlacement(): LabelPlacement {
 type Layout = Pick<
   InstancerLayer,
   'arrangement' | 'origin' | 'step' | 'gridColumns' | 'cell' | 'radius' | 'angleStep' | 'radiusStep'
-> & { labels: Pick<InstancerLabels, 'offset' | 'orientation'> };
+> & { labels: Pick<InstancerLabels, 'offset' | 'orientation'> & Partial<Pick<InstancerLabels, 'align'>> };
+
+/** Calendar columns (days of a leap year): a row's end, for labels pinned to it. */
+const CALENDAR_DAYS = 366;
 
 /** A rotation that keeps text readable: turned half round when it would read upside down. */
 function readable(angle: number): { rotation: number; flipped: boolean } {
@@ -157,11 +164,18 @@ export function placeLabel(l: Layout, t: number, yearIndex: number, dayOfYear: n
     }
     case 'grid':
     case 'calendar': {
-      const col = l.arrangement === 'grid' ? t - Math.floor(t / Math.max(1, l.gridColumns)) * Math.max(1, l.gridColumns) : dayOfYear;
-      const line = l.arrangement === 'grid' ? Math.floor(t / Math.max(1, l.gridColumns)) : yearIndex;
-      // Left of the cell: for calendar year labels that is the start of the year's row.
-      out.x = ox + col * l.cell[0] - offset;
+      const columns = l.arrangement === 'grid' ? Math.max(1, l.gridColumns) : CALENDAR_DAYS;
+      const line = l.arrangement === 'grid' ? Math.floor(t / columns) : yearIndex;
       out.y = oy - line * l.cell[1];
+      if (l.labels.align === 'end') {
+        // Pinned past the row's last column; a positive offset moves it further right.
+        out.x = ox + columns * l.cell[0] + offset;
+        out.anchorX = offset >= 0 ? 'left' : 'right';
+        return out;
+      }
+      // Left of the cell (or of the row's first column when pinned to its start).
+      const col = l.labels.align === 'start' ? 0 : l.arrangement === 'grid' ? t - line * columns : dayOfYear;
+      out.x = ox + col * l.cell[0] - offset;
       out.anchorX = offset >= 0 ? 'right' : 'left';
       return out;
     }

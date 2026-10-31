@@ -1,5 +1,6 @@
 {
   "name": "chromagraph",
+  "license": "MIT",
   "scripts": {
     "test": "vitest run",
     "dev": "tsx watch --clear-screen=false --ignore 'projects/**' --ignore 'src/client/**' src/server/index.ts",

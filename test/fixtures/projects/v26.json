@@ -1,0 +1,572 @@
+{
+  "version": 26,
+  "name": "ozone",
+  "datasets": [
+    {
+      "id": "ds-cd53w4",
+      "file": "atmospheric-ozone-state-1979-2022 (2).csv",
+      "label": "atmospheric-ozone-state-1979-2022 (2)",
+      "timeZone": "Pacific/Auckland",
+      "source": "This indicator measures the thickness of total column ozone in Dobson Units (DU) observed above Lauder, Otago, by day of year from 1979 to 2022.",
+      "url": "https://data.mfe.govt.nz/table/115311-atmospheric-ozone-state-1979-2022/",
+      "attribution": "MfE CC-BY4.0",
+      "missing": [
+        "NA"
+      ]
+    }
+  ],
+  "layers": [
+    {
+      "id": "ly-j77xp8eh",
+      "name": "Layer 1",
+      "enabled": true,
+      "datasetId": "ds-cd53w4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          -90,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": false,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "instancer",
+      "primitive": "box",
+      "xMode": "time",
+      "timeColumn": "date",
+      "rows": [
+        0,
+        1
+      ],
+      "followRange": false,
+      "arrangement": "calendar",
+      "origin": [
+        60,
+        1009.5652173913044,
+        0
+      ],
+      "step": [
+        0.11106312087369655,
+        0,
+        0
+      ],
+      "gridColumns": 100,
+      "cell": [
+        4.918032786885246,
+        20.869565217391305
+      ],
+      "radius": 100,
+      "angleStep": 1,
+      "radiusStep": 0.01,
+      "size": [
+        4.918032786885246,
+        20.869565217391305,
+        20.869565217391305
+      ],
+      "heightAxis": "z",
+      "colour": "#e8e8e8",
+      "cloner": {
+        "count": 1,
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          0,
+          0,
+          0
+        ],
+        "orbit": [
+          0,
+          0,
+          0
+        ],
+        "fade": 1,
+        "dataStep": 0,
+        "colourByClone": false
+      },
+      "labels": {
+        "enabled": true,
+        "every": "year",
+        "rows": 365,
+        "text": "date",
+        "column": null,
+        "size": 26,
+        "offset": 16,
+        "orientation": "upright",
+        "align": "start",
+        "colour": "#e8e8e8",
+        "hidePoints": false,
+        "font": "terminal",
+        "uppercase": true,
+        "months": {
+          "enabled": true,
+          "side": "top",
+          "gridlines": false
+        }
+      },
+      "edges": {
+        "enabled": false,
+        "colour": "#ff3030",
+        "width": 2,
+        "faceOpacity": 1,
+        "glow": 0
+      },
+      "axes": {
+        "colour": "#9aa0a6",
+        "lineWidth": 2,
+        "font": "terminal",
+        "uppercase": false,
+        "span": "full",
+        "values": {
+          "enabled": false,
+          "column": "date",
+          "place": "above",
+          "size": 28,
+          "colour": "#e8e8e8",
+          "gap": 8,
+          "decimals": -1,
+          "prefix": "",
+          "suffix": ""
+        },
+        "x": {
+          "enabled": false,
+          "line": false,
+          "column": null,
+          "every": 55,
+          "size": 119,
+          "colour": "#c8ccd2",
+          "angle": -15,
+          "gap": 10,
+          "title": ""
+        },
+        "y": {
+          "enabled": false,
+          "line": false,
+          "ticks": 5,
+          "grid": false,
+          "gridOpacity": 0.25,
+          "side": "left",
+          "size": 24,
+          "colour": "#c8ccd2",
+          "decimals": -1,
+          "suffix": "",
+          "title": ""
+        }
+      },
+      "channels": {
+        "x": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            1600
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "y": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "z": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            300
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "height": {
+          "column": "total_column_ozone",
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            2,
+            160
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "size": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.5,
+            2
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "rotation": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0,
+            360
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "opacity": {
+          "column": null,
+          "scale": "linear",
+          "domain": null,
+          "range": [
+            0.1,
+            1
+          ],
+          "steps": 5,
+          "clamp": true
+        },
+        "colour": {
+          "column": "total_column_ozone",
+          "scale": "linear",
+          "domain": null,
+          "ramp": "turbo",
+          "reverse": false,
+          "steps": 5
+        }
+      }
+    },
+    {
+      "id": "ly-e87w4v46",
+      "name": "Layer 2",
+      "enabled": true,
+      "datasetId": "ds-cd53w4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": false,
+          "strength": 0.8,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": true,
+          "persistence": 0.85
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": false,
+      "type": "density",
+      "xColumn": "date",
+      "yColumn": "total_column_ozone",
+      "xDomain": null,
+      "yDomain": null,
+      "rows": [
+        0,
+        1
+      ],
+      "origin": [
+        120,
+        120,
+        0
+      ],
+      "size": [
+        1680,
+        840
+      ],
+      "bins": [
+        320,
+        160
+      ],
+      "radius": 1.5,
+      "scale": "linear",
+      "domain": null,
+      "ramp": "turbo",
+      "reverse": false,
+      "steps": 5,
+      "threshold": 0.02,
+      "mode": "dots",
+      "zColumn": null,
+      "zDomain": null,
+      "binsZ": 48,
+      "depth": 1457,
+      "dotSize": 8,
+      "jitter": 0.13000000000000003
+    },
+    {
+      "id": "ly-w2pyxpel",
+      "name": "Layer 3",
+      "enabled": true,
+      "datasetId": "ds-cd53w4",
+      "filter": [],
+      "opacity": 1,
+      "blend": "normal",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "pivot": [
+          960,
+          540,
+          0
+        ]
+      },
+      "effects": {
+        "glow": {
+          "enabled": true,
+          "strength": 0.38,
+          "radius": 0.4,
+          "threshold": 0.2
+        },
+        "trails": {
+          "enabled": true,
+          "persistence": 0.99
+        },
+        "shadow": {
+          "enabled": false,
+          "colour": "#000000",
+          "opacity": 0.6,
+          "spread": 8,
+          "offset": [
+            6,
+            -6
+          ]
+        },
+        "blur": {
+          "enabled": false,
+          "amount": 4
+        }
+      },
+      "timeline": {
+        "own": false,
+        "duration": 600,
+        "loop": true,
+        "playback": "forward"
+      },
+      "screenFixed": true,
+      "type": "text",
+      "text": "Thickness of total column ozone in Dobson Units (DU) observed above Lauder, Otago, by day of year from 1979 to 2022. \nsource: MFE CCBY4.0",
+      "row": 0,
+      "position": [
+        60,
+        1020,
+        0
+      ],
+      "fontSize": 32,
+      "colour": "#ffffff",
+      "align": "left",
+      "anchorX": "left",
+      "anchorY": "top",
+      "maxWidth": 624,
+      "lineHeight": 1.2,
+      "letterSpacing": 0,
+      "outlineWidth": 0,
+      "outlineColour": "#000000",
+      "font": "terminal",
+      "uppercase": true
+    }
+  ],
+  "parameters": {
+    "camera.yaw": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "saw",
+        "period": 90,
+        "phase": 0.5,
+        "amount": 180
+      }
+    },
+    "camera.pitch": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "sine",
+        "period": 30,
+        "phase": 0,
+        "amount": 20
+      }
+    },
+    "camera.distance": {
+      "modulator": {
+        "kind": "lfo",
+        "enabled": true,
+        "shape": "sine",
+        "period": 22.5,
+        "phase": 0,
+        "amount": 0.3
+      }
+    },
+    "layer.ly-j77xp8eh.rows.0": {
+      "modulator": {
+        "kind": "ramp",
+        "enabled": true,
+        "from": 1,
+        "to": 0,
+        "easing": "linear"
+      }
+    }
+  },
+  "timeline": {
+    "duration": 600,
+    "loop": true,
+    "playback": "forward",
+    "fadeIn": false,
+    "fadeOut": false,
+    "fadeLength": 1,
+    "gap": 0
+  },
+  "camera": {
+    "mode": "3d",
+    "fov": 45,
+    "yaw": 45,
+    "pitch": 35.26,
+    "distance": 1.2,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "projection": "isometric",
+    "dof": {
+      "enabled": false,
+      "focus": 0,
+      "depth": 200,
+      "amount": 12
+    },
+    "follow": {
+      "enabled": false,
+      "layerId": null,
+      "smoothing": 0.6,
+      "height": 0.5,
+      "lead": 0,
+      "loop": true,
+      "loopSeconds": 6,
+      "loopTurns": 1
+    }
+  },
+  "output": {
+    "background": "#000000"
+  },
+  "scenes": [],
+  "transition": {
+    "duration": 2,
+    "easing": "smooth"
+  }
+}

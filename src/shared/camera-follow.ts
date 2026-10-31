@@ -114,8 +114,8 @@ export function followPathOps(project: Project, lineId: string, newId: string): 
   ];
   // The path shows its whole range; the copy builds up over it. (Ops address the synced document.)
   const after = (list: PatchOp[]): Project => applyOps({ project }, list).project;
-  ops.push(...revealOps(after(ops), lineId, { mode: 'off', start, end, from: start, width: 0.1, easing: 'linear' }));
-  ops.push(...revealOps(after(ops), newId, { mode: 'build', start, end, from: start, width: 0.1, easing: was?.mode === 'build' ? was.easing : 'linear' }));
+  ops.push(...revealOps(after(ops), lineId, { mode: 'off', start, end, from: start, width: 0.1, easing: 'linear', reverse: false }));
+  ops.push(...revealOps(after(ops), newId, { mode: 'build', start, end, from: start, width: 0.1, easing: was?.mode === 'build' ? was.easing : 'linear', reverse: false }));
   const set = (path: (string | number)[], value: unknown): PatchOp => ({ op: 'set', path: ['project', 'camera', ...path], value });
   ops.push(set(['follow', 'layerId'], newId), set(['follow', 'enabled'], true));
   if (project.camera.mode === '2d') {

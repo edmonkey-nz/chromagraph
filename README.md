@@ -1,3 +1,8 @@
+![status](https://img.shields.io/badge/status-pre--release-orange)
+![platform](https://img.shields.io/badge/platform-Ubuntu-informational)
+![browser](https://img.shields.io/badge/browser-Chrome%20(WebGL2)-important)
+[![node](https://img.shields.io/badge/node-22.12%2B-blue?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 ![ai-code](https://img.shields.io/badge/AI%20coded-YES-orange)
 
 # chromagraph
@@ -5,6 +10,12 @@
 A realtime data-visualisation instrument. It loads CSV/JSON files, maps their columns onto
 2D and 3D layers, and plays the result live to a projector or screen at 1920×1080. Use it
 to explore data at a desk, or to run unattended installations for hours.
+
+Interface
+![interface](docs/images/interface.jpg)
+
+Output window
+![NZ ozone](docs/images/ozone1.jpg)
 
 ## What you need
 
@@ -23,7 +34,7 @@ to explore data at a desk, or to run unattended installations for hours.
 ## Install and start
 
 ```bash
-git clone <this repository> chromagraph
+git clone https://github.com/edmonkey-nz/chromagraph.git
 cd chromagraph
 npm install
 npm run dev
@@ -40,14 +51,17 @@ The output is a second window, at **http://127.0.0.1:8080/output**:
   press **f** for full screen.
 
 The server reopens the last project, and the output boots straight into it, even with no
-control window open. Stop the server with **Ctrl+C**. Use `PORT=9000 npm run dev` for
-another port.
+control window open. Choosing another project from the list starts its timeline from zero.
+Stop the server with **Ctrl+C**. Use `PORT=9000 npm run dev` for another port.
 
 ## Check the graphics card (before a show)
 
-The control window's **Output windows** tab shows which GPU the output is rendering on,
-and so does `chrome://gpu` ("GL_RENDERER"). On a laptop with two GPUs, make sure Chrome
-uses the dedicated one:
+The **GPU** pill at the top right of the control window shows which graphics card the
+output is rendering on: green for NVIDIA, amber for another GPU, red for software
+rendering. Hover over it for the full renderer name. With no output open, it shows the
+preview's. `chrome://gpu` ("GL_RENDERER") tells you the same.
+
+On a laptop with two GPUs, make sure Chrome uses the dedicated one:
 
 - **Windows:** Settings → System → Display → Graphics → add Chrome → **High performance**.
 - **macOS:** usually automatic. If not, turn off automatic graphics switching (System
@@ -61,8 +75,8 @@ uses the dedicated one:
   google-chrome --ozone-platform=x11 --kiosk http://127.0.0.1:8080/output/
   ```
 
-The warning banner in the control window currently checks for an NVIDIA GPU, so it also
-shows on machines with a dedicated AMD or Intel card. Check the renderer name instead.
+The warning banner and the amber pill currently mean "not NVIDIA", so they also show on
+machines with a dedicated AMD or Intel card. Check the renderer name instead.
 
 ## Installations
 
@@ -80,6 +94,26 @@ npm run build && npm start
 - Calibrate the projector in **Scene → Calibration** (four-corner keystone with a test
   pattern). Calibration is saved per venue in `output-profiles/`, separate from projects.
 
+## Your data
+
+- **Import** CSV, TSV or JSON (an array of records, or an object of column arrays) in the
+  **Datasets** tab. Files up to
+  about 2 MB (50,000–100,000 rows) work well. The file is copied into the project and
+  never changed.
+- Each column is read as numbers, times, categories or text. Empty cells stay missing:
+  nothing is filled in or smoothed unless a layer asks for it, and gaps in time stay
+  visible.
+- **Treat as missing:** if a file writes "NA", "-" or similar for no value, list those
+  markers on the dataset, and the column reads as numbers again. When a mostly-numeric
+  column has a few odd texts, the Datasets tab offers them with a one-click fix.
+- **View rows** opens the table: sort by any column, or jump to a row. Problems in a file
+  are listed per file, with row numbers.
+- Times are kept in UTC and shown in each dataset's timezone (Pacific/Auckland by default).
+- Give each dataset a source, link and attribution, for credits and QR codes.
+- **Filters:** a layer can keep only the rows whose category is one of the values you tick
+  (for example, Sex: Male). Each layer has its own filter on its own dataset; datasets are
+  never joined.
+
 ## Saving your work
 
 - **Autosave:** every change is saved within half a second, safely (a crash mid-save never
@@ -93,14 +127,28 @@ npm run build && npm start
 
 **Layers**, stacked in order like an editing timeline:
 - **Instancer:** points, squares, bars, boxes or spheres in linear, grid, calendar, radial
-  or spiral layouts, with a cloner, labels along the layout, and edge styles for boxes.
-- **Line:** line charts (with weekly, monthly or yearly averaging), ridgelines with fill.
-- **Heat map**, **small multiples**, **hierarchy** (dendrogram, sunburst, treemap…) and
-  **3D surface**.
+  or spiral layouts. Map a column to x as well as y for scatter plots. It has a cloner,
+  edge styles for boxes, and labels along the layout (years, decades, every N rows). Grid
+  and calendar labels can sit at their point or be pinned to either side of the row. A
+  calendar can also label the days axis with days, weeks, months, quarters or seasons, with
+  faint division lines.
+  **Axes & values** add value labels on each mark, a category axis and a value axis with
+  gridlines. The **Bar chart** preset sets one up in a click.
+- **Line:** line charts with weekly, monthly or yearly averaging (or every N rows), and
+  ridgelines with fill. **Split** draws one line per category, each in its own colour and
+  named at its tip, or **stacks** them into a stacked area or streamgraph. A **min–max
+  band** shades each period's range behind its average. Lines have the same axes and
+  value labels. The **Line chart (aggregated)** entry in Add layer sets one up.
+- **Density map:** where the rows cluster, counted into a smoothed colour map, or shown as
+  3D clouds of dots (with a third column for depth). Good for 100,000 points that would
+  otherwise be a blur.
+- **Horizon chart:** many series stacked as thin strips, each folded into bands of colour,
+  so long records fit in little height.
+- **Heat map** (including a year × day calendar), **small multiples**, **hierarchy**
+  (dendrogram, sunburst, treemap…) and **3D surface**.
 - **Text:** words, or live values from the data at the playhead. Numbers and dates keep the
-  file's formatting, so text doesn't jump. Give each dataset a source, link and attribution
-  in the Datasets tab, then press **Insert credit** on a text layer (or type `{@credit}`,
-  `{@source}`, `{@url}` or `{@attribution}`) to show them.
+  file's formatting, so text doesn't jump. Press **Insert credit** on a text layer (or type
+  `{@credit}`, `{@source}`, `{@url}` or `{@attribution}`) to show a dataset's credits.
 - **Reflection plane:** a mirror floor for 3D scenes.
 - **QR code:** a scannable "more info" link, typed in or taken from the dataset's link.
   Dark on light scans best; keep the margin at 4 and, on a wall, make it at least about
@@ -113,21 +161,28 @@ log, sqrt or stepped scales and colour ramps.
 - Modulators (LFO, noise, ramp, keyframes) on almost any number, on a looping timeline
   from seconds to 24 hours. It plays forward, in reverse or ping-pong, with optional fades
   and a gap before each restart.
-- Each layer's **Animate** folder reveals a record over time (build up, or a sliding
-  window), with its other motion effects underneath. Layers can run on their own timelines.
+- Each layer's **Animate** folder reveals a record over time: build up, or a sliding
+  window. **Reverse** plays it from the end of the file back to the start, for files that
+  list the newest rows first. Its other motion effects sit underneath. Layers can run on
+  their own timelines.
 - The **Timeline** tab shows every animated value as a lane you can edit.
 - **Scenes:** capture looks and morph between them (0.1–10 s).
+- **Randomise** a layer's look (or its columns too), and step back through the last ten.
 
-**Camera:** 2D, 3D perspective or isometric. Motion presets (orbit, swing, zoom, drift…),
-and depth of field with an animatable focus.
+**Camera:** 2D, 3D perspective or isometric. Motion presets (orbit, swing, zoom, drift…)
+with their own play, pause and speed, and depth of field with an animatable focus.
+**Follow** keeps the camera on a line's newest point as it plots, like driving along a
+road. **Follow path** shows the whole route ahead, dimmed, while the line draws over it,
+and a **loop flight** circles back to the start when the line restarts.
 
 **Look:** per-layer glow, motion trails, drop shadow and blur. **Fixed to screen** keeps
-titles still while the 3D camera moves.
+titles still while the 3D camera moves. Text uses VT323, a 1970s terminal face, or a sans.
 
 **Control window:** the live preview (with move/rotate/scale editing and camera orbit),
 the timeline strip and the camera on the left; tabs for Scene, Datasets, Layers and
 Timeline on the right; output windows, diagnostics, problems and the log in a drawer at
-the bottom. The **?** next to the title shows ABOUT.md.
+the bottom. The header has the project list, save and snapshots, the output buttons, and
+the server, output and GPU pills. The **?** next to the title shows ABOUT.md.
 
 ## Development
 
@@ -137,4 +192,9 @@ wish list.
 ```bash
 npm test            # Vitest (pure Node, no GPU)
 npm run typecheck   # TypeScript 7, strict
+npm run build       # production bundle
 ```
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). The bundled VT323 font is under the SIL Open Font Licence.

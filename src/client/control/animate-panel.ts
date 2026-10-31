@@ -49,6 +49,7 @@ export class AnimatePanel {
     mode: 'off' as RevealMode,
     width: 0.1,
     easing: 'linear' as Reveal['easing'],
+    reverse: false,
     takes: '',
     span: 'full' as 'visible' | 'full',
     follow: false,
@@ -59,6 +60,7 @@ export class AnimatePanel {
   /** The mode as last shown (read back or sent), before the list changed it. */
   private shownMode: RevealMode = 'off';
   private fromApi: BindingApi | null = null;
+  private reverseApi: BindingApi | null = null;
   private widthApi: BindingApi | null = null;
   private easingApi: BindingApi | null = null;
   private takesApi: BindingApi | null = null;
@@ -90,7 +92,9 @@ export class AnimatePanel {
   /** The folder's title: "Animate", plus what it is doing. */
   title(): string {
     if (!this.rowsKind) return this.m.follow ? 'Animate · follow' : 'Animate';
-    return this.m.mode === 'off' ? 'Animate' : `Animate · ${MODE_TITLE[this.m.mode]}`;
+    if (this.m.mode === 'off') return 'Animate';
+    const reversed = this.m.reverse && (this.m.mode === 'build' || this.m.mode === 'window');
+    return `Animate · ${MODE_TITLE[this.m.mode]}${reversed ? ', reversed' : ''}`;
   }
 
   private layer(doc: SyncDoc): LayerConfig | undefined {
@@ -108,6 +112,7 @@ export class AnimatePanel {
       this.m.mode = r.mode;
       if (r.mode === 'window') this.m.width = r.width;
       this.m.easing = r.easing;
+      if (r.mode !== 'custom') this.m.reverse = r.reverse;
     }
     if (layer.type === 'instancer') this.m.span = layer.axes.span;
     if (layer.type === 'text') this.m.follow = readFollow(doc.project, layer.id) !== false;
@@ -119,6 +124,7 @@ export class AnimatePanel {
     if (layer) this.m.takes = takesText(doc, layer);
     const animated = this.m.mode === 'build' || this.m.mode === 'window';
     if (this.fromApi) this.fromApi.hidden = !animated;
+    if (this.reverseApi) this.reverseApi.hidden = !animated;
     if (this.widthApi) this.widthApi.hidden = this.m.mode !== 'window';
     if (this.easingApi) this.easingApi.hidden = !animated;
     if (this.spanApi) {
@@ -198,9 +204,18 @@ export class AnimatePanel {
       const doc = this.deps.getDoc();
       if (doc) this.show(doc);
     });
+    this.reverseApi = this.add(
+      f.addBinding(m, 'reverse', { label: 'reverse' }),
+      'Rows arrive from "rows to" back towards "rows from": the end of the file first. Use it when a file lists the newest rows first.',
+    );
+    this.reverseApi.on('change', () => {
+      if (this.quietDepth > 0) return;
+      this.sendReveal();
+      this.folder.title = this.title();
+    });
     this.fromApi = this.add(
       f.addBinding(m, 'from', { label: 'starts at', min: 0, max: 1, step: 0.001 }),
-      'Where the rows end when the timeline starts: the rows from "rows from" up to here already show, and the rest arrive. Set it to "rows from" to start with nothing.',
+      'How far the animation has got when the timeline starts: the rows from "rows from" up to here already show, and the rest arrive (reversed: the same share, counted from "rows to"). Set it to "rows from" to start with nothing.',
     );
     this.fromApi.on('change', () => {
       if (this.quietDepth > 0) return;
@@ -264,8 +279,8 @@ export class AnimatePanel {
     if (this.quietDepth > 0) return;
     const doc = this.deps.getDoc();
     if (!doc) return;
-    const { start, end, from, mode, width, easing } = this.m;
-    this.send(revealOps(doc.project, this.layerId, { start, end, from, mode, width, easing }), 'Animation');
+    const { start, end, from, mode, width, easing, reverse } = this.m;
+    this.send(revealOps(doc.project, this.layerId, { start, end, from, mode, width, easing, reverse }), 'Animation');
   }
 
   /** Validate against the project schema locally, then send; on failure, report and read back. */

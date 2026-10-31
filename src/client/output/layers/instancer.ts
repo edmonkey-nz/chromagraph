@@ -34,6 +34,7 @@ import {
 } from '../../../data/instance-data.ts';
 import { layoutAxes } from '../../../data/instance-axes.ts';
 import { AxesView } from './axes-view.ts';
+import { layoutAcross, yearIndexRange } from '../../../data/calendar-across.ts';
 import { DateLabels, emptyPlacement, labelRows, labelText, placeLabel, visibleLabels } from '../../../data/instance-labels.ts';
 import type { ColourMapping, InstancerAxes, InstancerLayer, Mapping, Primitive, ScaleType } from '../../../shared/layer-schema.ts';
 import { displayText, fontUrl } from '../fonts.ts';
@@ -676,6 +677,37 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
     mesh.name = next.name;
     applyLabels(next, first, last, visible, tStart);
     applyAxes(next, first, last, tStart);
+    applyAcross(next);
+  }
+
+  // ---- calendar labels across the days (data/calendar-across.ts), over every dated row ----
+  const acrossView = new AxesView(mesh);
+  const acrossYears = yearIndexRange(data.yearIndex);
+  const acrossKey = new Float64Array(7);
+  const acrossSeen = new Float64Array(7).fill(Number.NaN);
+  let acrossFor: InstancerLayer['labels'] | null = null;
+
+  function applyAcross(next: InstancerLayer): void {
+    const L = next.labels;
+    if (!L.across.enabled || next.arrangement !== 'calendar') {
+      acrossView.hide();
+      acrossFor = null;
+      return;
+    }
+    // Modulated configs are scratch copies written in place, so compare numbers, not references.
+    acrossKey[0] = next.origin[0];
+    acrossKey[1] = next.origin[1];
+    acrossKey[2] = next.origin[2];
+    acrossKey[3] = next.cell[0];
+    acrossKey[4] = next.cell[1];
+    acrossKey[5] = next.opacity;
+    acrossKey[6] = L.offset;
+    let same = L === acrossFor;
+    for (let i = 0; same && i < acrossKey.length; i++) same = acrossKey[i] === acrossSeen[i];
+    if (same) return;
+    acrossFor = L;
+    acrossSeen.set(acrossKey);
+    acrossView.draw(layoutAcross(next, acrossYears), L, next.opacity);
   }
 
   // ---- labels at points of the arrangement (data/instance-labels.ts) ----
@@ -921,6 +953,7 @@ export function createInstancer(layer: InstancerLayer, source: InstancerData, ca
       labelBatch.dispose();
       labelMaterial.dispose();
       axesView.dispose();
+      acrossView.dispose();
     },
   };
 }

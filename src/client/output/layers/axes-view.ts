@@ -39,7 +39,7 @@ export class AxesView {
     this.batch.visible = false;
   }
 
-  draw(layout: AxesLayout, axes: InstancerAxes, opacity: number): void {
+  draw(layout: AxesLayout, axes: Pick<InstancerAxes, 'font' | 'uppercase'>, opacity: number): void {
     this.buildLines(layout.segments, opacity);
     // Keys that went away free their text (cleared, so nothing stale shows when it is reused).
     const keep = new Set<string>();

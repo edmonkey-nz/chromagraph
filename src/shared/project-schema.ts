@@ -9,7 +9,7 @@ export { LayerSchema, type LayerConfig } from './layer-schema.ts';
  * project.json schema. Bump CURRENT_VERSION and add an entry to `migrations` whenever the
  * persisted shape changes. Migrations are pure functions from version N to N + 1.
  */
-export const CURRENT_VERSION = 24;
+export const CURRENT_VERSION = 27;
 
 
 export const DatasetSchema = z.object({
@@ -330,6 +330,48 @@ export const migrations: Record<number, Migration> = {
   23: (doc) => {
     const datasets = Array.isArray(doc.datasets) ? (doc.datasets as Doc[]) : doc.datasets;
     return { ...doc, datasets: Array.isArray(datasets) ? datasets.map((d) => (d && d.missing === undefined ? { ...d, missing: [] } : d)) : datasets };
+  },
+  // v25: instancer labels get `align`; existing ones stay at their row's first point.
+  24: (doc) => {
+    const withAlign = (layers: unknown): unknown =>
+      Array.isArray(layers)
+        ? layers.map((l: Doc) => {
+            const labels = l?.labels as Doc | undefined;
+            return l?.type === 'instancer' && labels && labels.align === undefined ? { ...l, labels: { ...labels, align: 'point' } } : l;
+          })
+        : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withAlign(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withAlign(sc.layers) })) };
+  },
+  // v26: instancer labels get calendar month names, off.
+  25: (doc) => {
+    const withMonths = (layers: unknown): unknown =>
+      Array.isArray(layers)
+        ? layers.map((l: Doc) => {
+            const labels = l?.labels as Doc | undefined;
+            return l?.type === 'instancer' && labels && labels.months === undefined
+              ? { ...l, labels: { ...labels, months: { enabled: false, side: 'top', gridlines: false } } }
+              : l;
+          })
+        : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withMonths(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withMonths(sc.layers) })) };
+  },
+  // v27: calendar `months` becomes `across`, a choice of unit (months keeps what v26 drew).
+  26: (doc) => {
+    const withAcross = (layers: unknown): unknown =>
+      Array.isArray(layers)
+        ? layers.map((l: Doc) => {
+            const labels = l?.labels as Doc | undefined;
+            if (l?.type !== 'instancer' || !labels || labels.across !== undefined) return l;
+            const { months, ...rest } = labels;
+            const m = (months ?? {}) as Doc;
+            const across = { enabled: m.enabled === true, unit: 'months', every: 1, dayText: 'date', side: m.side === 'bottom' ? 'bottom' : 'top', lines: m.gridlines === true };
+            return { ...l, labels: { ...rest, across } };
+          })
+        : layers;
+    const scenes = Array.isArray(doc.scenes) ? (doc.scenes as Doc[]) : [];
+    return { ...doc, layers: withAcross(doc.layers), scenes: scenes.map((sc) => ({ ...sc, layers: withAcross(sc.layers) })) };
   },
   // v2: orbit camera replaces position/target; layers became typed (v1 never had any).
   1: (doc) => {

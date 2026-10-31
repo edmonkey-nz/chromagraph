@@ -264,6 +264,17 @@ export type LayerBase = z.infer<typeof LayerBaseSchema>;
 export const LABEL_EVERY = ['year', 'decade', 'rows'] as const;
 export const LABEL_TEXTS = ['date', 'value'] as const;
 export const LABEL_ORIENTATIONS = ['along', 'outward', 'upright'] as const;
+/**
+ * Where a grid or calendar label sits along its row (schema v25): at its row's first point, or
+ * pinned to the row's start (left edge) or end (right edge, past the last column), so year and
+ * decade labels line up whatever days the data has. Other arrangements always use the point.
+ */
+export const LABEL_ALIGNS = ['point', 'start', 'end'] as const;
+/** Where a calendar's across labels go (schema v26): above its first year's row or below its last. */
+export const ACROSS_SIDES = ['top', 'bottom'] as const;
+/** Divisions of the year labelled across a calendar (schema v27); seasons are southern hemisphere. */
+export const ACROSS_UNITS = ['days', 'weeks', 'months', 'quarters', 'seasons'] as const;
+export const ACROSS_DAY_TEXTS = ['date', 'number'] as const;
 
 /**
  * Text labels at points of an instancer's own arrangement (so they follow a spiral, ring,
@@ -277,6 +288,14 @@ export const LABEL_ORIENTATIONS = ['along', 'outward', 'upright'] as const;
  *                radius), or 'upright'; text is flipped so it never reads upside down
  * Labels belong to the original points only (not cloner copies) and ignore the y/z
  * channels. `hidePoints` draws the labels alone (for a labels-only copy of a layer). At most 500 are drawn: beyond that, every k-th label is shown.
+ *   across       calendar arrangement only (schema v27, was `months` in v26): the year's
+ *                divisions along the day axis, `unit` days, weeks (W1..W53), months, quarters
+ *                (Q1..Q4) or seasons (southern hemisphere; summer is labelled at both ends),
+ *                every `every`-th one, each centred in its columns (leap-year days, as the
+ *                cells). Days read as a date ("01 Feb") or a day number. `offset` px above the
+ *                first year's row or below the last; `lines` draws a faint line down the grid
+ *                at the start of each labelled division. Same size, colour, font and case as
+ *                the labels, and shown whether or not `enabled` is on.
  */
 export const InstancerLabelsSchema = z.object({
   enabled: z.boolean(),
@@ -288,16 +307,25 @@ export const InstancerLabelsSchema = z.object({
   size: z.number().min(6).max(200),
   offset: z.number(),
   orientation: z.enum(LABEL_ORIENTATIONS),
+  align: z.enum(LABEL_ALIGNS),
   colour: hexColour,
   /** Draw only the labels, not the points (a labels-only copy of a layer). */
   hidePoints: z.boolean(),
   font: z.enum(FONTS),
   uppercase: z.boolean(),
+  across: z.object({
+    enabled: z.boolean(),
+    unit: z.enum(ACROSS_UNITS),
+    every: z.number().int().min(1).max(366),
+    dayText: z.enum(ACROSS_DAY_TEXTS),
+    side: z.enum(ACROSS_SIDES),
+    lines: z.boolean(),
+  }),
 });
 export type InstancerLabels = z.infer<typeof InstancerLabelsSchema>;
 
 export function defaultInstancerLabels(): InstancerLabels {
-  return { enabled: false, every: 'year', rows: 365, text: 'date', column: null, size: 24, offset: 16, orientation: 'along', colour: '#e8e8e8', hidePoints: false, font: 'terminal', uppercase: false };
+  return { enabled: false, every: 'year', rows: 365, text: 'date', column: null, size: 24, offset: 16, orientation: 'along', align: 'start', colour: '#e8e8e8', hidePoints: false, font: 'terminal', uppercase: false, across: { enabled: false, unit: 'months', every: 1, dayText: 'date', side: 'top', lines: false } };
 }
 
 export const VALUE_LABEL_PLACES = ['above', 'inside-top', 'inside-middle', 'base'] as const;
